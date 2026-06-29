@@ -493,12 +493,50 @@ a {
   background: transparent;
   color: var(--text-soft);
   font-weight: 800;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.nav-button:hover {
+  background: rgba(0, 0, 0, 0.04);
+  transform: translateX(2px);
+}
+
+.nav-copy {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.nav-copy strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.nav-state {
+  min-width: 56px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.06);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .nav-button.active {
   background: var(--surface-dark);
   color: var(--white);
   box-shadow: 0 14px 24px rgba(0, 0, 0, 0.14);
+}
+
+.nav-button.active .nav-state {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .nav-button small {
@@ -554,6 +592,38 @@ a {
   color: var(--text-soft);
   line-height: 1.7;
   max-width: 64ch;
+}
+
+.topbar-actions {
+  justify-content: flex-end;
+}
+
+.topbar-meta {
+  min-width: 230px;
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+}
+
+.topbar-meta-label,
+.topbar-meta-copy {
+  display: block;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.topbar-meta-value {
+  display: block;
+  margin: 4px 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
 }
 
 .view-grid {
@@ -657,6 +727,24 @@ a {
   align-items: center;
   text-align: left;
   font-weight: 800;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.quick-link:hover {
+  transform: translateX(2px);
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.16);
+}
+
+.quick-link-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.quick-link-copy strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
 }
 
 .quick-link small {
@@ -664,6 +752,22 @@ a {
   margin-top: 4px;
   color: var(--text-soft);
   font-weight: 700;
+}
+
+.quick-link-mark {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-dark);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .table-wrap {
