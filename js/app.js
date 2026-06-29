@@ -57,6 +57,12 @@ const state = {
   attendanceDetail: null,
   realtimeSummary: null,
   qrLastResult: null,
+  qrScanner: {
+    enabled: false,
+    status: "idle",
+    message: "Activa la camara para comenzar el registro automatico.",
+    result: null
+  },
   selectedBulkPeople: [],
   filters: {
     seasons: {
@@ -85,10 +91,23 @@ const state = {
   }
 };
 
+const qrScannerRuntime = {
+  stream: null,
+  detector: null,
+  animationFrameId: 0,
+  busy: false,
+  pausedUntil: 0,
+  lastValue: "",
+  lastValueAt: 0
+};
+
 document.addEventListener("click", handleClick);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("change", handleChange);
 document.addEventListener("input", handleInput);
+window.addEventListener("beforeunload", () => {
+  stopQrScannerRuntime_();
+});
 
 init();
 
@@ -103,6 +122,7 @@ async function init() {
 function renderApp() {
   if (!state.user) {
     root.innerHTML = renderLoginView();
+    schedulePostRenderSync_();
     return;
   }
 
@@ -160,6 +180,28 @@ function renderApp() {
       </main>
     </div>
   `;
+
+  schedulePostRenderSync_();
+}
+
+function schedulePostRenderSync_() {
+  window.requestAnimationFrame(() => {
+    void syncRuntimeAfterRender_();
+  });
+}
+
+async function syncRuntimeAfterRender_() {
+  if (!state.user || state.currentView !== "qr") {
+    stopQrScannerRuntime_();
+    return;
+  }
+
+  if (!state.qrScanner.enabled) {
+    stopQrScannerRuntime_(true);
+    return;
+  }
+
+  await ensureQrScannerStarted_();
 }
 
 function renderLoginView() {
@@ -916,9 +958,104 @@ function renderQrView() {
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
   const qrSearchResults = filterPeople(state.people, filter.peopleSearch).slice(0, 8);
   const summary = state.realtimeSummary;
+  const kioskResult = getQrKioskResult_();
+  const kioskContext = resolveQrContext();
+  const kioskTone = kioskResult ? kioskResult.tone : (state.qrScanner.enabled ? "live" : "idle");
+  const kioskBadge = kioskResult ? kioskResult.badge : (state.qrScanner.enabled ? "Escaneo en vivo" : "Kiosko en espera");
+  const kioskTitle = kioskResult ? kioskResult.title : "Escanea tu codigo QR";
+  const kioskMessage = kioskResult ? kioskResult.message : state.qrScanner.message;
+  const kioskSessionLabel = kioskContext
+    ? `${kioskContext.sessionId} | ${filter.mode === "manual" ? "Sesion forzada" : "Sesion activa"}`
+    : "Sin sesion seleccionada";
 
   return `
     <section class="view-grid">
+      <article class="kiosk-stage kiosk-tone-${escapeHtml(kioskTone)}" id="qr-kiosk-stage">
+        <div class="kiosk-stage-head">
+          <div>
+            <span class="eyebrow kiosk-eyebrow">Kiosko de asistencia</span>
+            <h2 class="kiosk-title">Registro tipo aeropuerto</h2>
+            <p class="kiosk-copy">
+              La camara queda lista para recibir un QR tras otro. Cuando el registro sea exitoso,
+              la pantalla responde en verde y muestra los datos del asistente en tiempo real.
+            </p>
+          </div>
+
+          <div class="kiosk-head-actions">
+            <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}">
+              ${state.qrScanner.enabled ? "Detener camara" : "Activar camara"}
+            </button>
+            <button class="btn btn-ghost" data-action="toggle-kiosk-fullscreen">Pantalla completa</button>
+            <button class="btn btn-secondary" data-action="clear-kiosk-result">Limpiar resultado</button>
+          </div>
+        </div>
+
+        <div class="kiosk-strip">
+          <span class="kiosk-chip">${escapeHtml(filter.mode === "manual" ? "Modo manual" : "Modo automatico")}</span>
+          <span class="kiosk-chip">${escapeHtml(kioskSessionLabel)}</span>
+          <span class="kiosk-chip">${escapeHtml(activeSession ? activeSession.name : "Sin sesion abierta hoy")}</span>
+        </div>
+
+        <div class="kiosk-grid">
+          <div class="kiosk-scanner-shell">
+            <div class="kiosk-scanner-frame">
+              <video id="qr-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
+              <div class="kiosk-video-placeholder ${state.qrScanner.enabled ? "hidden" : ""}">
+                <strong>Camara en espera</strong>
+                <span>Activa el kiosko para iniciar el escaneo continuo.</span>
+              </div>
+              <div class="kiosk-scan-overlay">
+                <span class="kiosk-corner kiosk-corner-tl"></span>
+                <span class="kiosk-corner kiosk-corner-tr"></span>
+                <span class="kiosk-corner kiosk-corner-bl"></span>
+                <span class="kiosk-corner kiosk-corner-br"></span>
+                <span class="kiosk-scan-line ${state.qrScanner.enabled ? "" : "hidden"}"></span>
+                <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
+              </div>
+            </div>
+
+            <div class="kiosk-scanner-meta">
+              <span class="status-chip ${state.qrScanner.enabled ? "success" : "neutral"}">
+                ${state.qrScanner.enabled ? "Camara activa" : "Camara apagada"}
+              </span>
+              <span class="footer-note">
+                Recomendado: Chrome o Edge sobre HTTPS para aprovechar la deteccion nativa de QR con mejor rendimiento.
+              </span>
+            </div>
+          </div>
+
+          <aside class="kiosk-result-card kiosk-tone-${escapeHtml(kioskTone)}">
+            <span class="kiosk-result-badge">${escapeHtml(kioskBadge)}</span>
+            <h3>${escapeHtml(kioskTitle)}</h3>
+            <p>${escapeHtml(kioskMessage)}</p>
+
+            <div class="kiosk-result-grid">
+              <div class="kiosk-result-item">
+                <label>Nombre</label>
+                <strong>${escapeHtml(kioskResult?.name || "Esperando registro")}</strong>
+              </div>
+              <div class="kiosk-result-item">
+                <label>Grupo de Conexion</label>
+                <strong>${escapeHtml(kioskResult?.groupName || "Pendiente")}</strong>
+              </div>
+              <div class="kiosk-result-item">
+                <label>ID de participante</label>
+                <strong>${escapeHtml(kioskResult?.participantId || "Pendiente")}</strong>
+              </div>
+              <div class="kiosk-result-item">
+                <label>Person ID</label>
+                <strong>${escapeHtml(kioskResult?.personId || "Pendiente")}</strong>
+              </div>
+            </div>
+
+            <div class="kiosk-result-footer">
+              <span>${escapeHtml(kioskResult?.sessionName || (activeSession ? activeSession.name : "Sin sesion activa"))}</span>
+              <span>${escapeHtml(kioskResult?.timestampLabel || "Sin ultima lectura")}</span>
+            </div>
+          </aside>
+        </div>
+      </article>
+
       <div class="view-grid columns-2">
         <article class="panel-card">
           <div class="panel-head">
@@ -991,8 +1128,8 @@ function renderQrView() {
         <article class="scanner-card panel-card">
           <div class="panel-head">
             <div>
-              <h2>Registro rapido por codigo</h2>
-              <p>Este bloque funciona tanto para lector QR tipo teclado como para captura manual del personId.</p>
+              <h2>Registro manual por codigo</h2>
+              <p>Sirve como respaldo para lector tipo teclado o captura manual del personId.</p>
             </div>
           </div>
 
@@ -1025,7 +1162,7 @@ function renderQrView() {
           <div class="panel-head">
             <div>
               <h2>Modo kiosko por busqueda</h2>
-              <p>Busca una persona y registra su asistencia sin escribir el codigo manualmente.</p>
+              <p>Busca una persona y registra su asistencia sin escribir el codigo, ideal para contingencias.</p>
             </div>
           </div>
 
@@ -1053,6 +1190,66 @@ function renderQrView() {
       </div>
     </section>
   `;
+}
+
+function getQrKioskResult_() {
+  return state.qrScanner.result;
+}
+
+function buildQrSuccessResult_(response, personId, source) {
+  const participant = response?.participant || {};
+  const attendance = response?.attendance || {};
+  const activeSession = response?.activeSession || null;
+  const participantId = participant.id || attendance.id || "";
+  const groupId = participant.groupId || attendance.groupId || "";
+  const groupName = resolveGroupName_(groupId);
+
+  return {
+    tone: "success",
+    badge: source === "scanner" ? "Registro aceptado" : "Registro confirmado",
+    title: source === "scanner" ? "Acceso autorizado" : "Asistencia registrada",
+    message: source === "scanner"
+      ? "El asistente fue validado correctamente. La camara ya puede leer el siguiente codigo."
+      : "La asistencia quedo guardada correctamente en la sesion actual.",
+    name: participant.name || attendance.name || "Sin nombre",
+    groupName: groupName || `Grupo ${groupId || "sin dato"}`,
+    participantId: participantId || "Sin ID",
+    personId: attendance.personId || personId,
+    sessionName: activeSession ? activeSession.name : "Sesion actual",
+    timestampLabel: formatDateTime_(new Date())
+  };
+}
+
+function buildQrFailureResult_(error, personId) {
+  const normalizedCode = error instanceof ApiError ? error.code : "UNEXPECTED_ERROR";
+  const tone = normalizedCode === "DUPLICATE_QR_ATTENDANCE" ? "warning" : "error";
+  const titleMap = {
+    DUPLICATE_QR_ATTENDANCE: "Asistencia ya registrada",
+    SESSION_NOT_ACTIVE: "No hay sesion abierta",
+    PARTICIPANT_NOT_IN_ACTIVE_SESSION: "Participante fuera de la sesion",
+    MISSING_QR_CONTEXT: "Contexto incompleto",
+    UNSUPPORTED_QR_SCANNER: "Escaner no soportado",
+    CAMERA_PERMISSION_DENIED: "Permiso de camara denegado",
+    INVALID_QR_VALUE: "QR no reconocido"
+  };
+
+  return {
+    tone,
+    badge: tone === "warning" ? "Revisar registro" : "Registro rechazado",
+    title: titleMap[normalizedCode] || "No se pudo registrar",
+    message: error instanceof Error ? error.message : "Ocurrio un problema al registrar el QR.",
+    name: "Sin registro",
+    groupName: "Pendiente",
+    participantId: "Pendiente",
+    personId: personId || "Sin dato",
+    sessionName: "Operacion QR",
+    timestampLabel: formatDateTime_(new Date())
+  };
+}
+
+function resolveGroupName_(groupId) {
+  const match = state.catalogs.groups.find((group) => String(group.id) === String(groupId));
+  return match ? match.name : "";
 }
 
 function renderNavButton(view, description) {
@@ -1340,6 +1537,34 @@ async function handleClick(event) {
 
     if (action === "set-attendance-all") {
       setAttendanceForAll(button.dataset.value);
+      renderApp();
+      return;
+    }
+
+    if (action === "start-kiosk-camera") {
+      state.qrScanner.enabled = true;
+      state.qrScanner.status = "starting";
+      state.qrScanner.message = "Solicitando acceso a la camara y preparando el lector...";
+      renderApp();
+      return;
+    }
+
+    if (action === "stop-kiosk-camera") {
+      state.qrScanner.enabled = false;
+      state.qrScanner.status = "idle";
+      state.qrScanner.message = "Camara detenida. Puedes volver a activarla cuando quieras.";
+      stopQrScannerRuntime_(true);
+      renderApp();
+      return;
+    }
+
+    if (action === "toggle-kiosk-fullscreen") {
+      await toggleKioskFullscreen_();
+      return;
+    }
+
+    if (action === "clear-kiosk-result") {
+      state.qrScanner.result = null;
       renderApp();
       return;
     }
@@ -1862,7 +2087,7 @@ async function saveAttendanceCapture() {
   renderApp();
 }
 
-async function loadQrSummary() {
+async function loadQrSummary(options = {}) {
   const context = resolveQrContext();
 
   if (!context) {
@@ -1870,15 +2095,22 @@ async function loadQrSummary() {
     return;
   }
 
-  await withLoading(async () => {
+  const task = async () => {
     state.realtimeSummary = await apiGet("attendances.realtimeSummary", {
       seasonId: context.seasonId,
       sessionId: context.sessionId
     });
-  }, "Consultando resumen...");
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, "Consultando resumen...");
 }
 
-async function registerQrAttendance(personId) {
+async function registerQrAttendance(personId, options = {}) {
   const cleanPersonId = String(personId || "").trim();
   if (!cleanPersonId) {
     showToast("Falta personId", "Escribe o selecciona un personId valido.", "warning");
@@ -1898,15 +2130,290 @@ async function registerQrAttendance(personId) {
     payload.sessionId = context.sessionId;
   }
 
-  await withLoading(async () => {
+  const source = options.source || "manual";
+  const task = async () => {
     state.qrLastResult = await apiPost("qr.registerAttendance", payload);
+    state.qrScanner.result = buildQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
+    state.qrScanner.status = "success";
+    state.qrScanner.message = state.qrScanner.result.message;
     state.filters.qr.personId = "";
     await loadActiveSession();
-    await loadQrSummary();
-  }, "Registrando asistencia QR...");
+    await loadQrSummary({
+      showLoading: options.showLoading !== false
+    });
+  };
 
-  showToast("Registro exitoso", "La asistencia se guardo desde el modulo QR/Kiosko.", "success");
+  try {
+    if (options.showLoading === false) {
+      await task();
+    } else {
+      await withLoading(task, "Registrando asistencia QR...");
+    }
+
+    if (!options.suppressToast) {
+      showToast("Registro exitoso", "La asistencia se guardo desde el modulo QR/Kiosko.", "success");
+    }
+
+    playKioskSignal_(state.qrScanner.result?.tone || "success");
+    renderApp();
+  } catch (error) {
+    state.qrScanner.result = buildQrFailureResult_(error, cleanPersonId);
+    state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
+    state.qrScanner.message = state.qrScanner.result.message;
+    playKioskSignal_(state.qrScanner.result.tone);
+
+    if (!options.suppressToast) {
+      throw error;
+    }
+
+    renderApp();
+  }
+}
+
+async function ensureQrScannerStarted_() {
+  if (!state.qrScanner.enabled) {
+    return;
+  }
+
+  const video = document.getElementById("qr-kiosk-video");
+  if (!(video instanceof HTMLVideoElement)) {
+    return;
+  }
+
+  if (!window.isSecureContext && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "El kiosko con camara requiere HTTPS o localhost para acceder al video.");
+    return;
+  }
+
+  if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
+    throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "Este navegador no soporta el lector QR nativo. Usa Chrome o Edge actualizado.");
+    return;
+  }
+
+  if (!qrScannerRuntime.detector) {
+    qrScannerRuntime.detector = new window.BarcodeDetector({
+      formats: ["qr_code"]
+    });
+  }
+
+  if (!qrScannerRuntime.stream) {
+    try {
+      qrScannerRuntime.stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: {
+            ideal: "environment"
+          },
+          width: {
+            ideal: 1280
+          },
+          height: {
+            ideal: 720
+          }
+        }
+      });
+    } catch (error) {
+      throwQrScannerError_("CAMERA_PERMISSION_DENIED", "No se pudo abrir la camara. Revisa permisos del navegador y vuelve a intentar.");
+      return;
+    }
+  }
+
+  if (video.srcObject !== qrScannerRuntime.stream) {
+    video.srcObject = qrScannerRuntime.stream;
+  }
+
+  try {
+    await video.play();
+  } catch (error) {
+    throwQrScannerError_("CAMERA_PERMISSION_DENIED", "La camara no pudo iniciar correctamente en esta pantalla.");
+    return;
+  }
+
+  state.qrScanner.status = "scanning";
+  state.qrScanner.message = "Escaneo activo. Acerca el QR al marco central.";
+
+  if (!qrScannerRuntime.animationFrameId) {
+    scanQrFrame_();
+  }
+}
+
+function stopQrScannerRuntime_(keepStatus = false) {
+  if (qrScannerRuntime.animationFrameId) {
+    window.cancelAnimationFrame(qrScannerRuntime.animationFrameId);
+    qrScannerRuntime.animationFrameId = 0;
+  }
+
+  qrScannerRuntime.busy = false;
+  qrScannerRuntime.pausedUntil = 0;
+  qrScannerRuntime.lastValue = "";
+  qrScannerRuntime.lastValueAt = 0;
+
+  if (qrScannerRuntime.stream) {
+    qrScannerRuntime.stream.getTracks().forEach((track) => track.stop());
+    qrScannerRuntime.stream = null;
+  }
+
+  const video = document.getElementById("qr-kiosk-video");
+  if (video instanceof HTMLVideoElement) {
+    video.srcObject = null;
+  }
+
+  if (!keepStatus) {
+    state.qrScanner.status = "idle";
+    state.qrScanner.message = "Activa la camara para comenzar el registro automatico.";
+  }
+}
+
+function scanQrFrame_() {
+  if (!state.qrScanner.enabled || state.currentView !== "qr") {
+    qrScannerRuntime.animationFrameId = 0;
+    return;
+  }
+
+  qrScannerRuntime.animationFrameId = window.requestAnimationFrame(scanQrFrame_);
+
+  const video = document.getElementById("qr-kiosk-video");
+  if (!(video instanceof HTMLVideoElement) || video.readyState < 2) {
+    return;
+  }
+
+  if (qrScannerRuntime.busy || Date.now() < qrScannerRuntime.pausedUntil || !qrScannerRuntime.detector) {
+    return;
+  }
+
+  qrScannerRuntime.busy = true;
+
+  Promise.resolve(qrScannerRuntime.detector.detect(video))
+    .then((codes) => {
+      const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
+
+      if (!detectedCode || !detectedCode.rawValue) {
+        return;
+      }
+
+      const rawValue = String(detectedCode.rawValue).trim();
+      const extractedPersonId = extractPersonIdFromScan_(rawValue);
+
+      if (!extractedPersonId) {
+        state.qrScanner.result = buildQrFailureResult_(
+          new ApiError("El codigo QR no contiene un personId reconocible.", "INVALID_QR_VALUE"),
+          rawValue
+        );
+        state.qrScanner.status = "error";
+        state.qrScanner.message = state.qrScanner.result.message;
+        qrScannerRuntime.pausedUntil = Date.now() + 2400;
+        playKioskSignal_("error");
+        renderApp();
+        return;
+      }
+
+      const now = Date.now();
+      const isDuplicateRead = qrScannerRuntime.lastValue === extractedPersonId && (now - qrScannerRuntime.lastValueAt) < 3000;
+
+      if (isDuplicateRead) {
+        return;
+      }
+
+      qrScannerRuntime.lastValue = extractedPersonId;
+      qrScannerRuntime.lastValueAt = now;
+      qrScannerRuntime.pausedUntil = now + 2200;
+      state.qrScanner.status = "processing";
+      state.qrScanner.message = "Validando asistencia y registrando acceso...";
+      renderApp();
+      void registerQrAttendance(extractedPersonId, {
+        source: "scanner",
+        showLoading: false,
+        suppressToast: true
+      });
+    })
+    .catch(() => {
+      // Si la deteccion falla en un frame aislado, dejamos continuar el siguiente intento.
+    })
+    .finally(() => {
+      qrScannerRuntime.busy = false;
+    });
+}
+
+function extractPersonIdFromScan_(rawValue) {
+  const text = String(rawValue || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    return String(parsed.personId || parsed.id || parsed.codigo || "").trim();
+  } catch (error) {
+    // Continuamos con otras estrategias de lectura.
+  }
+
+  try {
+    const url = new URL(text);
+    return String(
+      url.searchParams.get("personId") ||
+      url.searchParams.get("id") ||
+      url.searchParams.get("code") ||
+      ""
+    ).trim() || text;
+  } catch (error) {
+    return text;
+  }
+}
+
+function throwQrScannerError_(code, message) {
+  state.qrScanner.enabled = false;
+  state.qrScanner.status = "error";
+  state.qrScanner.message = message;
+  state.qrScanner.result = buildQrFailureResult_(new ApiError(message, code), "");
+  stopQrScannerRuntime_(true);
   renderApp();
+}
+
+async function toggleKioskFullscreen_() {
+  const kioskStage = document.getElementById("qr-kiosk-stage");
+  if (!(kioskStage instanceof HTMLElement)) {
+    return;
+  }
+
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+    return;
+  }
+
+  await kioskStage.requestFullscreen();
+}
+
+function playKioskSignal_(tone) {
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    return;
+  }
+
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const now = context.currentTime;
+    const isSuccess = tone === "success";
+    const isWarning = tone === "warning";
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(isSuccess ? 880 : (isWarning ? 540 : 260), now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(isSuccess ? 0.08 : 0.05, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (isSuccess ? 0.24 : 0.18));
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + (isSuccess ? 0.26 : 0.2));
+    oscillator.onended = () => {
+      void context.close();
+    };
+  } catch (error) {
+    // Si el sonido no se puede reproducir, el kiosko sigue funcionando visualmente.
+  }
 }
 
 function resolveQrContext() {
@@ -2024,6 +2531,7 @@ async function testConnection() {
 }
 
 function resetRuntimeState() {
+  stopQrScannerRuntime_();
   state.connectionStatus = null;
   state.catalogs = {
     groups: [],
@@ -2041,6 +2549,12 @@ function resetRuntimeState() {
   state.attendanceDetail = null;
   state.realtimeSummary = null;
   state.qrLastResult = null;
+  state.qrScanner = {
+    enabled: false,
+    status: "idle",
+    message: "Activa la camara para comenzar el registro automatico.",
+    result: null
+  };
   state.selectedBulkPeople = [];
 }
 
@@ -2117,6 +2631,22 @@ function formatDate(value) {
     year: "numeric",
     month: "short",
     day: "numeric"
+  }).format(date);
+}
+
+function formatDateTime_(value) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Sin hora";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
   }).format(date);
 }
 
