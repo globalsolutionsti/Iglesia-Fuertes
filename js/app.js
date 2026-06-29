@@ -107,6 +107,8 @@ function renderApp() {
   }
 
   const view = VIEW_META[state.currentView] || VIEW_META.dashboard;
+  const apiDescriptor = describeApiUrl(state.apiUrl);
+  const apiHost = describeApiHost(state.apiUrl);
 
   root.innerHTML = `
     <div class="app-shell">
@@ -145,7 +147,11 @@ function renderApp() {
           </div>
 
           <div class="topbar-actions">
-            <span class="status-chip neutral">API: ${escapeHtml(shortenApiUrl(state.apiUrl))}</span>
+            <div class="topbar-meta" title="${escapeHtml(state.apiUrl)}">
+              <span class="topbar-meta-label">API conectada</span>
+              <strong class="topbar-meta-value">${escapeHtml(apiDescriptor)}</strong>
+              <small class="topbar-meta-copy">${escapeHtml(apiHost)}</small>
+            </div>
             <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
           </div>
         </header>
@@ -306,6 +312,7 @@ function renderDashboardView() {
   const latestSeason = getLatestSeason();
   const latestSeasonSessions = latestSeason ? getSessions(latestSeason.id) : [];
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
+  const apiDescriptor = describeApiUrl(state.apiUrl);
 
   return `
     <section class="view-grid">
@@ -350,7 +357,7 @@ function renderDashboardView() {
           <div class="summary-strip">
             <span class="context-item"><strong>Temporada principal:</strong> ${latestSeason ? escapeHtml(latestSeason.name) : "Sin datos"}</span>
             <span class="context-item"><strong>Sesiones cargadas:</strong> ${latestSeasonSessions.length}</span>
-            <span class="context-item"><strong>API base:</strong> ${escapeHtml(shortenApiUrl(state.apiUrl))}</span>
+            <span class="context-item" title="${escapeHtml(state.apiUrl)}"><strong>API base:</strong> ${escapeHtml(apiDescriptor)}</span>
           </div>
 
           <div class="table-wrap" style="margin-top: 18px;">
@@ -1050,6 +1057,17 @@ function renderQrView() {
 
 function renderNavButton(view, description) {
   const isActive = state.currentView === view;
+  if (true) {
+    return `
+      <button class="nav-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
+        <span class="nav-copy">
+          <strong>${escapeHtml(VIEW_META[view].title)}</strong>
+          <small>${escapeHtml(description)}</small>
+        </span>
+        <span class="nav-state">${isActive ? "Actual" : "Abrir"}</span>
+      </button>
+    `;
+  }
   return `
     <button class="nav-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
       <span>${escapeHtml(VIEW_META[view].title)}<small>${escapeHtml(description)}</small></span>
@@ -1059,6 +1077,17 @@ function renderNavButton(view, description) {
 }
 
 function renderQuickLink(view, title, copy) {
+  if (true) {
+    return `
+      <button class="quick-link" data-action="navigate" data-view="${view}">
+        <span class="quick-link-copy">
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(copy)}</small>
+        </span>
+        <span class="quick-link-mark">Ir</span>
+      </button>
+    `;
+  }
   return `
     <button class="quick-link" data-action="navigate" data-view="${view}">
       <span>${escapeHtml(title)}<small>${escapeHtml(copy)}</small></span>
@@ -2091,9 +2120,30 @@ function formatDate(value) {
   }).format(date);
 }
 
-function shortenApiUrl(value) {
-  const text = String(value || "");
-  return text.length > 52 ? `${text.slice(0, 49)}...` : text;
+function describeApiUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    const match = url.pathname.match(/\/macros\/s\/([^/]+)\/exec/i);
+
+    if (match && match[1]) {
+      const deploymentId = match[1];
+      return `Apps Script ${deploymentId.slice(0, 8)}...${deploymentId.slice(-6)}`;
+    }
+
+    return `${url.hostname}${url.pathname}`;
+  } catch (error) {
+    const text = String(value || "").trim();
+    return text.length > 32 ? `${text.slice(0, 29)}...` : text;
+  }
+}
+
+function describeApiHost(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.hostname;
+  } catch (error) {
+    return "Sin host";
+  }
 }
 
 function escapeHtml(value) {
