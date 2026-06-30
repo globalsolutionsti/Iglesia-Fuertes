@@ -1229,6 +1229,11 @@ tbody tr:hover {
   z-index: 1;
 }
 
+.kiosk-stage.kiosk-surface-scanner .kiosk-scanner-frame,
+.kiosk-stage.kiosk-surface-scanner .kiosk-video {
+  min-height: 360px;
+}
+
 .kiosk-tone-success {
   box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.14), 0 32px 70px rgba(24, 138, 72, 0.24);
 }
