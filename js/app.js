@@ -716,7 +716,7 @@ function renderAssistantsView() {
         <div class="field-grid directory-filter-grid">
           <div class="field">
             <label for="assistants-search">Buscar</label>
-            <input id="assistants-search" value="${escapeHtml(filter.search)}" placeholder="Nombre, numero, email o telefono">
+            <input id="assistants-search" value="${escapeHtml(filter.search)}" placeholder="Nombre, QR ID, numero, email o telefono">
           </div>
 
           <div class="field">
@@ -749,7 +749,7 @@ function renderAssistantsView() {
             <table>
               <thead>
                 <tr>
-                  <th>Numero</th>
+                  <th>Numero interno</th>
                   <th>Persona</th>
                   <th>Tipo</th>
                   <th>Grupo</th>
@@ -763,7 +763,7 @@ function renderAssistantsView() {
                     <td>${escapeHtml(person.numero || "-")}</td>
                     <td>
                       <span class="row-title">${escapeHtml(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "-")}</span>
-                      <span class="row-meta">${escapeHtml(person.id || "-")} | Ingreso ${escapeHtml(formatDate(person.fechaIngreso) || "-")}</span>
+                      <span class="row-meta">QR ${escapeHtml(person.id || "-")} | Ingreso ${escapeHtml(formatDate(person.fechaIngreso) || "-")}</span>
                     </td>
                     <td>${renderPersonTypePill_(person.tipoPersona)}</td>
                     <td>${escapeHtml(resolveGroupName_(person.grupo) || person.grupo || "-")}</td>
@@ -1502,7 +1502,7 @@ function renderQrView() {
                 <strong>${escapeHtml(kioskResult?.participantId || "Pendiente")}</strong>
               </div>
               <div class="kiosk-result-item">
-                <label>Person ID</label>
+                <label>QR ID</label>
                 <strong>${escapeHtml(kioskResult?.personId || "Pendiente")}</strong>
               </div>
             </div>
@@ -1588,15 +1588,15 @@ function renderQrView() {
           <div class="panel-head">
             <div>
               <h2>Registro manual por codigo</h2>
-              <p>Sirve como respaldo para lector tipo teclado o captura manual del personId.</p>
+              <p>Sirve como respaldo para lector tipo teclado o captura manual del QR ID numerico.</p>
             </div>
           </div>
 
           <form id="qr-form">
             <div class="field">
-              <label for="qr-person-id">Person ID / Codigo QR</label>
-              <input id="qr-person-id" name="personId" value="${escapeHtml(filter.personId)}" placeholder="Ejemplo: SRV00001" required>
-              <span class="field-help">El QR debe contener el identificador de persona, por ejemplo SRV00001.</span>
+              <label for="qr-person-id">QR ID / Codigo QR</label>
+              <input id="qr-person-id" name="personId" value="${escapeHtml(filter.personId)}" placeholder="Ejemplo: 8154920637" required>
+              <span class="field-help">El QR debe contener el ID numerico de la persona, por ejemplo 8154920637.</span>
             </div>
 
             <div class="actions-row">
@@ -1627,7 +1627,7 @@ function renderQrView() {
 
           <div class="field">
             <label for="qr-people-search">Buscar persona</label>
-            <input id="qr-people-search" value="${escapeHtml(filter.peopleSearch)}" placeholder="Nombre, numero o correo">
+            <input id="qr-people-search" value="${escapeHtml(filter.peopleSearch)}" placeholder="Nombre, QR ID, numero o correo">
           </div>
 
           <div class="results-list" style="margin-top: 16px;">
@@ -1891,7 +1891,7 @@ function renderPersonImportOperationPill_(value) {
 function renderCredentialCard_(person) {
   const canonicalType = normalizePersonTypeValue_(person.tipoPersona);
   const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
-  const visibleId = person.id || person.numero || "SIN ID";
+  const visibleId = person.id || "SIN QR ID";
   const visibleName = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
   const qrValue = buildCredentialQrValue_(person);
 
@@ -1918,7 +1918,7 @@ function renderCredentialCard_(person) {
       </div>
 
       <div class="credential-id-block">
-        <label>ID</label>
+        <label>QR ID</label>
         <strong>${escapeHtml(visibleId)}</strong>
       </div>
 
@@ -2676,7 +2676,7 @@ async function saveAssistant(rawPayload) {
   if (existing) {
     showToast(
       "Registro duplicado",
-      `Ya existe ${existing.nombreCompleto || existing.nombre || "esta persona"} con el numero ${existing.numero || existing.id}.`,
+      `Ya existe ${existing.nombreCompleto || existing.nombre || "esta persona"} con el folio ${existing.numero || existing.id}.`,
       "warning"
     );
     return;
@@ -2945,7 +2945,7 @@ async function loadQrSummary(options = {}) {
 async function registerQrAttendance(personId, options = {}) {
   const cleanPersonId = String(personId || "").trim();
   if (!cleanPersonId) {
-    showToast("Falta personId", "Escribe o selecciona un personId valido.", "warning");
+    showToast("Falta QR ID", "Escribe o selecciona un QR ID valido.", "warning");
     return;
   }
 
@@ -3180,7 +3180,7 @@ function processQrRawValue_(rawValue) {
 
   if (!extractedPersonId) {
     state.qrScanner.result = buildQrFailureResult_(
-      new ApiError("El codigo QR no contiene un personId reconocible.", "INVALID_QR_VALUE"),
+      new ApiError("El codigo QR no contiene un QR ID reconocible.", "INVALID_QR_VALUE"),
       rawValue
     );
     state.qrScanner.status = "error";
@@ -3739,13 +3739,7 @@ function getPersonTypeKey_(value) {
 }
 
 function buildCredentialQrValue_(person) {
-  return JSON.stringify({
-    v: 2,
-    personId: person.id || "",
-    name: person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim(),
-    groupId: person.grupo || "",
-    personType: normalizePersonTypeValue_(person.tipoPersona)
-  });
+  return String(person.id || "").trim();
 }
 
 function syncCredentialQrsAfterRender_() {
