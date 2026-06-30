@@ -18,6 +18,10 @@ const VIEW_META = {
     title: "Dashboard",
     subtitle: "Resumen general del sistema, actividad del dia y atajos operativos."
   },
+  assistants: {
+    title: "Asistentes",
+    subtitle: "Alta individual, importacion desde Excel y padron operativo de personas."
+  },
   seasons: {
     title: "Temporadas y Sesiones",
     subtitle: "Crea temporadas, revisa sesiones y controla cuales estan abiertas o cerradas."
@@ -51,6 +55,7 @@ const state = {
   sessionsBySeason: {},
   sessionGroupsByKey: {},
   people: [],
+  peopleDirectory: [],
   activeSession: null,
   participants: [],
   participantContext: null,
@@ -58,6 +63,12 @@ const state = {
   attendanceForm: {},
   attendanceDetail: null,
   realtimeSummary: null,
+  peopleImport: {
+    fileName: "",
+    rows: [],
+    summary: null,
+    progress: null
+  },
   qrLastResult: null,
   qrScanner: {
     enabled: false,
@@ -68,6 +79,11 @@ const state = {
   },
   selectedBulkPeople: [],
   filters: {
+    assistants: {
+      search: "",
+      status: "ACTIVO",
+      type: "ALL"
+    },
     seasons: {
       seasonId: ""
     },
@@ -148,6 +164,7 @@ function renderApp() {
 
           <nav class="sidebar-nav">
             ${renderNavButton("dashboard", "Resumen y actividad")}
+            ${renderNavButton("assistants", "Padron e importacion")}
             ${renderNavButton("seasons", "Temporadas y sesiones")}
             ${renderNavButton("participants", "Asignacion por grupo")}
             ${renderNavButton("attendance", "Captura manual")}
@@ -312,7 +329,7 @@ function renderLoginView() {
 
         <div class="metric-grid">
           <article class="metric-card">
-            <span class="metric-value">6</span>
+            <span class="metric-value">7</span>
             <span class="metric-label">Pantallas base conectadas</span>
           </article>
           <article class="metric-card">
@@ -343,6 +360,8 @@ function renderLoginView() {
 
 function renderCurrentView() {
   switch (state.currentView) {
+    case "assistants":
+      return renderAssistantsView();
     case "seasons":
       return renderSeasonsView();
     case "participants":
@@ -451,6 +470,7 @@ function renderDashboardView() {
           </div>
 
           <div class="quick-actions">
+            ${renderQuickLink("assistants", "Gestionar asistentes", "Da de alta personas o importa desde Excel")}
             ${renderQuickLink("seasons", "Crear o revisar temporadas", "Define sesiones y abre o cierra estados")}
             ${renderQuickLink("participants", "Asignar participantes", "Carga personas al grupo correcto")}
             ${renderQuickLink("attendance", "Capturar asistencia", "Guarda o edita asistencias manuales")}
@@ -458,6 +478,293 @@ function renderDashboardView() {
           </div>
         </article>
       </div>
+    </section>
+  `;
+}
+
+function renderAssistantsView() {
+  const filter = state.filters.assistants;
+  const summary = buildPeopleDirectorySummary_();
+  const rows = getFilteredPeopleDirectory_();
+  const importSummary = state.peopleImport.summary;
+  const importProgress = state.peopleImport.progress;
+  const previewRows = state.peopleImport.rows.slice(0, 6);
+  const invalidPreviewRows = state.peopleImport.rows.filter((row) => row.errors.length).slice(0, 4);
+  const groupOptions = renderOptions(
+    state.catalogs.groups.map((group) => ({
+      value: String(group.id),
+      label: `${group.name} (${group.id})`
+    })),
+    "",
+    "Selecciona grupo base"
+  );
+
+  return `
+    <section class="view-grid">
+      <div class="stats-grid">
+        <article class="stat-card">
+          <span class="status-chip neutral">Padron total</span>
+          <strong>${escapeHtml(String(summary.total))}</strong>
+          <span>Registros cargados en la base general</span>
+        </article>
+
+        <article class="stat-card">
+          <span class="status-chip success">Asistentes</span>
+          <strong>${escapeHtml(String(summary.assistants))}</strong>
+          <span>Personas marcadas como asistentes</span>
+        </article>
+
+        <article class="stat-card">
+          <span class="status-chip neutral">Servidores</span>
+          <strong>${escapeHtml(String(summary.servers))}</strong>
+          <span>Registros que ya existen como servidores</span>
+        </article>
+
+        <article class="stat-card">
+          <span class="status-chip neutral">Activos</span>
+          <strong>${escapeHtml(String(summary.active))}</strong>
+          <span>Disponibles para asignacion y asistencia</span>
+        </article>
+      </div>
+
+      <div class="view-grid columns-2">
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Alta individual</h2>
+              <p>Crea un asistente nuevo desde esta misma pantalla y dejalo listo para asignarlo a grupos.</p>
+            </div>
+          </div>
+
+          <form id="assistant-create-form">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="assistant-nombre">Nombre</label>
+                <input id="assistant-nombre" name="nombre" placeholder="Pedro" required>
+              </div>
+
+              <div class="field">
+                <label for="assistant-apellidos">Apellidos</label>
+                <input id="assistant-apellidos" name="apellidos" placeholder="Gutierrez" required>
+              </div>
+
+              <div class="field">
+                <label for="assistant-telefono">Telefono</label>
+                <input id="assistant-telefono" name="telefono" placeholder="5551234567">
+              </div>
+
+              <div class="field">
+                <label for="assistant-email">Email</label>
+                <input id="assistant-email" name="email" type="email" placeholder="correo@iglesia.com">
+              </div>
+
+              <div class="field">
+                <label for="assistant-grupo">Grupo base</label>
+                <select id="assistant-grupo" name="grupo">
+                  ${groupOptions}
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="assistant-fecha">Fecha de ingreso</label>
+                <input id="assistant-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}">
+              </div>
+
+              <div class="field">
+                <label for="assistant-tipo">Tipo de persona</label>
+                <select id="assistant-tipo" name="tipoPersona">
+                  <option value="ASISTENTE" selected>ASISTENTE</option>
+                  <option value="SERVIDOR">SERVIDOR</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="assistant-estado">Estado</label>
+                <select id="assistant-estado" name="estado">
+                  <option value="ACTIVO" selected>ACTIVO</option>
+                  <option value="BAJA">BAJA</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">Guardar asistente</button>
+              <button class="btn btn-ghost" type="button" data-action="refresh-assistants">Actualizar padron</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Importacion desde Excel</h2>
+              <p>Sube un archivo de asistentes, valida columnas y guarda registros nuevos o actualizaciones sin duplicar.</p>
+            </div>
+            ${importSummary ? `<span class="pill dark">${escapeHtml(String(importSummary.validRows))} listos</span>` : ""}
+          </div>
+
+          <div class="import-dropzone">
+            <strong>${escapeHtml(state.peopleImport.fileName || "Carga tu archivo Excel")}</strong>
+            <p>
+              Usa <code>.xlsx</code>, <code>.xls</code> o <code>.csv</code>. La plantilla recomendada contiene:
+              <code>NOMBRE</code>, <code>APELLIDOS</code>, <code>TELEFONO</code>, <code>EMAIL</code>, <code>GRUPO</code>, <code>FECHA</code>, <code>TIPO_PERSONA</code>.
+            </p>
+            <div class="actions-row">
+              <button class="btn btn-secondary" type="button" data-action="download-people-template">Descargar plantilla</button>
+              <button class="btn btn-primary" type="button" data-action="open-people-import">Seleccionar archivo</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-people-import" ${state.peopleImport.rows.length || state.peopleImport.fileName ? "" : "disabled"}>Limpiar</button>
+            </div>
+            <input id="people-import-file" type="file" accept=".xlsx,.xls,.csv" class="hidden">
+          </div>
+
+          ${importSummary ? `
+            <div class="summary-strip" style="margin-top: 18px;">
+              <span class="context-item"><strong>Total filas:</strong> ${escapeHtml(String(importSummary.totalRows))}</span>
+              <span class="context-item"><strong>Validas:</strong> ${escapeHtml(String(importSummary.validRows))}</span>
+              <span class="context-item"><strong>Invalidas:</strong> ${escapeHtml(String(importSummary.invalidRows))}</span>
+              <span class="context-item"><strong>Nuevas:</strong> ${escapeHtml(String(importSummary.createRows))}</span>
+              <span class="context-item"><strong>Actualizan:</strong> ${escapeHtml(String(importSummary.updateRows))}</span>
+            </div>
+          ` : `
+            <p class="footer-note" style="margin-top: 16px;">
+              Cuando cargues un archivo veras una vista previa antes de iniciar la importacion.
+            </p>
+          `}
+
+          ${importProgress ? `
+            <div class="import-progress-card">
+              <span class="status-chip ${importProgress.failed ? "warning" : "success"}">${escapeHtml(importProgress.phase)}</span>
+              <strong>${escapeHtml(`${importProgress.processed}/${importProgress.total}`)} procesados</strong>
+              <span class="row-meta">
+                Creados: ${escapeHtml(String(importProgress.created))} | Actualizados: ${escapeHtml(String(importProgress.updated))} | Fallidos: ${escapeHtml(String(importProgress.failed))}
+              </span>
+            </div>
+          ` : ""}
+
+          ${invalidPreviewRows.length ? `
+            <div class="import-alert-list">
+              ${invalidPreviewRows.map((row) => `
+                <div class="import-alert-item">
+                  <strong>Fila ${escapeHtml(String(row.rowNumber))}</strong>
+                  <span>${escapeHtml(row.errors.join(" | "))}</span>
+                </div>
+              `).join("")}
+            </div>
+          ` : ""}
+
+          ${previewRows.length ? `
+            <div class="table-wrap" style="margin-top: 18px;">
+              <table class="compact-table">
+                <thead>
+                  <tr>
+                    <th>Fila</th>
+                    <th>Nombre</th>
+                    <th>Tipo</th>
+                    <th>Grupo</th>
+                    <th>Operacion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${previewRows.map((row) => `
+                    <tr>
+                      <td>${escapeHtml(String(row.rowNumber))}</td>
+                      <td>
+                        <span class="row-title">${escapeHtml(row.payload.nombreCompleto)}</span>
+                        <span class="row-meta">${escapeHtml(row.payload.email || row.payload.telefono || "Sin email o telefono")}</span>
+                      </td>
+                      <td>${renderPersonTypePill_(row.payload.tipoPersona)}</td>
+                      <td>${escapeHtml(resolveGroupName_(row.payload.grupo) || row.payload.grupo || "-")}</td>
+                      <td>${row.errors.length ? renderPersonImportOperationPill_("error") : renderPersonImportOperationPill_(row.operation)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          ` : ""}
+
+          <div class="actions-row">
+            <button class="btn btn-primary" type="button" data-action="start-people-import" ${importSummary && importSummary.validRows ? "" : "disabled"}>Importar registros</button>
+          </div>
+        </article>
+      </div>
+
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Padron de personas</h2>
+            <p>Busca asistentes o servidores ya cargados y revisa rapidamente su informacion base.</p>
+          </div>
+          <button class="btn btn-secondary" data-action="refresh-assistants">Actualizar listado</button>
+        </div>
+
+        <div class="field-grid directory-filter-grid">
+          <div class="field">
+            <label for="assistants-search">Buscar</label>
+            <input id="assistants-search" value="${escapeHtml(filter.search)}" placeholder="Nombre, numero, email o telefono">
+          </div>
+
+          <div class="field">
+            <label for="assistants-status">Estado</label>
+            <select id="assistants-status">
+              ${renderOptions([
+                { value: "ALL", label: "Todos los estados" },
+                { value: "ACTIVO", label: "ACTIVO" },
+                { value: "BAJA", label: "BAJA" }
+              ], filter.status, "Filtrar estado")}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="assistants-type">Tipo</label>
+            <select id="assistants-type">
+              ${renderOptions([
+                { value: "ALL", label: "Todos los tipos" },
+                { value: "ASISTENTE", label: "ASISTENTE" },
+                { value: "SERVIDOR", label: "SERVIDOR" }
+              ], filter.type, "Filtrar tipo")}
+            </select>
+          </div>
+        </div>
+
+        ${rows.length ? `
+          <div class="table-wrap" style="margin-top: 18px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Numero</th>
+                  <th>Persona</th>
+                  <th>Tipo</th>
+                  <th>Grupo</th>
+                  <th>Contacto</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map((person) => `
+                  <tr>
+                    <td>${escapeHtml(person.numero || "-")}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "-")}</span>
+                      <span class="row-meta">${escapeHtml(person.id || "-")} | Ingreso ${escapeHtml(formatDate(person.fechaIngreso) || "-")}</span>
+                    </td>
+                    <td>${renderPersonTypePill_(person.tipoPersona)}</td>
+                    <td>${escapeHtml(resolveGroupName_(person.grupo) || person.grupo || "-")}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml(person.telefono || "Sin telefono")}</span>
+                      <span class="row-meta">${escapeHtml(person.email || "Sin email")}</span>
+                    </td>
+                    <td>${renderPill(person.estado)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state">
+            No hay registros que coincidan con los filtros actuales. Puedes crear uno nuevo o importar un archivo Excel.
+          </div>
+        `}
+      </article>
     </section>
   `;
 }
@@ -1488,6 +1795,36 @@ function renderPill(value) {
   return `<span class="pill dark">${escapeHtml(value || "SIN DATO")}</span>`;
 }
 
+function renderPersonTypePill_(value) {
+  const normalized = String(value || "").toUpperCase();
+
+  if (normalized === "ASISTENTE") {
+    return `<span class="pill success">${escapeHtml(normalized)}</span>`;
+  }
+
+  if (normalized === "SERVIDOR") {
+    return `<span class="pill dark">${escapeHtml(normalized)}</span>`;
+  }
+
+  return `<span class="pill">${escapeHtml(value || "SIN DATO")}</span>`;
+}
+
+function renderPersonImportOperationPill_(value) {
+  if (value === "update") {
+    return `<span class="pill warning">Actualizar</span>`;
+  }
+
+  if (value === "create") {
+    return `<span class="pill success">Crear</span>`;
+  }
+
+  if (value === "error") {
+    return `<span class="pill danger">Con errores</span>`;
+  }
+
+  return `<span class="pill">Revision</span>`;
+}
+
 async function handleClick(event) {
   const button = event.target.closest("[data-action]");
 
@@ -1523,6 +1860,42 @@ async function handleClick(event) {
 
     if (action === "refresh-app") {
       await bootstrapApplication();
+      return;
+    }
+
+    if (action === "refresh-assistants") {
+      await withLoading(async () => {
+        await refreshPeopleSources_();
+      }, "Actualizando padron...");
+      renderApp();
+      return;
+    }
+
+    if (action === "download-people-template") {
+      downloadPeopleTemplate_();
+      return;
+    }
+
+    if (action === "open-people-import") {
+      const input = document.getElementById("people-import-file");
+      if (input instanceof HTMLInputElement) {
+        input.click();
+      }
+      return;
+    }
+
+    if (action === "clear-people-import") {
+      clearPeopleImportState_();
+      const input = document.getElementById("people-import-file");
+      if (input instanceof HTMLInputElement) {
+        input.value = "";
+      }
+      renderApp();
+      return;
+    }
+
+    if (action === "start-people-import") {
+      await importPreparedPeopleRows_();
       return;
     }
 
@@ -1786,6 +2159,14 @@ async function handleSubmit(event) {
       return;
     }
 
+    if (form.id === "assistant-create-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveAssistant(payload);
+      form.reset();
+      renderApp();
+      return;
+    }
+
     if (form.id === "attendance-form") {
       await saveAttendanceCapture();
       return;
@@ -1809,6 +2190,28 @@ async function handleChange(event) {
   }
 
   try {
+    if (target.id === "assistants-status") {
+      state.filters.assistants.status = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "assistants-type") {
+      state.filters.assistants.type = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "people-import-file" && target instanceof HTMLInputElement) {
+      const file = target.files && target.files[0];
+      if (file) {
+        await processPeopleImportFile_(file);
+        target.value = "";
+        renderApp();
+      }
+      return;
+    }
+
     if (target.id === "participants-season") {
       state.filters.participants.seasonId = target.value;
       state.filters.participants.sessionId = "";
@@ -1913,6 +2316,12 @@ function handleInput(event) {
     return;
   }
 
+  if (target.id === "assistants-search") {
+    state.filters.assistants.search = target.value;
+    renderApp();
+    return;
+  }
+
   if (target.id === "participant-people-search") {
     state.filters.participants.peopleSearch = target.value;
     renderApp();
@@ -1942,6 +2351,7 @@ async function bootstrapApplication() {
       loadCatalogs(),
       refreshSeasons(),
       loadPeople(),
+      loadPeopleDirectory(),
       loadActiveSession()
     ]);
 
@@ -1958,6 +2368,9 @@ async function loadCurrentViewData() {
   }
 
   switch (state.currentView) {
+    case "assistants":
+      await ensureAssistantsViewData_();
+      return;
     case "seasons":
       await ensureSeasonViewData();
       return;
@@ -1994,8 +2407,25 @@ async function loadPeople() {
   state.people = await apiGet("people.list");
 }
 
+async function loadPeopleDirectory() {
+  state.peopleDirectory = await apiGet("servers.list");
+}
+
 async function loadActiveSession() {
   state.activeSession = await apiGet("sessions.active");
+}
+
+async function refreshPeopleSources_() {
+  await Promise.all([
+    loadPeople(),
+    loadPeopleDirectory()
+  ]);
+}
+
+async function ensureAssistantsViewData_() {
+  if (!state.peopleDirectory.length) {
+    await loadPeopleDirectory();
+  }
 }
 
 async function ensureSessionsForSeason(seasonId) {
@@ -2112,6 +2542,137 @@ async function loadParticipantsData() {
     state.participantContext = context;
     state.filters.participants.moveTargets = {};
   }, "Cargando participantes...");
+}
+
+async function saveAssistant(rawPayload) {
+  const payload = sanitizeAssistantPayload_(rawPayload);
+  const existing = findExistingPersonMatch_(payload);
+
+  if (existing) {
+    showToast(
+      "Registro duplicado",
+      `Ya existe ${existing.nombreCompleto || existing.nombre || "esta persona"} con el numero ${existing.numero || existing.id}.`,
+      "warning"
+    );
+    return;
+  }
+
+  await withLoading(async () => {
+    await apiPost("servers.save", payload);
+    await refreshPeopleSources_();
+  }, "Guardando asistente...");
+
+  showToast("Asistente guardado", "La persona ya forma parte del padron base del sistema.", "success");
+}
+
+async function processPeopleImportFile_(file) {
+  await withLoading(async () => {
+    ensureXlsxLoaded_();
+    const rows = await readWorkbookRows_(file);
+    const preparedRows = prepareImportedPeopleRows_(rows);
+
+    state.peopleImport.fileName = file.name;
+    state.peopleImport.rows = preparedRows;
+    state.peopleImport.summary = summarizePreparedPeopleRows_(preparedRows);
+    state.peopleImport.progress = null;
+  }, "Leyendo archivo de importacion...");
+
+  showToast("Archivo cargado", `Se prepararon ${state.peopleImport.summary?.totalRows || 0} filas para revision.`, "success");
+}
+
+async function importPreparedPeopleRows_() {
+  const validRows = state.peopleImport.rows.filter((row) => !row.errors.length);
+
+  if (!validRows.length) {
+    showToast("Sin registros validos", "Carga un archivo con al menos una fila valida antes de importar.", "warning");
+    return;
+  }
+
+  state.peopleImport.progress = {
+    phase: "Importando",
+    total: validRows.length,
+    processed: 0,
+    created: 0,
+    updated: 0,
+    failed: 0
+  };
+  renderApp();
+
+  try {
+    showLoading("Iniciando importacion...");
+
+    for (const row of validRows) {
+      setLoadingMessage_(`Importando fila ${row.rowNumber} de ${row.sourceTotalRows}...`);
+
+      try {
+        await apiPost("servers.save", row.payload);
+        state.peopleImport.progress.processed += 1;
+
+        if (row.operation === "update") {
+          state.peopleImport.progress.updated += 1;
+        } else {
+          state.peopleImport.progress.created += 1;
+        }
+      } catch (error) {
+        state.peopleImport.progress.processed += 1;
+        state.peopleImport.progress.failed += 1;
+        row.errors.push(error instanceof Error ? error.message : "No se pudo guardar el registro.");
+      }
+    }
+  } finally {
+    hideLoading();
+  }
+
+  state.peopleImport.progress.phase = state.peopleImport.progress.failed ? "Importacion completada con observaciones" : "Importacion completada";
+  state.peopleImport.summary = summarizePreparedPeopleRows_(state.peopleImport.rows);
+
+  await refreshPeopleSources_();
+  renderApp();
+
+  showToast(
+    "Importacion finalizada",
+    `Creados: ${state.peopleImport.progress.created}, actualizados: ${state.peopleImport.progress.updated}, fallidos: ${state.peopleImport.progress.failed}.`,
+    state.peopleImport.progress.failed ? "warning" : "success"
+  );
+}
+
+function downloadPeopleTemplate_() {
+  const headers = [[
+    "NOMBRE",
+    "APELLIDOS",
+    "EDAD",
+    "ESTADO_CIVIL",
+    "ANIO_NACIMIENTO",
+    "TELEFONO",
+    "EMAIL",
+    "MINISTERIO1",
+    "MINISTERIO2",
+    "MINISTERIO3",
+    "MINISTERIO4",
+    "GRUPO",
+    "FECHA",
+    "TIPO_PERSONA",
+    "FECHA_NACIMIENTO"
+  ]];
+
+  if (typeof window.XLSX === "function" || window.XLSX?.utils) {
+    const worksheet = window.XLSX.utils.aoa_to_sheet(headers);
+    const workbook = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(workbook, worksheet, "ASISTENTES");
+    window.XLSX.writeFile(workbook, "PLANTILLA_ASISTENTES_V2.xlsx");
+    return;
+  }
+
+  downloadFallbackTemplateCsv_(headers[0]);
+}
+
+function clearPeopleImportState_() {
+  state.peopleImport = {
+    fileName: "",
+    rows: [],
+    summary: null,
+    progress: null
+  };
 }
 
 async function addParticipant(personId) {
@@ -2704,6 +3265,340 @@ function getSessionGroups(seasonId, sessionId) {
   return state.sessionGroupsByKey[`${seasonId}::${sessionId}`] || [];
 }
 
+function getFilteredPeopleDirectory_() {
+  const search = normalizeText(state.filters.assistants.search);
+  const status = String(state.filters.assistants.status || "ALL").toUpperCase();
+  const type = String(state.filters.assistants.type || "ALL").toUpperCase();
+
+  return state.peopleDirectory.filter((person) => {
+    const haystack = normalizeText([
+      person.numero,
+      person.nombre,
+      person.apellidos,
+      person.nombreCompleto,
+      person.email,
+      person.telefono,
+      person.id
+    ].join(" "));
+    const normalizedStatus = String(person.estado || "").toUpperCase();
+    const normalizedType = String(person.tipoPersona || "").toUpperCase();
+
+    return (!search || haystack.includes(search))
+      && (status === "ALL" || normalizedStatus === status)
+      && (type === "ALL" || normalizedType === type);
+  });
+}
+
+function buildPeopleDirectorySummary_() {
+  const summary = {
+    total: state.peopleDirectory.length,
+    active: 0,
+    assistants: 0,
+    servers: 0
+  };
+
+  state.peopleDirectory.forEach((person) => {
+    if (String(person.estado || "").toUpperCase() === "ACTIVO") {
+      summary.active += 1;
+    }
+
+    if (String(person.tipoPersona || "").toUpperCase() === "ASISTENTE") {
+      summary.assistants += 1;
+    }
+
+    if (String(person.tipoPersona || "").toUpperCase() === "SERVIDOR") {
+      summary.servers += 1;
+    }
+  });
+
+  return summary;
+}
+
+function sanitizeAssistantPayload_(payload) {
+  const clean = {
+    nombre: V(payload.nombre),
+    apellidos: V(payload.apellidos),
+    telefono: V(payload.telefono),
+    email: V(payload.email),
+    grupo: V(payload.grupo),
+    fechaIngreso: V(payload.fechaIngreso) || formatDateForInput_(new Date()),
+    tipoPersona: V(payload.tipoPersona) || "ASISTENTE",
+    estado: V(payload.estado) || "ACTIVO"
+  };
+
+  if (!clean.nombre || !clean.apellidos) {
+    throw new ApiError("Debes completar nombre y apellidos para guardar un asistente.", "VALIDATION_ERROR");
+  }
+
+  return clean;
+}
+
+function findExistingPersonMatch_(payload) {
+  const normalizedEmail = normalizeText(payload.email);
+  const normalizedFullName = normalizeText(payload.nombreCompleto || [payload.nombre, payload.apellidos].join(" "));
+  const normalizedPhone = normalizePhone_(payload.telefono);
+
+  if (normalizedEmail) {
+    const emailMatch = state.peopleDirectory.find((person) => normalizeText(person.email) === normalizedEmail);
+    if (emailMatch) {
+      return emailMatch;
+    }
+  }
+
+  if (normalizedFullName && normalizedPhone) {
+    return state.peopleDirectory.find((person) => (
+      normalizeText(person.nombreCompleto || [person.nombre, person.apellidos].join(" ")) === normalizedFullName
+      && normalizePhone_(person.telefono) === normalizedPhone
+    )) || null;
+  }
+
+  return null;
+}
+
+function ensureXlsxLoaded_() {
+  if (!window.XLSX?.utils) {
+    throw new ApiError("No se encontro la libreria de Excel en esta pagina. Recarga el frontend y vuelve a intentar.", "XLSX_NOT_AVAILABLE");
+  }
+}
+
+async function readWorkbookRows_(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = window.XLSX.read(buffer, {
+    type: "array"
+  });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+  if (!firstSheet) {
+    throw new ApiError("El archivo no contiene hojas para importar.", "INVALID_IMPORT_FILE");
+  }
+
+  return window.XLSX.utils.sheet_to_json(firstSheet, {
+    defval: ""
+  });
+}
+
+function prepareImportedPeopleRows_(rows) {
+  const preparedRows = [];
+  const seenEmails = {};
+  const seenNamesAndPhones = {};
+
+  rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const payload = normalizeImportedPersonRow_(row);
+    const errors = [];
+    const normalizedEmail = normalizeText(payload.email);
+    const nameAndPhoneKey = buildNamePhoneKey_(payload);
+
+    if (!payload.nombre) {
+      errors.push("Falta NOMBRE.");
+    }
+
+    if (!payload.apellidos) {
+      errors.push("Faltan APELLIDOS.");
+    }
+
+    if (normalizedEmail) {
+      if (seenEmails[normalizedEmail]) {
+        errors.push(`EMAIL duplicado con la fila ${seenEmails[normalizedEmail]}.`);
+      } else {
+        seenEmails[normalizedEmail] = rowNumber;
+      }
+    }
+
+    if (nameAndPhoneKey) {
+      if (seenNamesAndPhones[nameAndPhoneKey]) {
+        errors.push(`Nombre y telefono duplicados con la fila ${seenNamesAndPhones[nameAndPhoneKey]}.`);
+      } else {
+        seenNamesAndPhones[nameAndPhoneKey] = rowNumber;
+      }
+    }
+
+    const existing = errors.length ? null : findExistingPersonMatch_(payload);
+    if (existing) {
+      payload.id = existing.id;
+    }
+
+    preparedRows.push({
+      rowNumber,
+      sourceTotalRows: rows.length,
+      payload,
+      operation: existing ? "update" : "create",
+      existingId: existing?.id || "",
+      errors
+    });
+  });
+
+  return preparedRows;
+}
+
+function summarizePreparedPeopleRows_(rows) {
+  return {
+    totalRows: rows.length,
+    validRows: rows.filter((row) => !row.errors.length).length,
+    invalidRows: rows.filter((row) => row.errors.length).length,
+    createRows: rows.filter((row) => !row.errors.length && row.operation === "create").length,
+    updateRows: rows.filter((row) => !row.errors.length && row.operation === "update").length
+  };
+}
+
+function normalizeImportedPersonRow_(row) {
+  const fullNameFallback = V(getImportValue_(row, ["nombre_completo", "nombre completo", "nombre y apellidos"]));
+  const splitName = splitFullName_(fullNameFallback);
+  const nombre = V(getImportValue_(row, ["nombre"])) || splitName.nombre;
+  const apellidos = V(getImportValue_(row, ["apellidos"])) || splitName.apellidos;
+  const fechaIngreso = parseInputDateValue_(getImportValue_(row, ["fecha", "fecha_ingreso", "fecha ingreso"]));
+  const fechaNacimiento = parseInputDateValue_(getImportValue_(row, ["fecha_nacimiento", "fecha nacimiento"]));
+
+  return {
+    id: "",
+    nombre,
+    apellidos,
+    nombreCompleto: [nombre, apellidos].join(" ").trim(),
+    edad: V(getImportValue_(row, ["edad"])),
+    estadoCivil: V(getImportValue_(row, ["estado_civil", "estado civil"])),
+    anioNacimiento: V(getImportValue_(row, ["anio_nacimiento", "ano_nacimiento", "anio nacimiento", "ano nacimiento"])),
+    telefono: V(getImportValue_(row, ["telefono", "celular", "movil"])),
+    email: V(getImportValue_(row, ["email", "correo", "correo_electronico", "correo electronico"])),
+    ministerio1: V(getImportValue_(row, ["ministerio1", "ministerio_principal", "ministerio principal"])),
+    ministerio2: V(getImportValue_(row, ["ministerio2"])),
+    ministerio3: V(getImportValue_(row, ["ministerio3"])),
+    ministerio4: V(getImportValue_(row, ["ministerio4"])),
+    grupo: normalizeCatalogGroupValue_(getImportValue_(row, ["grupo", "groupid", "group_id", "id_grupo"])),
+    fechaIngreso: fechaIngreso || formatDateForInput_(new Date()),
+    estado: V(getImportValue_(row, ["estado"])) || "ACTIVO",
+    tipoPersona: V(getImportValue_(row, ["tipo_persona", "tipo", "tipo persona"])) || "ASISTENTE",
+    fechaNacimiento
+  };
+}
+
+function getImportValue_(row, aliases) {
+  const entries = Object.entries(row || {});
+
+  for (const [key, value] of entries) {
+    const normalizedKey = normalizeImportHeader_(key);
+    if (aliases.some((alias) => normalizeImportHeader_(alias) === normalizedKey)) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function normalizeImportHeader_(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, "_");
+}
+
+function splitFullName_(value) {
+  const parts = V(value).split(/\s+/).filter(Boolean);
+
+  if (!parts.length) {
+    return {
+      nombre: "",
+      apellidos: ""
+    };
+  }
+
+  if (parts.length === 1) {
+    return {
+      nombre: parts[0],
+      apellidos: ""
+    };
+  }
+
+  return {
+    nombre: parts.shift() || "",
+    apellidos: parts.join(" ")
+  };
+}
+
+function parseInputDateValue_(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "number" && window.XLSX?.SSF?.parse_date_code) {
+    const parsed = window.XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    }
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return formatDateForInput_(value);
+  }
+
+  const text = V(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const slashMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    return `${slashMatch[3]}-${slashMatch[2].padStart(2, "0")}-${slashMatch[1].padStart(2, "0")}`;
+  }
+
+  const parsedDate = new Date(text);
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return formatDateForInput_(parsedDate);
+  }
+
+  return text;
+}
+
+function buildNamePhoneKey_(payload) {
+  const normalizedFullName = normalizeText(payload.nombreCompleto || [payload.nombre, payload.apellidos].join(" "));
+  const normalizedPhone = normalizePhone_(payload.telefono);
+
+  if (!normalizedFullName || !normalizedPhone) {
+    return "";
+  }
+
+  return `${normalizedFullName}::${normalizedPhone}`;
+}
+
+function normalizeCatalogGroupValue_(value) {
+  const rawValue = V(value);
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const normalized = normalizeText(rawValue);
+  const match = state.catalogs.groups.find((group) => (
+    String(group.id) === rawValue || normalizeText(group.name) === normalized
+  ));
+
+  return match ? String(match.id) : rawValue;
+}
+
+function normalizePhone_(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function formatDateForInput_(value) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function downloadFallbackTemplateCsv_(headers) {
+  const csv = `${headers.join(",")}\n`;
+  const blob = new Blob([csv], {
+    type: "text/csv;charset=utf-8"
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "PLANTILLA_ASISTENTES_V2.csv";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
 function filterPeople(people, searchTerm) {
   const normalizedSearch = normalizeText(searchTerm);
   if (!normalizedSearch) {
@@ -2719,6 +3614,10 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function V(value) {
+  return String(value || "").trim();
 }
 
 async function testConnection() {
@@ -2751,6 +3650,7 @@ function resetRuntimeState() {
   state.sessionsBySeason = {};
   state.sessionGroupsByKey = {};
   state.people = [];
+  state.peopleDirectory = [];
   state.activeSession = null;
   state.participants = [];
   state.participantContext = null;
@@ -2758,6 +3658,7 @@ function resetRuntimeState() {
   state.attendanceForm = {};
   state.attendanceDetail = null;
   state.realtimeSummary = null;
+  clearPeopleImportState_();
   state.qrLastResult = null;
   state.qrScanner = {
     enabled: false,
@@ -2889,6 +3790,10 @@ async function withLoading(fn, message) {
 function showLoading(message) {
   loadingMessage.textContent = message || "Cargando...";
   loadingOverlay.classList.remove("hidden");
+}
+
+function setLoadingMessage_(message) {
+  loadingMessage.textContent = message || "Cargando...";
 }
 
 function hideLoading() {
