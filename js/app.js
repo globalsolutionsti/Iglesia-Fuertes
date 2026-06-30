@@ -1898,37 +1898,28 @@ function renderCredentialCard_(person) {
   return `
     <article class="credential-card">
       <div class="credential-card-head">
-        <img src="assets/logo-fuertes.png" alt="Fuertes">
-        ${renderPersonTypePill_(canonicalType)}
-      </div>
-
-      <div class="credential-identity">
-        <strong>${escapeHtml(visibleName)}</strong>
-        <span>${escapeHtml(groupName)}</span>
+        <img src="assets/logo-conexion.png" alt="Conexion">
+        <span class="credential-card-caption">Credencial Digital</span>
       </div>
 
       <div class="credential-qr-shell">
         <canvas
           class="credential-qr-canvas"
           data-role="credential-qr"
-          data-qr-size="164"
+          data-qr-size="248"
           data-qr-value="${escapeHtml(qrValue)}"
         ></canvas>
       </div>
 
-      <div class="credential-meta-grid">
-        <div class="credential-meta-item">
-          <label>ID</label>
-          <strong>${escapeHtml(visibleId)}</strong>
-        </div>
-        <div class="credential-meta-item">
-          <label>Grupo de conexion</label>
-          <strong>${escapeHtml(groupName)}</strong>
-        </div>
-        <div class="credential-meta-item">
-          <label>Tipo de persona</label>
-          <strong>${escapeHtml(canonicalType)}</strong>
-        </div>
+      <div class="credential-identity">
+        <strong>${escapeHtml(visibleName)}</strong>
+        <span class="credential-type-copy">${escapeHtml(canonicalType)}</span>
+        <span class="credential-group-copy">${escapeHtml(`Grupo de conexion: ${groupName}`)}</span>
+      </div>
+
+      <div class="credential-id-block">
+        <label>ID</label>
+        <strong>${escapeHtml(visibleId)}</strong>
       </div>
 
       <div class="actions-row credential-actions">
@@ -3809,10 +3800,10 @@ function printCredentialCards_(people, title) {
     return;
   }
 
-  const logoUrl = getLogoAssetUrl_();
+  const logoUrl = getCredentialLogoAssetUrl_();
   const cardsHtml = rows.map((person) => {
     const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
-    const qrDataUrl = buildCredentialQrDataUrl_(person);
+    const qrDataUrl = buildCredentialQrDataUrl_(person, 320);
     const type = normalizePersonTypeValue_(person.tipoPersona);
     const name = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
     const id = person.id || person.numero || "SIN ID";
@@ -3820,16 +3811,16 @@ function printCredentialCards_(people, title) {
     return `
       <article class="print-credential-card">
         <div class="print-credential-head">
-          <img src="${logoUrl}" alt="Fuertes">
-          <span class="print-credential-type">${escapeHtml(type)}</span>
+          <img src="${logoUrl}" alt="Conexion">
+          <span class="print-credential-caption">Credencial Digital</span>
         </div>
         <div class="print-credential-body">
           <img class="print-credential-qr" src="${qrDataUrl}" alt="QR ${escapeHtml(id)}">
           <div class="print-credential-copy">
             <strong>${escapeHtml(name)}</strong>
-            <span><b>ID:</b> ${escapeHtml(id)}</span>
-            <span><b>Grupo:</b> ${escapeHtml(groupName)}</span>
-            <span><b>Tipo:</b> ${escapeHtml(type)}</span>
+            <span class="print-credential-role">${escapeHtml(type)}</span>
+            <span class="print-credential-group">${escapeHtml(`Grupo de conexion: ${groupName}`)}</span>
+            <span class="print-credential-id">${escapeHtml(id)}</span>
           </div>
         </div>
       </article>
@@ -3879,63 +3870,74 @@ function printCredentialCards_(people, title) {
         }
         .print-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 16px;
+          grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+          gap: 18px;
         }
         .print-credential-card {
           background: #ffffff;
           border: 1px solid #dedede;
-          border-radius: 22px;
-          padding: 18px;
+          border-radius: 28px;
+          padding: 26px 22px 28px;
           break-inside: avoid;
           box-shadow: 0 12px 24px rgba(0,0,0,0.06);
         }
         .print-credential-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+          display: grid;
+          justify-items: center;
           gap: 12px;
         }
         .print-credential-head img {
-          width: 132px;
+          width: 290px;
+          max-width: 100%;
           display: block;
         }
-        .print-credential-type {
-          padding: 8px 12px;
-          border-radius: 999px;
-          background: #111111;
-          color: #ffffff;
-          font-size: 12px;
-          font-weight: 800;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
+        .print-credential-caption {
+          font-size: 22px;
+          color: #2e2e2e;
+          font-weight: 500;
         }
         .print-credential-body {
           display: grid;
-          grid-template-columns: 188px minmax(0, 1fr);
-          gap: 18px;
-          align-items: center;
-          margin-top: 16px;
+          justify-items: center;
+          gap: 22px;
+          margin-top: 22px;
         }
         .print-credential-qr {
-          width: 188px;
-          height: 188px;
+          width: 320px;
+          height: 320px;
           padding: 12px;
-          border-radius: 20px;
+          border-radius: 24px;
           background: #ffffff;
           border: 1px solid #d8d8d8;
         }
         .print-credential-copy {
           display: grid;
           gap: 10px;
+          justify-items: center;
+          text-align: center;
         }
         .print-credential-copy strong {
-          font-size: 22px;
-          line-height: 1.1;
+          font-size: 40px;
+          line-height: 1.08;
+          letter-spacing: -0.05em;
+          text-transform: uppercase;
+          max-width: 10ch;
         }
-        .print-credential-copy span {
-          font-size: 14px;
-          color: #2a2a2a;
+        .print-credential-role {
+          font-size: 24px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #1d1d1d;
+        }
+        .print-credential-group {
+          font-size: 16px;
+          color: #555555;
+        }
+        .print-credential-id {
+          margin-top: 8px;
+          font-size: 22px;
+          letter-spacing: 0.08em;
+          color: #202020;
         }
         @media print {
           body { padding: 0; background: #ffffff; }
@@ -3969,8 +3971,8 @@ function printCredentialCards_(people, title) {
   printWindow.document.close();
 }
 
-function getLogoAssetUrl_() {
-  return new URL("./assets/logo-fuertes.png", window.location.href).href;
+function getCredentialLogoAssetUrl_() {
+  return new URL("./assets/logo-conexion.png", window.location.href).href;
 }
 
 function normalizePhone_(value) {
