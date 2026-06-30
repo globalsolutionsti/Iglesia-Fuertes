@@ -94,6 +94,9 @@ const state = {
 const qrScannerRuntime = {
   stream: null,
   detector: null,
+  engine: "",
+  canvas: null,
+  context: null,
   animationFrameId: 0,
   busy: false,
   pausedUntil: 0,
@@ -2185,15 +2188,32 @@ async function ensureQrScannerStarted_() {
     return;
   }
 
-  if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
-    throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "Este navegador no soporta el lector QR nativo. Usa Chrome o Edge actualizado.");
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "Este navegador no permite acceder a la camara para el kiosko.");
     return;
   }
 
   if (!qrScannerRuntime.detector) {
-    qrScannerRuntime.detector = new window.BarcodeDetector({
-      formats: ["qr_code"]
-    });
+    if ("BarcodeDetector" in window) {
+      qrScannerRuntime.detector = new window.BarcodeDetector({
+        formats: ["qr_code"]
+      });
+      qrScannerRuntime.engine = "native";
+    } else if (typeof window.jsQR === "function") {
+      qrScannerRuntime.detector = {
+        detect() {
+          return [];
+        }
+      };
+      qrScannerRuntime.engine = "jsqr";
+      qrScannerRuntime.canvas = document.createElement("canvas");
+      qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
+        willReadFrequently: true
+      });
+    } else {
+      throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "No se encontro un motor de lectura QR compatible. Recarga la pagina y vuelve a intentar.");
+      return;
+    }
   }
 
   if (!qrScannerRuntime.stream) {
@@ -2230,7 +2250,9 @@ async function ensureQrScannerStarted_() {
   }
 
   state.qrScanner.status = "scanning";
-  state.qrScanner.message = "Escaneo activo. Acerca el QR al marco central.";
+  state.qrScanner.message = qrScannerRuntime.engine === "native"
+    ? "Escaneo activo. Acerca el QR al marco central."
+    : "Escaneo activo con lector compatible. Acerca el QR al marco central.";
 
   if (!qrScannerRuntime.animationFrameId) {
     scanQrFrame_();
@@ -2247,6 +2269,10 @@ function stopQrScannerRuntime_(keepStatus = false) {
   qrScannerRuntime.pausedUntil = 0;
   qrScannerRuntime.lastValue = "";
   qrScannerRuntime.lastValueAt = 0;
+  qrScannerRuntime.detector = null;
+  qrScannerRuntime.engine = "";
+  qrScannerRuntime.canvas = null;
+  qrScannerRuntime.context = null;
 
   if (qrScannerRuntime.stream) {
     qrScannerRuntime.stream.getTracks().forEach((track) => track.stop());
@@ -2283,48 +2309,13 @@ function scanQrFrame_() {
 
   qrScannerRuntime.busy = true;
 
-  Promise.resolve(qrScannerRuntime.detector.detect(video))
-    .then((codes) => {
-      const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
-
-      if (!detectedCode || !detectedCode.rawValue) {
+  detectQrFromVideo_(video)
+    .then((rawValue) => {
+      if (!rawValue) {
         return;
       }
 
-      const rawValue = String(detectedCode.rawValue).trim();
-      const extractedPersonId = extractPersonIdFromScan_(rawValue);
-
-      if (!extractedPersonId) {
-        state.qrScanner.result = buildQrFailureResult_(
-          new ApiError("El codigo QR no contiene un personId reconocible.", "INVALID_QR_VALUE"),
-          rawValue
-        );
-        state.qrScanner.status = "error";
-        state.qrScanner.message = state.qrScanner.result.message;
-        qrScannerRuntime.pausedUntil = Date.now() + 2400;
-        playKioskSignal_("error");
-        renderApp();
-        return;
-      }
-
-      const now = Date.now();
-      const isDuplicateRead = qrScannerRuntime.lastValue === extractedPersonId && (now - qrScannerRuntime.lastValueAt) < 3000;
-
-      if (isDuplicateRead) {
-        return;
-      }
-
-      qrScannerRuntime.lastValue = extractedPersonId;
-      qrScannerRuntime.lastValueAt = now;
-      qrScannerRuntime.pausedUntil = now + 2200;
-      state.qrScanner.status = "processing";
-      state.qrScanner.message = "Validando asistencia y registrando acceso...";
-      renderApp();
-      void registerQrAttendance(extractedPersonId, {
-        source: "scanner",
-        showLoading: false,
-        suppressToast: true
-      });
+      processQrRawValue_(rawValue);
     })
     .catch(() => {
       // Si la deteccion falla en un frame aislado, dejamos continuar el siguiente intento.
@@ -2332,6 +2323,74 @@ function scanQrFrame_() {
     .finally(() => {
       qrScannerRuntime.busy = false;
     });
+}
+
+async function detectQrFromVideo_(video) {
+  if (qrScannerRuntime.engine === "native") {
+    const codes = await Promise.resolve(qrScannerRuntime.detector.detect(video));
+    const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
+    return detectedCode?.rawValue ? String(detectedCode.rawValue).trim() : "";
+  }
+
+  if (qrScannerRuntime.engine === "jsqr") {
+    const width = video.videoWidth || video.clientWidth;
+    const height = video.videoHeight || video.clientHeight;
+
+    if (!width || !height || !qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+      return "";
+    }
+
+    if (qrScannerRuntime.canvas.width !== width || qrScannerRuntime.canvas.height !== height) {
+      qrScannerRuntime.canvas.width = width;
+      qrScannerRuntime.canvas.height = height;
+    }
+
+    qrScannerRuntime.context.drawImage(video, 0, 0, width, height);
+    const imageData = qrScannerRuntime.context.getImageData(0, 0, width, height);
+    const decoded = window.jsQR(imageData.data, width, height, {
+      inversionAttempts: "dontInvert"
+    });
+
+    return decoded?.data ? String(decoded.data).trim() : "";
+  }
+
+  return "";
+}
+
+function processQrRawValue_(rawValue) {
+  const extractedPersonId = extractPersonIdFromScan_(rawValue);
+
+  if (!extractedPersonId) {
+    state.qrScanner.result = buildQrFailureResult_(
+      new ApiError("El codigo QR no contiene un personId reconocible.", "INVALID_QR_VALUE"),
+      rawValue
+    );
+    state.qrScanner.status = "error";
+    state.qrScanner.message = state.qrScanner.result.message;
+    qrScannerRuntime.pausedUntil = Date.now() + 2400;
+    playKioskSignal_("error");
+    renderApp();
+    return;
+  }
+
+  const now = Date.now();
+  const isDuplicateRead = qrScannerRuntime.lastValue === extractedPersonId && (now - qrScannerRuntime.lastValueAt) < 3000;
+
+  if (isDuplicateRead) {
+    return;
+  }
+
+  qrScannerRuntime.lastValue = extractedPersonId;
+  qrScannerRuntime.lastValueAt = now;
+  qrScannerRuntime.pausedUntil = now + 2200;
+  state.qrScanner.status = "processing";
+  state.qrScanner.message = "Validando asistencia y registrando acceso...";
+  renderApp();
+  void registerQrAttendance(extractedPersonId, {
+    source: "scanner",
+    showLoading: false,
+    suppressToast: true
+  });
 }
 
 function extractPersonIdFromScan_(rawValue) {
