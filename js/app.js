@@ -5326,10 +5326,50 @@ function normalizePhone_(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function formatDateForInput_(value) {
-  const date = value instanceof Date ? value : new Date(value);
+function coerceClientDate_(value) {
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
 
-  if (Number.isNaN(date.getTime())) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const isoDateMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    return new Date(
+      Number(isoDateMatch[1]),
+      Number(isoDateMatch[2]) - 1,
+      Number(isoDateMatch[3]),
+      12,
+      0,
+      0,
+      0
+    );
+  }
+
+  const slashDateMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashDateMatch) {
+    return new Date(
+      Number(slashDateMatch[3]),
+      Number(slashDateMatch[2]) - 1,
+      Number(slashDateMatch[1]),
+      12,
+      0,
+      0,
+      0
+    );
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateForInput_(value) {
+  const date = coerceClientDate_(value);
+
+  if (!date || Number.isNaN(date.getTime())) {
     return "";
   }
 
@@ -5725,8 +5765,8 @@ function formatDate(value) {
     return "Sin fecha";
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const date = coerceClientDate_(value);
+  if (!date || Number.isNaN(date.getTime())) {
     return String(value);
   }
 
@@ -5738,9 +5778,9 @@ function formatDate(value) {
 }
 
 function formatDateTime_(value) {
-  const date = value instanceof Date ? value : new Date(value);
+  const date = coerceClientDate_(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (!date || Number.isNaN(date.getTime())) {
     return "Sin hora";
   }
 
