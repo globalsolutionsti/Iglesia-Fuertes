@@ -65,6 +65,7 @@ const state = {
   attendanceForm: {},
   attendanceDetail: null,
   realtimeSummary: null,
+  qrSessionActivity: [],
   peopleImport: {
     fileName: "",
     rows: [],
@@ -100,10 +101,12 @@ const state = {
     attendance: {
       seasonId: "",
       sessionId: "",
-      groupId: ""
+      groupId: "",
+      search: ""
     },
     qr: {
       mode: "active",
+      surface: "scanner",
       seasonId: "",
       sessionId: "",
       personId: "",
@@ -1259,6 +1262,7 @@ function renderAttendanceView() {
   const groups = getSessionGroups(filter.seasonId, filter.sessionId);
   const context = state.attendanceContext;
   const summary = buildAttendanceSummary();
+  const filteredParticipants = getFilteredAttendanceParticipants_();
 
   return `
     <section class="view-grid">
@@ -1283,6 +1287,11 @@ function renderAttendanceView() {
             </div>
           </div>
         </div>
+
+        <div class="actions-row">
+          <button class="btn btn-secondary" data-action="open-qr-operator">Ir a escaneo QR</button>
+          <button class="btn btn-ghost" data-action="open-qr-kiosk">Ir a modo kiosko</button>
+        </div>
       </article>
 
       <div class="view-grid columns-2">
@@ -1296,13 +1305,23 @@ function renderAttendanceView() {
           </div>
 
           ${context && context.participants.length ? `
-            <div class="actions-row" style="margin-bottom: 16px;">
-              <button class="btn btn-secondary" data-action="set-attendance-all" data-value="SI">Marcar todos SI</button>
-              <button class="btn btn-ghost" data-action="set-attendance-all" data-value="NO">Marcar todos NO</button>
+            <div class="field" style="margin-bottom: 16px;">
+              <label for="attendance-search">Buscar participante</label>
+              <input id="attendance-search" value="${escapeHtml(filter.search)}" placeholder="Nombre, QR ID o tipo de persona">
+              <span class="field-help">Filtra la lista para marcar rapidamente solo una parte del grupo.</span>
             </div>
 
+            <div class="actions-row" style="margin-bottom: 12px;">
+              <button class="btn btn-secondary" data-action="set-attendance-all" data-value="SI">Marcar todos SI</button>
+              <button class="btn btn-ghost" data-action="set-attendance-all" data-value="NO">Marcar todos NO</button>
+              <button class="btn btn-secondary" data-action="set-attendance-visible" data-value="SI" ${filteredParticipants.length ? "" : "disabled"}>Marcar visibles SI</button>
+              <button class="btn btn-ghost" data-action="set-attendance-visible" data-value="NO" ${filteredParticipants.length ? "" : "disabled"}>Marcar visibles NO</button>
+            </div>
+
+            <p class="footer-note">Mostrando ${escapeHtml(String(filteredParticipants.length))} de ${escapeHtml(String(context.participants.length))} participantes en esta captura.</p>
+
             <form id="attendance-form" class="attendance-grid">
-              ${context.participants.map((participant) => `
+              ${filteredParticipants.length ? filteredParticipants.map((participant) => `
                 <div class="attendance-row">
                   <div>
                     <span class="row-title">${escapeHtml(participant.name)}</span>
@@ -1320,7 +1339,9 @@ function renderAttendanceView() {
                     </select>
                   </div>
                 </div>
-              `).join("")}
+              `).join("") : `
+                <div class="empty-state">No hay participantes que coincidan con la busqueda actual.</div>
+              `}
 
               <div class="actions-row">
                 <button class="btn btn-primary" type="submit">${context.alreadyCaptured ? "Guardar cambios" : "Guardar asistencia"}</button>
@@ -1354,6 +1375,11 @@ function renderAttendanceView() {
               <span class="status-chip warning">No asistieron</span>
               <strong>${summary.absent}</strong>
               <span>Marcados actualmente como NO.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip dark">Visibles</span>
+              <strong>${filteredParticipants.length}</strong>
+              <span>Participantes mostrados segun el filtro actual.</span>
             </div>
           </div>
         </article>
@@ -1413,41 +1439,60 @@ function renderQrView() {
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
   const qrSearchResults = filterPeople(state.people, filter.peopleSearch).slice(0, 8);
   const summary = state.realtimeSummary;
+  const activity = state.qrSessionActivity || [];
   const kioskResult = getQrKioskResult_();
   const kioskContext = resolveQrContext();
+  const isKioskSurface = filter.surface === "kiosk";
   const kioskTone = kioskResult ? kioskResult.tone : (state.qrScanner.enabled ? "live" : "idle");
-  const kioskBadge = kioskResult ? kioskResult.badge : (state.qrScanner.enabled ? "Escaneo en vivo" : "Kiosko en espera");
-  const kioskTitle = kioskResult ? kioskResult.title : "Escanea tu codigo QR";
+  const kioskBadge = kioskResult
+    ? kioskResult.badge
+    : (state.qrScanner.enabled
+      ? (isKioskSurface ? "Escaneo en vivo" : "Lectura en vivo")
+      : (isKioskSurface ? "Kiosko en espera" : "Escaner en espera"));
+  const kioskTitle = kioskResult ? kioskResult.title : (isKioskSurface ? "Escanea tu codigo QR" : "Escaneo QR asistido listo");
   const kioskMessage = kioskResult ? kioskResult.message : state.qrScanner.message;
   const selectedCameraLabel = getQrCameraLabel_(filter.cameraFacing);
   const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || filter.cameraFacing);
   const kioskSessionLabel = kioskContext
     ? `${kioskContext.sessionId} | ${filter.mode === "manual" ? "Sesion forzada" : "Sesion activa"}`
     : "Sin sesion seleccionada";
+  const surfaceEyebrow = isKioskSurface ? "Kiosko de asistencia" : "Escaneo QR del equipo";
+  const surfaceTitle = isKioskSurface ? "Registro tipo aeropuerto" : "Escaneo QR asistido";
+  const surfaceCopy = isKioskSurface
+    ? "La camara queda lista para recibir un QR tras otro. Cuando el registro sea exitoso, la pantalla responde en verde y muestra los datos del asistente en tiempo real."
+    : "Ideal para un servidor en recepcion o control. La camara valida un QR a la vez y deja visible el ultimo registro junto con la actividad reciente de la sesion.";
+  const surfacePlaceholder = isKioskSurface
+    ? "Activa el kiosko para iniciar el escaneo continuo."
+    : "Activa la camara para comenzar a escanear QRs de forma asistida.";
+  const surfaceCameraLabel = isKioskSurface ? "Camara del kiosko" : "Camara de escaneo";
 
   return `
     <section class="view-grid">
-      <article class="kiosk-stage kiosk-tone-${escapeHtml(kioskTone)}" id="qr-kiosk-stage">
+      <article class="kiosk-stage kiosk-surface-${escapeHtml(filter.surface)} kiosk-tone-${escapeHtml(kioskTone)}" id="qr-kiosk-stage">
         <div class="kiosk-stage-head">
           <div>
-            <span class="eyebrow kiosk-eyebrow">Kiosko de asistencia</span>
-            <h2 class="kiosk-title">Registro tipo aeropuerto</h2>
+            <span class="eyebrow kiosk-eyebrow">${escapeHtml(surfaceEyebrow)}</span>
+            <h2 class="kiosk-title">${escapeHtml(surfaceTitle)}</h2>
             <p class="kiosk-copy">
-              La camara queda lista para recibir un QR tras otro. Cuando el registro sea exitoso,
-              la pantalla responde en verde y muestra los datos del asistente en tiempo real.
+              ${escapeHtml(surfaceCopy)}
             </p>
           </div>
 
           <div class="kiosk-head-actions">
+            <div class="toggle-group kiosk-toggle-group">
+              <button class="toggle-button ${filter.surface === "scanner" ? "active" : ""}" data-action="set-qr-surface" data-surface="scanner">Escaneo asistido</button>
+              <button class="toggle-button ${filter.surface === "kiosk" ? "active" : ""}" data-action="set-qr-surface" data-surface="kiosk">Modo kiosko</button>
+            </div>
             <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}">
               ${state.qrScanner.enabled ? "Detener camara" : "Activar camara"}
             </button>
-            <button class="btn btn-ghost" data-action="toggle-kiosk-fullscreen">Pantalla completa</button>
+            ${isKioskSurface ? `<button class="btn btn-ghost" data-action="toggle-kiosk-fullscreen">Pantalla completa</button>` : ""}
             <button class="btn btn-secondary" data-action="clear-kiosk-result">Limpiar resultado</button>
           </div>
         </div>
 
         <div class="kiosk-strip">
+          <span class="kiosk-chip">${escapeHtml(isKioskSurface ? "Superficie kiosko" : "Escaneo asistido")}</span>
           <span class="kiosk-chip">${escapeHtml(filter.mode === "manual" ? "Modo manual" : "Modo automatico")}</span>
           <span class="kiosk-chip">${escapeHtml(kioskSessionLabel)}</span>
           <span class="kiosk-chip">${escapeHtml(activeSession ? activeSession.name : "Sin sesion abierta hoy")}</span>
@@ -1455,7 +1500,7 @@ function renderQrView() {
         </div>
 
         <div class="kiosk-camera-row">
-          <span class="kiosk-camera-label">Camara del kiosko</span>
+          <span class="kiosk-camera-label">${escapeHtml(surfaceCameraLabel)}</span>
           <div class="toggle-group kiosk-toggle-group">
             <button class="toggle-button ${filter.cameraFacing === "front" ? "active" : ""}" data-action="set-kiosk-camera" data-camera-facing="front">Frontal</button>
             <button class="toggle-button ${filter.cameraFacing === "rear" ? "active" : ""}" data-action="set-kiosk-camera" data-camera-facing="rear">Trasera</button>
@@ -1468,7 +1513,7 @@ function renderQrView() {
               <video id="qr-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
               <div class="kiosk-video-placeholder ${state.qrScanner.enabled ? "hidden" : ""}">
                 <strong>Camara en espera</strong>
-                <span>Activa el kiosko para iniciar el escaneo continuo.</span>
+                <span>${escapeHtml(surfacePlaceholder)}</span>
               </div>
               <div class="kiosk-scan-overlay">
                 <span class="kiosk-corner kiosk-corner-tl"></span>
@@ -1488,7 +1533,9 @@ function renderQrView() {
                 Vista actual: ${escapeHtml(activeCameraLabel)}
               </span>
               <span class="footer-note">
-                En iPad se prioriza la camara frontal y puedes alternar a trasera cuando lo necesites.
+                ${escapeHtml(isKioskSurface
+                  ? "En iPad se prioriza la camara frontal y puedes alternar a trasera cuando lo necesites."
+                  : "Usa este modo cuando haya un operador presente recibiendo asistentes con su propio dispositivo.")}
               </span>
             </div>
           </div>
@@ -1630,33 +1677,59 @@ function renderQrView() {
         <article class="panel-card">
           <div class="panel-head">
             <div>
-              <h2>Modo kiosko por busqueda</h2>
-              <p>Busca una persona y registra su asistencia sin escribir el codigo, ideal para contingencias.</p>
+              <h2>Actividad reciente de la sesion</h2>
+              <p>Te ayuda a monitorear en tiempo real a quien ya quedo registrado por QR o kiosko.</p>
             </div>
-          </div>
-
-          <div class="field">
-            <label for="qr-people-search">Buscar persona</label>
-            <input id="qr-people-search" value="${escapeHtml(filter.peopleSearch)}" placeholder="Nombre, QR ID, numero o correo">
+            <button class="btn btn-ghost" data-action="refresh-realtime">Actualizar</button>
           </div>
 
           <div class="results-list" style="margin-top: 16px;">
-            ${qrSearchResults.length ? qrSearchResults.map((person) => `
+            ${activity.length ? activity.map((record) => `
               <article class="result-card">
                 <div class="result-row">
                   <div>
-                    <span class="row-title">${escapeHtml(person.name)}</span>
-                    <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")}</span>
+                    <span class="row-title">${escapeHtml(record.name)}</span>
+                    <span class="row-meta">${escapeHtml(record.personId)} | ${escapeHtml(record.groupName || "Sin grupo")}</span>
                   </div>
-                  <button class="btn btn-primary" data-action="register-qr-person" data-person-id="${escapeHtml(person.id)}">Registrar</button>
+                  <span class="pill success">${escapeHtml(record.timestampLabel || "Registrado")}</span>
                 </div>
               </article>
             `).join("") : `
-              <div class="empty-state">No hay personas para la busqueda actual.</div>
+              <div class="empty-state">Todavia no hay registros recientes para la sesion seleccionada.</div>
             `}
           </div>
         </article>
       </div>
+
+      <article class="panel-card">
+        <div class="panel-head">
+          <div>
+            <h2>Registro por busqueda y contingencia</h2>
+            <p>Busca una persona y registra su asistencia sin escribir el codigo, ideal para respaldo o filtros en recepcion.</p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="qr-people-search">Buscar persona</label>
+          <input id="qr-people-search" value="${escapeHtml(filter.peopleSearch)}" placeholder="Nombre, QR ID, numero o correo">
+        </div>
+
+        <div class="results-list" style="margin-top: 16px;">
+          ${qrSearchResults.length ? qrSearchResults.map((person) => `
+            <article class="result-card">
+              <div class="result-row">
+                <div>
+                  <span class="row-title">${escapeHtml(person.name)}</span>
+                  <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")}</span>
+                </div>
+                <button class="btn btn-primary" data-action="register-qr-person" data-person-id="${escapeHtml(person.id)}">Registrar</button>
+              </div>
+            </article>
+          `).join("") : `
+            <div class="empty-state">No hay personas para la busqueda actual.</div>
+          `}
+        </div>
+      </article>
     </section>
   `;
 }
@@ -2191,6 +2264,30 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-attendance-visible") {
+      setAttendanceForVisible(button.dataset.value);
+      renderApp();
+      return;
+    }
+
+    if (action === "open-qr-operator") {
+      syncAttendanceContextIntoQr_();
+      state.filters.qr.surface = "scanner";
+      state.currentView = "qr";
+      await loadQrSummary();
+      renderApp();
+      return;
+    }
+
+    if (action === "open-qr-kiosk") {
+      syncAttendanceContextIntoQr_();
+      state.filters.qr.surface = "kiosk";
+      state.currentView = "qr";
+      await loadQrSummary();
+      renderApp();
+      return;
+    }
+
     if (action === "start-kiosk-camera") {
       state.qrScanner.enabled = true;
       state.qrScanner.status = "starting";
@@ -2234,9 +2331,16 @@ async function handleClick(event) {
         stopQrScannerRuntime_(true);
       } else {
         state.qrScanner.cameraFacing = "";
-        state.qrScanner.message = `Camara ${getQrCameraLabel_(nextFacing)} lista para iniciar el kiosko.`;
+        state.qrScanner.message = `Camara ${getQrCameraLabel_(nextFacing)} lista para iniciar ${state.filters.qr.surface === "kiosk" ? "el kiosko" : "el escaneo asistido"}.`;
       }
 
+      renderApp();
+      return;
+    }
+
+    if (action === "set-qr-surface") {
+      const nextSurface = button.dataset.surface === "kiosk" ? "kiosk" : "scanner";
+      state.filters.qr.surface = nextSurface;
       renderApp();
       return;
     }
@@ -2409,6 +2513,7 @@ async function handleChange(event) {
       state.filters.attendance.seasonId = target.value;
       state.filters.attendance.sessionId = "";
       state.filters.attendance.groupId = "";
+      state.filters.attendance.search = "";
       await syncFilterState("attendance");
       await loadAttendanceData();
       renderApp();
@@ -2418,6 +2523,7 @@ async function handleChange(event) {
     if (target.id === "attendance-session") {
       state.filters.attendance.sessionId = target.value;
       state.filters.attendance.groupId = "";
+      state.filters.attendance.search = "";
       await syncFilterState("attendance");
       await loadAttendanceData();
       renderApp();
@@ -2426,6 +2532,7 @@ async function handleChange(event) {
 
     if (target.id === "attendance-group") {
       state.filters.attendance.groupId = target.value;
+      state.filters.attendance.search = "";
       await loadAttendanceData();
       renderApp();
       return;
@@ -2494,6 +2601,12 @@ function handleInput(event) {
 
   if (target.id === "participant-bulk-search") {
     state.filters.participants.bulkSearch = target.value;
+    renderApp();
+    return;
+  }
+
+  if (target.id === "attendance-search") {
+    state.filters.attendance.search = target.value;
     renderApp();
     return;
   }
@@ -2963,14 +3076,24 @@ async function loadQrSummary(options = {}) {
 
   if (!context) {
     state.realtimeSummary = null;
+    state.qrSessionActivity = [];
     return;
   }
 
   const task = async () => {
-    state.realtimeSummary = await apiGet("attendances.realtimeSummary", {
-      seasonId: context.seasonId,
-      sessionId: context.sessionId
-    });
+    const [summary, attendances] = await Promise.all([
+      apiGet("attendances.realtimeSummary", {
+        seasonId: context.seasonId,
+        sessionId: context.sessionId
+      }),
+      apiGet("attendances.list", {
+        seasonId: context.seasonId,
+        sessionId: context.sessionId
+      })
+    ]);
+
+    state.realtimeSummary = summary;
+    state.qrSessionActivity = buildQrSessionActivity_(attendances);
   };
 
   if (options.showLoading === false) {
@@ -3403,6 +3526,57 @@ function buildAttendanceSummary() {
     present,
     absent: values.length - present
   };
+}
+
+function getFilteredAttendanceParticipants_() {
+  const participants = state.attendanceContext?.participants || [];
+  const search = normalizeText(state.filters.attendance.search);
+
+  if (!search) {
+    return participants;
+  }
+
+  return participants.filter((participant) => normalizeText([
+    participant.name,
+    participant.personId,
+    participant.type
+  ].join(" ")).includes(search));
+}
+
+function setAttendanceForVisible(value) {
+  const normalizedValue = value === "SI" ? "SI" : "NO";
+
+  getFilteredAttendanceParticipants_().forEach((participant) => {
+    state.attendanceForm[participant.personId] = normalizedValue;
+  });
+}
+
+function syncAttendanceContextIntoQr_() {
+  const attendanceFilter = state.filters.attendance;
+
+  if (!attendanceFilter.seasonId || !attendanceFilter.sessionId) {
+    return;
+  }
+
+  state.filters.qr.mode = "manual";
+  state.filters.qr.seasonId = attendanceFilter.seasonId;
+  state.filters.qr.sessionId = attendanceFilter.sessionId;
+}
+
+function buildQrSessionActivity_(records) {
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => record.attended === "SI")
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.registeredAt || "") || 0;
+      const rightTime = Date.parse(right.registeredAt || "") || 0;
+      return rightTime - leftTime;
+    })
+    .slice(0, 10)
+    .map((record) => ({
+      ...record,
+      groupName: resolveGroupName_(record.groupId) || (record.groupId ? `Grupo ${record.groupId}` : "Sin grupo"),
+      timestampLabel: formatDateTime_(record.registeredAt)
+    }));
 }
 
 function getLatestSeason() {
@@ -4556,6 +4730,7 @@ function resetRuntimeState() {
   state.attendanceForm = {};
   state.attendanceDetail = null;
   state.realtimeSummary = null;
+  state.qrSessionActivity = [];
   clearPeopleImportState_();
   state.qrLastResult = null;
   state.qrScanner = {
