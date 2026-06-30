@@ -1259,10 +1259,24 @@ function renderParticipantsView() {
 
 function renderAttendanceView() {
   const filter = state.filters.attendance;
-  const groups = getSessionGroups(filter.seasonId, filter.sessionId);
+  const activeSession = getActiveAttendanceSession_();
+  const groups = activeSession ? getSessionGroups(activeSession.seasonId, activeSession.id) : [];
+  const activeSeasonName = activeSession ? resolveSeasonName_(activeSession.seasonId) : "";
   const context = state.attendanceContext;
   const summary = buildAttendanceSummary();
   const filteredParticipants = getFilteredAttendanceParticipants_();
+  const listCaption = context
+    ? `${escapeHtml(context.season.name)} | ${escapeHtml(context.session.name)} | ${escapeHtml(context.group.name)}`
+    : (!activeSession
+      ? "No hay una sesion ABIERTA hoy para cargar asistentes."
+      : (!filter.groupId
+        ? "Selecciona un grupo para desplegar a todos sus asistentes."
+        : "Cargando el contexto del grupo seleccionado..."));
+  const emptyAttendanceMessage = !activeSession
+    ? "No hay una sesion ABIERTA en la fecha de hoy. Abrela desde Temporadas y Sesiones para comenzar la captura manual."
+    : (!filter.groupId
+      ? "Selecciona un grupo para cargar su lista de asistentes."
+      : "No hay participantes activos para capturar en este contexto.");
 
   return `
     <section class="view-grid">
@@ -1270,20 +1284,40 @@ function renderAttendanceView() {
         <div class="panel-head">
           <div>
             <h2>Contexto de captura</h2>
-            <p>Cuando el grupo ya fue capturado, esta misma pantalla entra en modo de edicion.</p>
+            <p>La captura manual trabaja sobre la sesion activa del dia. Solo eliges el grupo y el sistema carga a sus asistentes.</p>
           </div>
-          <button class="btn btn-secondary" data-action="load-attendance">Cargar contexto</button>
+          <button class="btn btn-secondary" data-action="load-attendance">Actualizar sesion de hoy</button>
         </div>
 
         <div class="field-grid two">
-          ${renderSeasonSelect("attendance-season", filter.seasonId)}
-          ${renderSessionSelect("attendance-session", filter.seasonId, filter.sessionId)}
-          ${renderGroupSelect("attendance-group", groups, filter.groupId)}
+          <div class="field">
+            <label>Sesion activa detectada</label>
+            ${activeSession ? `
+              <div class="context-strip">
+                <span class="context-item"><strong>Temporada:</strong> ${escapeHtml(activeSeasonName || activeSession.seasonId)}</span>
+                <span class="context-item"><strong>Sesion:</strong> ${escapeHtml(activeSession.name)}</span>
+                <span class="context-item"><strong>Fecha:</strong> ${escapeHtml(formatDate(activeSession.date))}</span>
+                <span class="context-item"><strong>Estado:</strong> ${escapeHtml(activeSession.status || "ABIERTA")}</span>
+              </div>
+              <span class="field-help">La sesion debe estar ABIERTA y con la fecha de hoy para habilitar esta vista.</span>
+            ` : `
+              <div class="empty-state">Hoy no hay una sesion ABIERTA. Abrela desde Temporadas y Sesiones para capturar asistencia manual.</div>
+            `}
+          </div>
+          ${activeSession ? renderGroupSelect("attendance-group", groups, filter.groupId) : `
+            <div class="field">
+              <label for="attendance-group">Grupo</label>
+              <select id="attendance-group" disabled>
+                <option value="">Sin sesion activa</option>
+              </select>
+            </div>
+          `}
           <div class="field">
             <label>Estado actual</label>
             <div class="context-strip">
               <span class="context-item"><strong>Capturado:</strong> ${context ? (context.alreadyCaptured ? "Si" : "No") : "Pendiente"}</span>
               <span class="context-item"><strong>Participantes:</strong> ${context ? context.participants.length : 0}</span>
+              <span class="context-item"><strong>Grupo:</strong> ${escapeHtml(context ? context.group.name : (groups.find((group) => String(group.groupId) === String(filter.groupId))?.groupName || "Sin seleccionar"))}</span>
             </div>
           </div>
         </div>
@@ -1299,7 +1333,7 @@ function renderAttendanceView() {
           <div class="panel-head">
             <div>
               <h2>Lista de asistencia</h2>
-              <p>${context ? `${escapeHtml(context.season.name)} | ${escapeHtml(context.session.name)} | ${escapeHtml(context.group.name)}` : "Selecciona un grupo valido."}</p>
+              <p>${listCaption}</p>
             </div>
             ${context ? `<span class="pill ${context.alreadyCaptured ? "warning" : "success"}">${context.alreadyCaptured ? "Edicion" : "Primera captura"}</span>` : ""}
           </div>
@@ -1348,7 +1382,7 @@ function renderAttendanceView() {
               </div>
             </form>
           ` : `
-            <div class="empty-state">No hay participantes activos para capturar en este contexto.</div>
+            <div class="empty-state">${escapeHtml(emptyAttendanceMessage)}</div>
           `}
         </article>
 
@@ -1792,6 +1826,15 @@ function buildQrFailureResult_(error, personId) {
 function resolveGroupName_(groupId) {
   const match = state.catalogs.groups.find((group) => String(group.id) === String(groupId));
   return match ? match.name : "";
+}
+
+function resolveSeasonName_(seasonId) {
+  const match = state.seasons.find((season) => String(season.id) === String(seasonId));
+  return match ? match.name : "";
+}
+
+function getActiveAttendanceSession_() {
+  return state.activeSession && state.activeSession.found ? state.activeSession.session : null;
 }
 
 function renderNavButton(view, description) {
@@ -2247,6 +2290,7 @@ async function handleClick(event) {
     }
 
     if (action === "load-attendance") {
+      await loadActiveSession();
       await loadAttendanceData();
       renderApp();
       return;
@@ -2655,6 +2699,7 @@ async function loadCurrentViewData() {
       await loadParticipantsData();
       return;
     case "attendance":
+      await loadActiveSession();
       await loadAttendanceData();
       return;
     case "qr":
@@ -2761,6 +2806,11 @@ async function syncFilterState(viewName) {
   const filter = state.filters[viewName];
 
   if (!filter) {
+    return;
+  }
+
+  if (viewName === "attendance") {
+    await syncAttendanceFilterState_();
     return;
   }
 
@@ -3025,6 +3075,33 @@ async function loadAttendanceData() {
       state.attendanceForm[participant.personId] = participant.attendance === "SI" ? "SI" : "NO";
     });
   }, "Cargando asistencia...");
+}
+
+async function syncAttendanceFilterState_() {
+  const filter = state.filters.attendance;
+  const activeSession = getActiveAttendanceSession_();
+
+  if (!activeSession) {
+    filter.seasonId = "";
+    filter.sessionId = "";
+    filter.groupId = "";
+    return;
+  }
+
+  const sessionChanged = filter.seasonId !== activeSession.seasonId || filter.sessionId !== activeSession.id;
+  filter.seasonId = activeSession.seasonId;
+  filter.sessionId = activeSession.id;
+
+  await ensureSessionsForSeason(filter.seasonId);
+  const groups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+
+  if (sessionChanged) {
+    filter.groupId = "";
+  }
+
+  if (!groups.some((item) => String(item.groupId) === String(filter.groupId))) {
+    filter.groupId = "";
+  }
 }
 
 async function loadAttendanceDetailOnly() {
