@@ -41,6 +41,8 @@ const VIEW_META = {
 };
 
 const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
+const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Líder"];
+const CREDENTIAL_PREVIEW_LIMIT = 8;
 
 const state = {
   user: getStoredUser(),
@@ -215,7 +217,18 @@ function schedulePostRenderSync_() {
 }
 
 async function syncRuntimeAfterRender_() {
-  if (!state.user || state.currentView !== "qr") {
+  if (!state.user) {
+    stopQrScannerRuntime_();
+    return;
+  }
+
+  if (state.currentView === "assistants") {
+    stopQrScannerRuntime_();
+    syncCredentialQrsAfterRender_();
+    return;
+  }
+
+  if (state.currentView !== "qr") {
     stopQrScannerRuntime_();
     return;
   }
@@ -486,6 +499,7 @@ function renderAssistantsView() {
   const filter = state.filters.assistants;
   const summary = buildPeopleDirectorySummary_();
   const rows = getFilteredPeopleDirectory_();
+  const credentialPreviewRows = rows.slice(0, CREDENTIAL_PREVIEW_LIMIT);
   const importSummary = state.peopleImport.summary;
   const importProgress = state.peopleImport.progress;
   const previewRows = state.peopleImport.rows.slice(0, 6);
@@ -509,21 +523,21 @@ function renderAssistantsView() {
         </article>
 
         <article class="stat-card">
-          <span class="status-chip success">Asistentes</span>
-          <strong>${escapeHtml(String(summary.assistants))}</strong>
-          <span>Personas marcadas como asistentes</span>
+          <span class="status-chip success">Congregantes</span>
+          <strong>${escapeHtml(String(summary.congregants))}</strong>
+          <span>Personas base de la congregacion</span>
         </article>
 
         <article class="stat-card">
           <span class="status-chip neutral">Servidores</span>
           <strong>${escapeHtml(String(summary.servers))}</strong>
-          <span>Registros que ya existen como servidores</span>
+          <span>Registros con rol de servicio</span>
         </article>
 
         <article class="stat-card">
-          <span class="status-chip neutral">Activos</span>
-          <strong>${escapeHtml(String(summary.active))}</strong>
-          <span>Disponibles para asignacion y asistencia</span>
+          <span class="status-chip neutral">Liderazgo</span>
+          <strong>${escapeHtml(String(summary.leadership))}</strong>
+          <span>Coordinadores y líderes cargados</span>
         </article>
       </div>
 
@@ -573,8 +587,9 @@ function renderAssistantsView() {
               <div class="field">
                 <label for="assistant-tipo">Tipo de persona</label>
                 <select id="assistant-tipo" name="tipoPersona">
-                  <option value="ASISTENTE" selected>ASISTENTE</option>
-                  <option value="SERVIDOR">SERVIDOR</option>
+                  ${PERSON_TYPE_OPTIONS.map((type) => `
+                    <option value="${escapeHtml(type)}" ${type === "Congregante" ? "selected" : ""}>${escapeHtml(type)}</option>
+                  `).join("")}
                 </select>
               </div>
 
@@ -608,6 +623,7 @@ function renderAssistantsView() {
             <p>
               Usa <code>.xlsx</code>, <code>.xls</code> o <code>.csv</code>. La plantilla recomendada contiene:
               <code>NOMBRE</code>, <code>APELLIDOS</code>, <code>TELEFONO</code>, <code>EMAIL</code>, <code>GRUPO</code>, <code>FECHA</code>, <code>TIPO_PERSONA</code>.
+              Tipos validos: <code>Congregante</code>, <code>Servidor</code>, <code>Coordinador</code> y <code>Líder</code>.
             </p>
             <div class="actions-row">
               <button class="btn btn-secondary" type="button" data-action="download-people-template">Descargar plantilla</button>
@@ -719,8 +735,10 @@ function renderAssistantsView() {
             <select id="assistants-type">
               ${renderOptions([
                 { value: "ALL", label: "Todos los tipos" },
-                { value: "ASISTENTE", label: "ASISTENTE" },
-                { value: "SERVIDOR", label: "SERVIDOR" }
+                ...PERSON_TYPE_OPTIONS.map((type) => ({
+                  value: type,
+                  label: type
+                }))
               ], filter.type, "Filtrar tipo")}
             </select>
           </div>
@@ -762,6 +780,42 @@ function renderAssistantsView() {
         ` : `
           <div class="empty-state">
             No hay registros que coincidan con los filtros actuales. Puedes crear uno nuevo o importar un archivo Excel.
+          </div>
+        `}
+      </article>
+
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Credenciales QR</h2>
+            <p>El QR queda listo para kiosko y registro rapido. Cada credencial muestra ID, nombre, grupo de conexion y tipo de persona.</p>
+          </div>
+          <div class="inline-actions">
+            <button class="btn btn-secondary" data-action="print-credential-preview" ${credentialPreviewRows.length ? "" : "disabled"}>Imprimir vista previa</button>
+            <button class="btn btn-primary" data-action="print-credential-batch" ${rows.length ? "" : "disabled"}>Imprimir filtradas</button>
+          </div>
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Activos:</strong> ${escapeHtml(String(summary.active))}</span>
+          <span class="context-item"><strong>Coordinadores:</strong> ${escapeHtml(String(summary.coordinators))}</span>
+          <span class="context-item"><strong>Líderes:</strong> ${escapeHtml(String(summary.leaders))}</span>
+          <span class="context-item"><strong>Credenciales filtradas:</strong> ${escapeHtml(String(rows.length))}</span>
+          <span class="context-item"><strong>Vista previa:</strong> ${escapeHtml(String(credentialPreviewRows.length))}</span>
+        </div>
+
+        ${credentialPreviewRows.length ? `
+          <div class="credential-grid">
+            ${credentialPreviewRows.map((person) => renderCredentialCard_(person)).join("")}
+          </div>
+          ${rows.length > credentialPreviewRows.length ? `
+            <p class="footer-note">
+              Se muestran las primeras ${escapeHtml(String(credentialPreviewRows.length))} credenciales. Usa <strong>Imprimir filtradas</strong> para sacar el lote completo.
+            </p>
+          ` : ""}
+        ` : `
+          <div class="empty-state">
+            Ajusta los filtros del padron para mostrar las personas a las que quieres generar su credencial QR.
           </div>
         `}
       </article>
@@ -1796,17 +1850,26 @@ function renderPill(value) {
 }
 
 function renderPersonTypePill_(value) {
-  const normalized = String(value || "").toUpperCase();
+  const normalized = normalizePersonTypeValue_(value);
+  const normalizedKey = getPersonTypeKey_(normalized);
 
-  if (normalized === "ASISTENTE") {
+  if (normalizedKey === "congregante") {
     return `<span class="pill success">${escapeHtml(normalized)}</span>`;
   }
 
-  if (normalized === "SERVIDOR") {
+  if (normalizedKey === "servidor") {
     return `<span class="pill dark">${escapeHtml(normalized)}</span>`;
   }
 
-  return `<span class="pill">${escapeHtml(value || "SIN DATO")}</span>`;
+  if (normalizedKey === "coordinador") {
+    return `<span class="pill warning">${escapeHtml(normalized)}</span>`;
+  }
+
+  if (normalizedKey === "lider") {
+    return `<span class="pill danger">${escapeHtml(normalized)}</span>`;
+  }
+
+  return `<span class="pill">${escapeHtml(normalized || "SIN DATO")}</span>`;
 }
 
 function renderPersonImportOperationPill_(value) {
@@ -1823,6 +1886,56 @@ function renderPersonImportOperationPill_(value) {
   }
 
   return `<span class="pill">Revision</span>`;
+}
+
+function renderCredentialCard_(person) {
+  const canonicalType = normalizePersonTypeValue_(person.tipoPersona);
+  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+  const visibleId = person.id || person.numero || "SIN ID";
+  const visibleName = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
+  const qrValue = buildCredentialQrValue_(person);
+
+  return `
+    <article class="credential-card">
+      <div class="credential-card-head">
+        <img src="assets/logo-fuertes.png" alt="Fuertes">
+        ${renderPersonTypePill_(canonicalType)}
+      </div>
+
+      <div class="credential-identity">
+        <strong>${escapeHtml(visibleName)}</strong>
+        <span>${escapeHtml(groupName)}</span>
+      </div>
+
+      <div class="credential-qr-shell">
+        <canvas
+          class="credential-qr-canvas"
+          data-role="credential-qr"
+          data-qr-size="164"
+          data-qr-value="${escapeHtml(qrValue)}"
+        ></canvas>
+      </div>
+
+      <div class="credential-meta-grid">
+        <div class="credential-meta-item">
+          <label>ID</label>
+          <strong>${escapeHtml(visibleId)}</strong>
+        </div>
+        <div class="credential-meta-item">
+          <label>Grupo de conexion</label>
+          <strong>${escapeHtml(groupName)}</strong>
+        </div>
+        <div class="credential-meta-item">
+          <label>Tipo de persona</label>
+          <strong>${escapeHtml(canonicalType)}</strong>
+        </div>
+      </div>
+
+      <div class="actions-row credential-actions">
+        <button class="btn btn-ghost" data-action="print-single-credential" data-person-id="${escapeHtml(person.id || "")}">Imprimir esta credencial</button>
+      </div>
+    </article>
+  `;
 }
 
 async function handleClick(event) {
@@ -1896,6 +2009,27 @@ async function handleClick(event) {
 
     if (action === "start-people-import") {
       await importPreparedPeopleRows_();
+      return;
+    }
+
+    if (action === "print-credential-preview") {
+      printCredentialCards_(getFilteredPeopleDirectory_().slice(0, CREDENTIAL_PREVIEW_LIMIT), "Credenciales QR - Vista previa");
+      return;
+    }
+
+    if (action === "print-credential-batch") {
+      printCredentialCards_(getFilteredPeopleDirectory_(), "Credenciales QR - Lote completo");
+      return;
+    }
+
+    if (action === "print-single-credential") {
+      const person = state.peopleDirectory.find((item) => String(item.id) === String(button.dataset.personId || ""));
+      if (!person) {
+        showToast("Credencial no disponible", "No se encontro la persona seleccionada para imprimir su credencial.", "warning");
+        return;
+      }
+
+      printCredentialCards_([person], `Credencial QR - ${person.nombreCompleto || person.nombre || "Persona"}`);
       return;
     }
 
@@ -3268,7 +3402,7 @@ function getSessionGroups(seasonId, sessionId) {
 function getFilteredPeopleDirectory_() {
   const search = normalizeText(state.filters.assistants.search);
   const status = String(state.filters.assistants.status || "ALL").toUpperCase();
-  const type = String(state.filters.assistants.type || "ALL").toUpperCase();
+  const typeKey = state.filters.assistants.type === "ALL" ? "ALL" : getPersonTypeKey_(state.filters.assistants.type);
 
   return state.peopleDirectory.filter((person) => {
     const haystack = normalizeText([
@@ -3281,11 +3415,11 @@ function getFilteredPeopleDirectory_() {
       person.id
     ].join(" "));
     const normalizedStatus = String(person.estado || "").toUpperCase();
-    const normalizedType = String(person.tipoPersona || "").toUpperCase();
+    const normalizedType = getPersonTypeKey_(person.tipoPersona);
 
     return (!search || haystack.includes(search))
       && (status === "ALL" || normalizedStatus === status)
-      && (type === "ALL" || normalizedType === type);
+      && (typeKey === "ALL" || normalizedType === typeKey);
   });
 }
 
@@ -3293,21 +3427,36 @@ function buildPeopleDirectorySummary_() {
   const summary = {
     total: state.peopleDirectory.length,
     active: 0,
-    assistants: 0,
-    servers: 0
+    congregants: 0,
+    servers: 0,
+    coordinators: 0,
+    leaders: 0,
+    leadership: 0
   };
 
   state.peopleDirectory.forEach((person) => {
+    const typeKey = getPersonTypeKey_(person.tipoPersona);
+
     if (String(person.estado || "").toUpperCase() === "ACTIVO") {
       summary.active += 1;
     }
 
-    if (String(person.tipoPersona || "").toUpperCase() === "ASISTENTE") {
-      summary.assistants += 1;
+    if (typeKey === "congregante") {
+      summary.congregants += 1;
     }
 
-    if (String(person.tipoPersona || "").toUpperCase() === "SERVIDOR") {
+    if (typeKey === "servidor") {
       summary.servers += 1;
+    }
+
+    if (typeKey === "coordinador") {
+      summary.coordinators += 1;
+      summary.leadership += 1;
+    }
+
+    if (typeKey === "lider") {
+      summary.leaders += 1;
+      summary.leadership += 1;
     }
   });
 
@@ -3322,7 +3471,7 @@ function sanitizeAssistantPayload_(payload) {
     email: V(payload.email),
     grupo: V(payload.grupo),
     fechaIngreso: V(payload.fechaIngreso) || formatDateForInput_(new Date()),
-    tipoPersona: V(payload.tipoPersona) || "ASISTENTE",
+    tipoPersona: normalizePersonTypeValue_(payload.tipoPersona || "Congregante"),
     estado: V(payload.estado) || "ACTIVO"
   };
 
@@ -3466,7 +3615,7 @@ function normalizeImportedPersonRow_(row) {
     grupo: normalizeCatalogGroupValue_(getImportValue_(row, ["grupo", "groupid", "group_id", "id_grupo"])),
     fechaIngreso: fechaIngreso || formatDateForInput_(new Date()),
     estado: V(getImportValue_(row, ["estado"])) || "ACTIVO",
-    tipoPersona: V(getImportValue_(row, ["tipo_persona", "tipo", "tipo persona"])) || "ASISTENTE",
+    tipoPersona: normalizePersonTypeValue_(getImportValue_(row, ["tipo_persona", "tipo", "tipo persona"]) || "Congregante"),
     fechaNacimiento
   };
 }
@@ -3569,6 +3718,259 @@ function normalizeCatalogGroupValue_(value) {
   ));
 
   return match ? String(match.id) : rawValue;
+}
+
+function normalizePersonTypeValue_(value) {
+  const rawValue = V(value);
+  const normalized = normalizeText(rawValue);
+
+  if (!normalized || normalized === "asistente" || normalized === "congregante") {
+    return "Congregante";
+  }
+
+  if (normalized === "servidor") {
+    return "Servidor";
+  }
+
+  if (normalized === "coordinador") {
+    return "Coordinador";
+  }
+
+  if (normalized === "lider") {
+    return "Líder";
+  }
+
+  return rawValue || "Congregante";
+}
+
+function getPersonTypeKey_(value) {
+  return normalizeText(normalizePersonTypeValue_(value));
+}
+
+function buildCredentialQrValue_(person) {
+  return JSON.stringify({
+    v: 2,
+    personId: person.id || "",
+    name: person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim(),
+    groupId: person.grupo || "",
+    personType: normalizePersonTypeValue_(person.tipoPersona)
+  });
+}
+
+function syncCredentialQrsAfterRender_() {
+  const qrCanvases = document.querySelectorAll('[data-role="credential-qr"]');
+
+  qrCanvases.forEach((element) => {
+    if (!(element instanceof HTMLCanvasElement)) {
+      return;
+    }
+
+    const value = element.dataset.qrValue || "";
+    const size = Number(element.dataset.qrSize || 164);
+    renderCredentialQrCanvas_(element, value, size);
+  });
+}
+
+function renderCredentialQrCanvas_(canvas, value, size = 164) {
+  if (!window.QRious) {
+    return;
+  }
+
+  const qr = new window.QRious({
+    element: canvas,
+    value,
+    size,
+    level: "H",
+    foreground: "#050505",
+    background: "#ffffff"
+  });
+
+  qr.set({
+    value,
+    size
+  });
+}
+
+function buildCredentialQrDataUrl_(person, size = 220) {
+  if (!window.QRious) {
+    throw new ApiError("No se encontro la libreria para generar QR. Recarga la pagina y vuelve a intentar.", "QR_RENDER_NOT_AVAILABLE");
+  }
+
+  const canvas = document.createElement("canvas");
+  renderCredentialQrCanvas_(canvas, buildCredentialQrValue_(person), size);
+  return canvas.toDataURL("image/png");
+}
+
+function printCredentialCards_(people, title) {
+  const rows = Array.isArray(people) ? people.filter(Boolean) : [];
+
+  if (!rows.length) {
+    showToast("Sin credenciales", "No hay personas disponibles para generar credenciales con los filtros actuales.", "warning");
+    return;
+  }
+
+  const logoUrl = getLogoAssetUrl_();
+  const cardsHtml = rows.map((person) => {
+    const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+    const qrDataUrl = buildCredentialQrDataUrl_(person);
+    const type = normalizePersonTypeValue_(person.tipoPersona);
+    const name = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
+    const id = person.id || person.numero || "SIN ID";
+
+    return `
+      <article class="print-credential-card">
+        <div class="print-credential-head">
+          <img src="${logoUrl}" alt="Fuertes">
+          <span class="print-credential-type">${escapeHtml(type)}</span>
+        </div>
+        <div class="print-credential-body">
+          <img class="print-credential-qr" src="${qrDataUrl}" alt="QR ${escapeHtml(id)}">
+          <div class="print-credential-copy">
+            <strong>${escapeHtml(name)}</strong>
+            <span><b>ID:</b> ${escapeHtml(id)}</span>
+            <span><b>Grupo:</b> ${escapeHtml(groupName)}</span>
+            <span><b>Tipo:</b> ${escapeHtml(type)}</span>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1280,height=900");
+
+  if (!printWindow) {
+    showToast("Ventana bloqueada", "Permite ventanas emergentes para abrir la impresion de credenciales.", "warning");
+    return;
+  }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>${escapeHtml(title || "Credenciales QR")}</title>
+      <style>
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          padding: 28px;
+          font-family: Manrope, Arial, sans-serif;
+          color: #111111;
+          background: #f2f2f2;
+        }
+        .print-shell {
+          display: grid;
+          gap: 18px;
+        }
+        .print-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 18px;
+        }
+        .print-head h1 {
+          margin: 0;
+          font-size: 30px;
+          letter-spacing: -0.03em;
+        }
+        .print-head p {
+          margin: 8px 0 0;
+          color: #555555;
+        }
+        .print-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+        }
+        .print-credential-card {
+          background: #ffffff;
+          border: 1px solid #dedede;
+          border-radius: 22px;
+          padding: 18px;
+          break-inside: avoid;
+          box-shadow: 0 12px 24px rgba(0,0,0,0.06);
+        }
+        .print-credential-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .print-credential-head img {
+          width: 132px;
+          display: block;
+        }
+        .print-credential-type {
+          padding: 8px 12px;
+          border-radius: 999px;
+          background: #111111;
+          color: #ffffff;
+          font-size: 12px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .print-credential-body {
+          display: grid;
+          grid-template-columns: 188px minmax(0, 1fr);
+          gap: 18px;
+          align-items: center;
+          margin-top: 16px;
+        }
+        .print-credential-qr {
+          width: 188px;
+          height: 188px;
+          padding: 12px;
+          border-radius: 20px;
+          background: #ffffff;
+          border: 1px solid #d8d8d8;
+        }
+        .print-credential-copy {
+          display: grid;
+          gap: 10px;
+        }
+        .print-credential-copy strong {
+          font-size: 22px;
+          line-height: 1.1;
+        }
+        .print-credential-copy span {
+          font-size: 14px;
+          color: #2a2a2a;
+        }
+        @media print {
+          body { padding: 0; background: #ffffff; }
+          .print-head { margin-bottom: 12px; }
+          .print-grid { gap: 12px; }
+          .print-credential-card { box-shadow: none; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="print-shell">
+        <div class="print-head">
+          <div>
+            <h1>${escapeHtml(title || "Credenciales QR")}</h1>
+            <p>${escapeHtml(`Total de credenciales: ${rows.length}`)}</p>
+          </div>
+          <p>${escapeHtml(formatDateTime_(new Date()))}</p>
+        </div>
+        <section class="print-grid">
+          ${cardsHtml}
+        </section>
+      </div>
+      <script>
+        window.addEventListener("load", function () {
+          window.print();
+        });
+      </script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+function getLogoAssetUrl_() {
+  return new URL("./assets/logo-fuertes.png", window.location.href).href;
 }
 
 function normalizePhone_(value) {
