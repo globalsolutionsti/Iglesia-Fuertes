@@ -648,11 +648,40 @@ function renderParticipantsView() {
   const filter = state.filters.participants;
   const groups = getSessionGroups(filter.seasonId, filter.sessionId);
   const context = state.participantContext;
+  const sessions = getSessions(filter.seasonId);
+  const participantPersonIds = getParticipantPersonIdSet_();
   const peopleSearchResults = filterPeople(state.people, filter.peopleSearch).slice(0, 8);
   const bulkResults = filterPeople(state.people, filter.bulkSearch).slice(0, 12);
+  const selectedVisibleBulkCount = bulkResults.filter((person) => state.selectedBulkPeople.includes(person.id)).length;
+  const assignedVisibleBulkCount = bulkResults.filter((person) => participantPersonIds.has(String(person.id))).length;
+  const serverCount = state.participants.filter((participant) => normalizeText(participant.type) === "servidor").length;
+  const moveGroups = groups;
 
   return `
     <section class="view-grid">
+      <div class="stats-grid participant-stats-grid">
+        <article class="stat-card">
+          <span>Participantes actuales</span>
+          <strong>${escapeHtml(String(state.participants.length))}</strong>
+          <span>Activos en el grupo y sesion seleccionados</span>
+        </article>
+        <article class="stat-card">
+          <span>Servidores</span>
+          <strong>${escapeHtml(String(serverCount))}</strong>
+          <span>Contados segun el tipo del participante</span>
+        </article>
+        <article class="stat-card">
+          <span>Sesiones de la temporada</span>
+          <strong>${escapeHtml(String(sessions.length))}</strong>
+          <span>Base disponible para asignacion masiva</span>
+        </article>
+        <article class="stat-card">
+          <span>Seleccion masiva</span>
+          <strong>${escapeHtml(String(state.selectedBulkPeople.length))}</strong>
+          <span>Personas listas para asignar a toda la temporada</span>
+        </article>
+      </div>
+
       <article class="panel-card">
         <div class="panel-head">
           <div>
@@ -670,7 +699,10 @@ function renderParticipantsView() {
             <label>Resumen</label>
             <div class="context-strip">
               <span class="context-item"><strong>Participantes:</strong> ${state.participants.length}</span>
+              <span class="context-item"><strong>Temporada:</strong> ${context ? escapeHtml(context.season.name) : "Sin cargar"}</span>
+              <span class="context-item"><strong>Sesion:</strong> ${context ? escapeHtml(context.session.name) : "Sin cargar"}</span>
               <span class="context-item"><strong>Grupo:</strong> ${context ? escapeHtml(context.group.name) : "Sin cargar"}</span>
+              <span class="context-item"><strong>Grupos en la sesion:</strong> ${groups.length}</span>
             </div>
           </div>
         </div>
@@ -692,13 +724,24 @@ function renderParticipantsView() {
 
           <div class="results-list" style="margin-top: 16px;">
             ${peopleSearchResults.length ? peopleSearchResults.map((person) => `
-              <article class="result-card">
+              <article class="result-card ${participantPersonIds.has(String(person.id)) ? "result-card-muted" : ""}">
                 <div class="result-row">
-                  <div>
-                    <span class="row-title">${escapeHtml(person.name)}</span>
+                  <div class="result-copy-stack">
+                    <div class="result-title-row">
+                      <span class="row-title">${escapeHtml(person.name)}</span>
+                      ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : ""}
+                    </div>
                     <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")} | ${escapeHtml(person.type || "")}</span>
+                    ${participantPersonIds.has(String(person.id)) ? `<span class="row-meta">Esta persona ya forma parte del grupo actual.</span>` : ""}
                   </div>
-                  <button class="btn btn-primary" data-action="add-person" data-person-id="${escapeHtml(person.id)}">Agregar</button>
+                  <button
+                    class="btn btn-primary"
+                    data-action="add-person"
+                    data-person-id="${escapeHtml(person.id)}"
+                    ${participantPersonIds.has(String(person.id)) ? "disabled" : ""}
+                  >
+                    ${participantPersonIds.has(String(person.id)) ? "Asignado" : "Agregar"}
+                  </button>
                 </div>
               </article>
             `).join("") : `
@@ -721,18 +764,35 @@ function renderParticipantsView() {
             <input id="participant-bulk-search" value="${escapeHtml(filter.bulkSearch)}" placeholder="Filtra personas por nombre o numero">
           </div>
 
+          <div class="actions-row participant-bulk-toolbar">
+            <button class="btn btn-secondary" data-action="select-visible-bulk" ${bulkResults.length ? "" : "disabled"}>Seleccionar visibles</button>
+            <button class="btn btn-ghost" data-action="unselect-visible-bulk" ${selectedVisibleBulkCount ? "" : "disabled"}>Quitar visibles</button>
+          </div>
+
+          <p class="footer-note participant-bulk-note">
+            Visibles ahora: ${escapeHtml(String(bulkResults.length))} | Ya presentes en esta sesion: ${escapeHtml(String(assignedVisibleBulkCount))} | Seleccionados en pantalla: ${escapeHtml(String(selectedVisibleBulkCount))}
+          </p>
+
           <div class="check-list">
             ${bulkResults.length ? bulkResults.map((person) => `
-              <label class="check-item">
+              <label class="check-item ${participantPersonIds.has(String(person.id)) ? "check-item-highlight" : ""}">
                 <input
                   type="checkbox"
                   data-role="bulk-person-checkbox"
                   value="${escapeHtml(person.id)}"
                   ${state.selectedBulkPeople.includes(person.id) ? "checked" : ""}
                 >
-                <span>
-                  <span class="row-title">${escapeHtml(person.name)}</span>
+                <span class="check-copy">
+                  <span class="result-title-row">
+                    <span class="row-title">${escapeHtml(person.name)}</span>
+                    ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : ""}
+                  </span>
                   <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")}</span>
+                  <span class="row-meta">
+                    ${participantPersonIds.has(String(person.id))
+                      ? "Puedes incluirlo si deseas completar las sesiones restantes de la temporada."
+                      : "Listo para agregarse a todas las sesiones de la temporada."}
+                  </span>
                 </span>
               </label>
             `).join("") : `
@@ -778,18 +838,35 @@ function renderParticipantsView() {
                     <td>${escapeHtml(participant.type)}</td>
                     <td>${renderPill(participant.status)}</td>
                     <td>
-                      <select class="inline-select" id="move-target-${escapeHtml(participant.id)}" data-role="move-target" data-participant-id="${escapeHtml(participant.id)}">
-                        <option value="">Selecciona grupo</option>
-                        ${state.catalogs.groups.map((group) => `
-                          <option value="${escapeHtml(String(group.id))}" ${String(participant.groupId) === String(group.id) ? "disabled" : ""}>
-                            ${escapeHtml(group.name)}
+                      <select
+                        class="inline-select"
+                        id="move-target-${escapeHtml(participant.id)}"
+                        data-role="move-target"
+                        data-participant-id="${escapeHtml(participant.id)}"
+                        ${moveGroups.length ? "" : "disabled"}
+                      >
+                        <option value="">${moveGroups.length ? "Selecciona grupo" : "No hay otro grupo en esta sesion"}</option>
+                        ${moveGroups.map((group) => `
+                          <option
+                            value="${escapeHtml(String(group.groupId))}"
+                            ${String(state.filters.participants.moveTargets[participant.id] || "") === String(group.groupId) ? "selected" : ""}
+                            ${String(participant.groupId) === String(group.groupId) ? "disabled" : ""}
+                          >
+                            ${escapeHtml(group.groupName)}
                           </option>
                         `).join("")}
                       </select>
                     </td>
                     <td>
                       <div class="inline-actions">
-                        <button class="btn btn-secondary" data-action="move-participant" data-participant-id="${escapeHtml(participant.id)}">Mover</button>
+                        <button
+                          class="btn btn-secondary"
+                          data-action="move-participant"
+                          data-participant-id="${escapeHtml(participant.id)}"
+                          ${state.filters.participants.moveTargets[participant.id] ? "" : "disabled"}
+                        >
+                          Mover
+                        </button>
                         <button class="btn btn-danger" data-action="deactivate-participant" data-participant-id="${escapeHtml(participant.id)}">Dar de baja</button>
                       </div>
                     </td>
@@ -1503,10 +1580,21 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "select-visible-bulk") {
+      toggleVisibleBulkSelection_(true);
+      renderApp();
+      return;
+    }
+
+    if (action === "unselect-visible-bulk") {
+      toggleVisibleBulkSelection_(false);
+      renderApp();
+      return;
+    }
+
     if (action === "move-participant") {
       const participantId = button.dataset.participantId;
-      const select = document.getElementById(`move-target-${participantId}`);
-      const targetGroupId = select ? select.value : "";
+      const targetGroupId = state.filters.participants.moveTargets[participantId] || "";
 
       if (!targetGroupId) {
         showToast("Falta grupo destino", "Selecciona un grupo antes de mover al participante.", "warning");
@@ -1518,10 +1606,12 @@ async function handleClick(event) {
           participantId,
           groupId: targetGroupId
         });
+        delete state.filters.participants.moveTargets[participantId];
         await loadParticipantsData();
       }, "Moviendo participante...");
 
       showToast("Participante movido", "El cambio de grupo ya se reflejo en la lista.", "success");
+      renderApp();
       return;
     }
 
@@ -1537,10 +1627,12 @@ async function handleClick(event) {
         await apiPost("participants.deactivate", {
           participantId
         });
+        delete state.filters.participants.moveTargets[participantId];
         await loadParticipantsData();
       }, "Dando de baja participante...");
 
       showToast("Participante dado de baja", "El registro quedo actualizado.", "success");
+      renderApp();
       return;
     }
 
@@ -1721,6 +1813,7 @@ async function handleChange(event) {
       state.filters.participants.seasonId = target.value;
       state.filters.participants.sessionId = "";
       state.filters.participants.groupId = "";
+      resetParticipantInteractionState_();
       await syncFilterState("participants");
       await loadParticipantsData();
       renderApp();
@@ -1730,6 +1823,7 @@ async function handleChange(event) {
     if (target.id === "participants-session") {
       state.filters.participants.sessionId = target.value;
       state.filters.participants.groupId = "";
+      resetParticipantInteractionState_();
       await syncFilterState("participants");
       await loadParticipantsData();
       renderApp();
@@ -1738,6 +1832,7 @@ async function handleChange(event) {
 
     if (target.id === "participants-group") {
       state.filters.participants.groupId = target.value;
+      resetParticipantInteractionState_();
       await loadParticipantsData();
       renderApp();
       return;
@@ -1787,6 +1882,12 @@ async function handleChange(event) {
 
     if (target.dataset.role === "bulk-person-checkbox") {
       toggleBulkSelection(target.value, target.checked);
+      renderApp();
+      return;
+    }
+
+    if (target.dataset.role === "move-target") {
+      state.filters.participants.moveTargets[target.dataset.participantId] = target.value;
       renderApp();
       return;
     }
@@ -1987,6 +2088,7 @@ async function loadParticipantsData() {
 
   const filter = state.filters.participants;
   if (!filter.seasonId || !filter.sessionId || !filter.groupId) {
+    resetParticipantInteractionState_();
     state.participants = [];
     state.participantContext = null;
     return;
@@ -2008,6 +2110,7 @@ async function loadParticipantsData() {
 
     state.participants = participants;
     state.participantContext = context;
+    state.filters.participants.moveTargets = {};
   }, "Cargando participantes...");
 }
 
@@ -2545,6 +2648,25 @@ function toggleBulkSelection(personId, checked) {
   }
 
   state.selectedBulkPeople = state.selectedBulkPeople.filter((item) => item !== personId);
+}
+
+function getParticipantPersonIdSet_() {
+  return new Set(state.participants.map((participant) => String(participant.personId)));
+}
+
+function getVisibleBulkPeople_() {
+  return filterPeople(state.people, state.filters.participants.bulkSearch).slice(0, 12);
+}
+
+function toggleVisibleBulkSelection_(checked) {
+  getVisibleBulkPeople_().forEach((person) => {
+    toggleBulkSelection(String(person.id), checked);
+  });
+}
+
+function resetParticipantInteractionState_() {
+  state.selectedBulkPeople = [];
+  state.filters.participants.moveTargets = {};
 }
 
 function buildAttendanceSummary() {
