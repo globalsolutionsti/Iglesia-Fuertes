@@ -1266,11 +1266,24 @@ function renderParticipantsView() {
   const selectedGroup = groups.find((group) => String(group.groupId) === String(filter.groupId)) || null;
   const participantPersonIds = getParticipantPersonIdSet_();
   const peopleSearchResults = filterPeople(state.people, filter.peopleSearch).slice(0, 8);
-  const bulkResults = filterPeople(state.people, filter.bulkSearch).slice(0, 12);
+  const bulkMatches = filterPeople(state.people, filter.bulkSearch);
+  const bulkResults = bulkMatches.slice(0, 18);
+  const selectedPeople = getSelectedBulkPeople_();
+  const selectedBulkSet = new Set(state.selectedBulkPeople.map((personId) => String(personId)));
   const selectedVisibleBulkCount = bulkResults.filter((person) => state.selectedBulkPeople.includes(person.id)).length;
+  const selectedFilteredBulkCount = bulkMatches.filter((person) => selectedBulkSet.has(String(person.id))).length;
   const assignedVisibleBulkCount = bulkResults.filter((person) => participantPersonIds.has(String(person.id))).length;
+  const assignedFilteredBulkCount = bulkMatches.filter((person) => participantPersonIds.has(String(person.id))).length;
+  const selectedAlreadyAssignedCount = selectedPeople.filter((person) => participantPersonIds.has(String(person.id))).length;
+  const selectedNewCount = Math.max(selectedPeople.length - selectedAlreadyAssignedCount, 0);
+  const hiddenBulkCount = Math.max(bulkMatches.length - bulkResults.length, 0);
   const serverCount = state.participants.filter((participant) => normalizeText(participant.type) === "servidor").length;
   const moveGroups = groups;
+  const canBulkAssign = Boolean(filter.seasonId && filter.groupId && sessions.length && selectedPeople.length);
+  const selectedGroupName = context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Sin grupo");
+  const bulkAssignLabel = selectedPeople.length
+    ? `Asignar ${selectedPeople.length} persona${selectedPeople.length === 1 ? "" : "s"} a ${sessions.length} sesion${sessions.length === 1 ? "" : "es"}`
+    : "Selecciona personas para asignar";
 
   return `
     <section class="view-grid">
@@ -1391,28 +1404,101 @@ function renderParticipantsView() {
           <div class="panel-head">
             <div>
               <h2>Asignacion masiva a toda la temporada</h2>
-              <p>Selecciona varias personas y el sistema las insertara en todas las sesiones de la temporada para el grupo elegido.</p>
+              <p>Haz la seleccion una sola vez y el sistema completara el grupo elegido a lo largo de toda la temporada.</p>
             </div>
             <span class="pill dark">${state.selectedBulkPeople.length} seleccionados</span>
           </div>
 
+          <div class="bulk-impact-card">
+            <div class="bulk-impact-copy">
+              <strong>Impacto de esta accion</strong>
+              <span>
+                ${filter.seasonId && filter.groupId
+                  ? `Trabajaras sobre ${escapeHtml(resolveSeasonName_(filter.seasonId) || "la temporada actual")} para el grupo ${escapeHtml(selectedGroupName)}.`
+                  : "Primero define temporada, sesion y grupo para que la asignacion masiva se haga sobre el contexto correcto."}
+              </span>
+            </div>
+
+            <div class="bulk-impact-grid">
+              <div class="bulk-impact-item">
+                <label>Sesiones destino</label>
+                <strong>${escapeHtml(String(sessions.length))}</strong>
+                <span>Toda la temporada seleccionada</span>
+              </div>
+              <div class="bulk-impact-item">
+                <label>Seleccionadas</label>
+                <strong>${escapeHtml(String(selectedPeople.length))}</strong>
+                <span>Personas listas para asignar</span>
+              </div>
+              <div class="bulk-impact-item">
+                <label>Nuevas en esta sesion</label>
+                <strong>${escapeHtml(String(selectedNewCount))}</strong>
+                <span>Entrarian desde este mismo grupo</span>
+              </div>
+              <div class="bulk-impact-item">
+                <label>Ya presentes</label>
+                <strong>${escapeHtml(String(selectedAlreadyAssignedCount))}</strong>
+                <span>Se completaran solo sesiones faltantes</span>
+              </div>
+            </div>
+          </div>
+
           <div class="field">
             <label for="participant-bulk-search">Buscar para asignacion masiva</label>
-            <input id="participant-bulk-search" value="${escapeHtml(filter.bulkSearch)}" placeholder="Filtra personas por nombre o numero">
+            <input id="participant-bulk-search" value="${escapeHtml(filter.bulkSearch)}" placeholder="Filtra personas por nombre, QR ID o numero interno">
           </div>
 
-          <div class="actions-row participant-bulk-toolbar">
-            <button class="btn btn-secondary" data-action="select-visible-bulk" ${bulkResults.length ? "" : "disabled"}>Seleccionar visibles</button>
-            <button class="btn btn-ghost" data-action="unselect-visible-bulk" ${selectedVisibleBulkCount ? "" : "disabled"}>Quitar visibles</button>
+          <div class="bulk-selection-bar">
+            <div>
+              <strong>${escapeHtml(String(selectedPeople.length))} persona${selectedPeople.length === 1 ? "" : "s"} en cola</strong>
+              <span class="row-meta">
+                Filtradas: ${escapeHtml(String(bulkMatches.length))} | Ya en esta sesion: ${escapeHtml(String(assignedFilteredBulkCount))} | Seleccionadas en este filtro: ${escapeHtml(String(selectedFilteredBulkCount))}
+              </span>
+            </div>
+
+            <div class="actions-row participant-bulk-toolbar">
+              <button class="btn btn-secondary" data-action="select-visible-bulk" ${bulkResults.length ? "" : "disabled"}>Seleccionar visibles</button>
+              <button class="btn btn-secondary" data-action="select-filtered-bulk" ${bulkMatches.length ? "" : "disabled"}>Seleccionar filtradas</button>
+              <button class="btn btn-ghost" data-action="unselect-visible-bulk" ${selectedVisibleBulkCount ? "" : "disabled"}>Quitar visibles</button>
+              <button class="btn btn-ghost" data-action="unselect-filtered-bulk" ${selectedFilteredBulkCount ? "" : "disabled"}>Quitar filtradas</button>
+            </div>
           </div>
+
+          ${selectedPeople.length ? `
+            <div class="bulk-selected-tray">
+              <div class="bulk-selected-head">
+                <strong>Seleccion actual</strong>
+                <span class="row-meta">${escapeHtml(String(selectedAlreadyAssignedCount))} ya estaban en la sesion actual y ${escapeHtml(String(selectedNewCount))} entraran desde cero.</span>
+              </div>
+              <div class="bulk-selected-chip-list">
+                ${selectedPeople.map((person) => `
+                  <button
+                    class="bulk-selected-chip ${participantPersonIds.has(String(person.id)) ? "is-assigned" : ""}"
+                    data-action="remove-bulk-person"
+                    data-person-id="${escapeHtml(String(person.id))}"
+                    title="Quitar de la seleccion"
+                  >
+                    <span>${escapeHtml(person.name)}</span>
+                    <small>${escapeHtml(person.numero || person.id)}</small>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+          ` : `
+            <div class="bulk-empty-selection">
+              <strong>Empieza a construir tu lote</strong>
+              <span>Busca personas, marca las que quieras y revisa arriba el impacto antes de asignarlas a toda la temporada.</span>
+            </div>
+          `}
 
           <p class="footer-note participant-bulk-note">
-            Visibles ahora: ${escapeHtml(String(bulkResults.length))} | Ya presentes en esta sesion: ${escapeHtml(String(assignedVisibleBulkCount))} | Seleccionados en pantalla: ${escapeHtml(String(selectedVisibleBulkCount))}
+            Mostrando ${escapeHtml(String(bulkResults.length))} de ${escapeHtml(String(bulkMatches.length))} coincidencias. Ya presentes en esta sesion visible: ${escapeHtml(String(assignedVisibleBulkCount))} | Seleccionadas en pantalla: ${escapeHtml(String(selectedVisibleBulkCount))}
+            ${hiddenBulkCount ? ` Ajusta el filtro para acercarte al lote correcto o usa "Seleccionar filtradas" para tomar todas las coincidencias actuales.` : ""}
           </p>
 
-          <div class="check-list">
+          <div class="check-list bulk-check-list">
             ${bulkResults.length ? bulkResults.map((person) => `
-              <label class="check-item ${participantPersonIds.has(String(person.id)) ? "check-item-highlight" : ""}">
+              <label class="check-item bulk-check-item ${participantPersonIds.has(String(person.id)) ? "check-item-highlight" : ""} ${state.selectedBulkPeople.includes(person.id) ? "bulk-check-item-selected" : ""}">
                 <input
                   type="checkbox"
                   data-role="bulk-person-checkbox"
@@ -1423,6 +1509,7 @@ function renderParticipantsView() {
                   <span class="result-title-row">
                     <span class="row-title">${escapeHtml(person.name)}</span>
                     ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : ""}
+                    ${state.selectedBulkPeople.includes(person.id) ? `<span class="pill dark">En lote</span>` : ""}
                   </span>
                   <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")}</span>
                   <span class="row-meta">
@@ -1437,9 +1524,20 @@ function renderParticipantsView() {
             `}
           </div>
 
-          <div class="actions-row">
-            <button class="btn btn-primary" data-action="bulk-assign">Asignar a toda la temporada</button>
-            <button class="btn btn-ghost" data-action="clear-bulk-selection">Limpiar seleccion</button>
+          <div class="bulk-footer-actions">
+            <div class="bulk-footer-copy">
+              <strong>${escapeHtml(bulkAssignLabel)}</strong>
+              <span class="row-meta">
+                ${canBulkAssign
+                  ? `El sistema revisara las ${escapeHtml(String(sessions.length))} sesiones de la temporada y evitara duplicados donde ya existan participantes.`
+                  : "Necesitas contexto valido y al menos una persona seleccionada para ejecutar la asignacion."}
+              </span>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" data-action="bulk-assign" ${canBulkAssign ? "" : "disabled"}>${escapeHtml(bulkAssignLabel)}</button>
+              <button class="btn btn-ghost" data-action="clear-bulk-selection" ${selectedPeople.length ? "" : "disabled"}>Limpiar seleccion</button>
+            </div>
           </div>
         </article>
       </div>
@@ -2549,6 +2647,12 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "remove-bulk-person") {
+      toggleBulkSelection(String(button.dataset.personId || ""), false);
+      renderApp();
+      return;
+    }
+
     if (action === "select-visible-bulk") {
       toggleVisibleBulkSelection_(true);
       renderApp();
@@ -2557,6 +2661,18 @@ async function handleClick(event) {
 
     if (action === "unselect-visible-bulk") {
       toggleVisibleBulkSelection_(false);
+      renderApp();
+      return;
+    }
+
+    if (action === "select-filtered-bulk") {
+      toggleFilteredBulkSelection_(true);
+      renderApp();
+      return;
+    }
+
+    if (action === "unselect-filtered-bulk") {
+      toggleFilteredBulkSelection_(false);
       renderApp();
       return;
     }
@@ -3482,10 +3598,18 @@ async function addParticipant(personId) {
 
 async function bulkAssignParticipants() {
   const filter = state.filters.participants;
+  const selectedPeople = getSelectedBulkPeople_();
+  const seasonName = resolveSeasonName_(filter.seasonId) || filter.seasonId;
+  const groupName = state.participantContext ? state.participantContext.group.name : (resolveGroupName_(filter.groupId) || filter.groupId);
+  const sessionCount = getSessions(filter.seasonId).length;
   ensureContextReady(filter, "asignacion masiva");
 
-  if (!state.selectedBulkPeople.length) {
+  if (!selectedPeople.length) {
     showToast("Sin seleccion", "Selecciona al menos una persona para la asignacion masiva.", "warning");
+    return;
+  }
+
+  if (!window.confirm(`Se asignaran ${selectedPeople.length} persona(s) al grupo ${groupName} durante ${sessionCount} sesion(es) de ${seasonName}. Deseas continuar?`)) {
     return;
   }
 
@@ -4040,13 +4164,31 @@ function getParticipantPersonIdSet_() {
 }
 
 function getVisibleBulkPeople_() {
-  return filterPeople(state.people, state.filters.participants.bulkSearch).slice(0, 12);
+  return filterPeople(state.people, state.filters.participants.bulkSearch).slice(0, 18);
 }
 
 function toggleVisibleBulkSelection_(checked) {
   getVisibleBulkPeople_().forEach((person) => {
     toggleBulkSelection(String(person.id), checked);
   });
+}
+
+function getFilteredBulkPeople_() {
+  return filterPeople(state.people, state.filters.participants.bulkSearch);
+}
+
+function toggleFilteredBulkSelection_(checked) {
+  getFilteredBulkPeople_().forEach((person) => {
+    toggleBulkSelection(String(person.id), checked);
+  });
+}
+
+function getSelectedBulkPeople_() {
+  const selectedMap = new Map(state.people.map((person) => [String(person.id), person]));
+
+  return state.selectedBulkPeople
+    .map((personId) => selectedMap.get(String(personId)) || null)
+    .filter(Boolean);
 }
 
 function resetParticipantInteractionState_() {
