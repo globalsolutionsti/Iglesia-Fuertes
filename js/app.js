@@ -57,6 +57,19 @@ const state = {
   apiUrl: getStoredApiUrl(),
   currentView: getStoredUser() ? "dashboard" : "login",
   connectionStatus: null,
+  metrics: {
+    peopleCount: null,
+    directoryCount: null
+  },
+  loaded: {
+    bootstrap: false,
+    groups: false,
+    ministries: false,
+    seasons: false,
+    people: false,
+    peopleDirectory: false,
+    activeSession: false
+  },
   catalogs: {
     groups: [],
     ministries: []
@@ -125,6 +138,16 @@ const state = {
       cameraFacing: DEFAULT_QR_CAMERA_FACING
     }
   }
+};
+
+const pendingResourceLoads = {
+  bootstrap: null,
+  groups: null,
+  ministries: null,
+  seasons: null,
+  people: null,
+  peopleDirectory: null,
+  activeSession: null
 };
 
 const qrScannerRuntime = {
@@ -557,6 +580,7 @@ function renderDashboardView() {
   const latestSeasonSessions = latestSeason ? getSessions(latestSeason.id) : [];
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
   const apiDescriptor = describeApiUrl(state.apiUrl);
+  const peopleCount = getDashboardPeopleCount_();
 
   return `
     <section class="view-grid">
@@ -571,8 +595,8 @@ function renderDashboardView() {
 
         <article class="stat-card">
           <span class="status-chip neutral">Personas</span>
-          <strong>${state.people.length}</strong>
-          <span>Personas activas en el padron</span>
+          <strong>${escapeHtml(peopleCount)}</strong>
+          <span>${peopleCount === "..." ? "Sincronizando padron activo" : "Personas activas en el padron"}</span>
         </article>
 
         <article class="stat-card">
@@ -658,6 +682,18 @@ function renderDashboardView() {
       </div>
     </section>
   `;
+}
+
+function getDashboardPeopleCount_() {
+  if (state.metrics.peopleCount !== null && state.metrics.peopleCount !== undefined) {
+    return String(state.metrics.peopleCount);
+  }
+
+  if (state.people.length) {
+    return String(state.people.length);
+  }
+
+  return "...";
 }
 
 function renderAssistantsView() {
@@ -2716,20 +2752,21 @@ async function handleSubmit(event) {
       const email = form.email.value.trim();
       const password = form.password.value;
 
-      await withLoading(async () => {
-        ensureApiUrl(state.apiUrl);
-        const data = await apiPost("auth.login", {
-          email,
-          password
-        });
+      ensureApiUrl(state.apiUrl);
+      const data = await withLoading(() => apiPost("auth.login", {
+        email,
+        password
+      }), "Validando credenciales...");
 
-        state.user = data.user;
-        setStoredUser(data.user);
-        state.currentView = "dashboard";
-        showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
-        await bootstrapApplication();
-        scrollViewportToTop_();
-      }, "Validando credenciales...");
+      state.user = data.user;
+      setStoredUser(data.user);
+      state.currentView = "dashboard";
+      renderApp();
+      showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
+      await bootstrapApplication({
+        message: "Preparando dashboard..."
+      });
+      scrollViewportToTop_();
 
       return;
     }
@@ -2949,21 +2986,24 @@ function handleInput(event) {
   }
 }
 
-async function bootstrapApplication() {
-  await withLoading(async () => {
-    await Promise.all([
-      loadCatalogs(),
-      refreshSeasons(),
-      loadPeople(),
-      loadPeopleDirectory(),
-      loadActiveSession()
-    ]);
+async function bootstrapApplication(options = {}) {
+  const task = async () => {
+    await loadBootstrapData_();
+    syncBootstrapFilters_();
 
-    await syncAllFilters();
-    await loadCurrentViewData();
-  }, "Cargando datos iniciales...");
+    if (state.currentView !== "dashboard") {
+      await loadCurrentViewData();
+    }
+  };
+
+  if (options.showLoading === false) {
+    await task();
+  } else {
+    await withLoading(task, options.message || "Preparando dashboard...");
+  }
 
   renderApp();
+  warmCommonDataInBackground_();
 }
 
 async function loadCurrentViewData() {
@@ -2979,14 +3019,14 @@ async function loadCurrentViewData() {
       await ensureSeasonViewData();
       return;
     case "participants":
-      await loadParticipantsData();
+      await ensureParticipantsViewData_();
       return;
     case "attendance":
       await loadActiveSession();
       await loadAttendanceData();
       return;
     case "qr":
-      await loadQrSummary();
+      await ensureQrViewData_();
       return;
     case "dashboard":
     default:
@@ -2994,30 +3034,137 @@ async function loadCurrentViewData() {
   }
 }
 
-async function loadCatalogs() {
-  const [groups, ministries] = await Promise.all([
-    apiGet("catalog.groups.list"),
-    apiGet("catalog.ministries.list")
+function runSharedLoad_(key, task) {
+  if (pendingResourceLoads[key]) {
+    return pendingResourceLoads[key];
+  }
+
+  pendingResourceLoads[key] = Promise.resolve()
+    .then(task)
+    .finally(() => {
+      pendingResourceLoads[key] = null;
+    });
+
+  return pendingResourceLoads[key];
+}
+
+async function loadBootstrapData_() {
+  return runSharedLoad_("bootstrap", async () => {
+    try {
+      applyAppBootstrapPayload_(await apiGet("app.bootstrap"));
+      state.loaded.bootstrap = true;
+      return;
+    } catch (error) {
+      if (!shouldFallbackToLegacyBootstrap_(error)) {
+        throw error;
+      }
+    }
+
+    await loadLegacyBootstrapData_();
+    state.loaded.bootstrap = true;
+  });
+}
+
+function shouldFallbackToLegacyBootstrap_(error) {
+  return error instanceof ApiError && error.code !== "NETWORK_ERROR";
+}
+
+function applyAppBootstrapPayload_(payload) {
+  const latestSeason = Array.isArray(payload.seasons) && payload.seasons.length
+    ? payload.seasons[payload.seasons.length - 1]
+    : null;
+
+  state.catalogs.groups = Array.isArray(payload.groups) ? payload.groups : [];
+  state.loaded.groups = true;
+  state.seasons = Array.isArray(payload.seasons) ? payload.seasons : [];
+  state.loaded.seasons = true;
+  state.activeSession = payload.activeSession || null;
+  state.loaded.activeSession = true;
+  state.metrics.peopleCount = toOptionalNumber_(payload.metrics && payload.metrics.peopleCount);
+  state.metrics.directoryCount = toOptionalNumber_(payload.metrics && payload.metrics.directoryCount);
+  state.sessionsBySeason = {};
+  state.sessionGroupsByKey = {};
+
+  if (latestSeason && Array.isArray(payload.latestSeasonSessions)) {
+    state.sessionsBySeason[latestSeason.id] = payload.latestSeasonSessions;
+  }
+}
+
+async function loadLegacyBootstrapData_() {
+  state.sessionsBySeason = {};
+  state.sessionGroupsByKey = {};
+
+  await Promise.all([
+    loadGroupsCatalog_(),
+    refreshSeasons(),
+    loadActiveSession()
   ]);
 
-  state.catalogs.groups = groups;
-  state.catalogs.ministries = ministries;
+  if (getLatestSeason()) {
+    await ensureSessionsForSeason(getLatestSeason().id);
+  }
+}
+
+function syncBootstrapFilters_() {
+  state.filters.seasons.seasonId = ensureValidSeasonId(state.filters.seasons.seasonId);
+}
+
+async function loadCatalogs(options = {}) {
+  await loadGroupsCatalog_();
+
+  if (options.includeMinistries) {
+    await loadMinistriesCatalog_();
+  }
+}
+
+async function loadGroupsCatalog_() {
+  return runSharedLoad_("groups", async () => {
+    state.catalogs.groups = await apiGet("catalog.groups.list");
+    state.loaded.groups = true;
+    return state.catalogs.groups;
+  });
+}
+
+async function loadMinistriesCatalog_() {
+  return runSharedLoad_("ministries", async () => {
+    state.catalogs.ministries = await apiGet("catalog.ministries.list");
+    state.loaded.ministries = true;
+    return state.catalogs.ministries;
+  });
 }
 
 async function refreshSeasons() {
-  state.seasons = await apiGet("seasons.list");
+  return runSharedLoad_("seasons", async () => {
+    state.seasons = await apiGet("seasons.list");
+    state.loaded.seasons = true;
+    return state.seasons;
+  });
 }
 
 async function loadPeople() {
-  state.people = await apiGet("people.list");
+  return runSharedLoad_("people", async () => {
+    state.people = await apiGet("people.list");
+    state.metrics.peopleCount = state.people.length;
+    state.loaded.people = true;
+    return state.people;
+  });
 }
 
 async function loadPeopleDirectory() {
-  state.peopleDirectory = await apiGet("servers.list");
+  return runSharedLoad_("peopleDirectory", async () => {
+    state.peopleDirectory = await apiGet("servers.list");
+    state.metrics.directoryCount = state.peopleDirectory.length;
+    state.loaded.peopleDirectory = true;
+    return state.peopleDirectory;
+  });
 }
 
 async function loadActiveSession() {
-  state.activeSession = await apiGet("sessions.active");
+  return runSharedLoad_("activeSession", async () => {
+    state.activeSession = await apiGet("sessions.active");
+    state.loaded.activeSession = true;
+    return state.activeSession;
+  });
 }
 
 async function refreshPeopleSources_() {
@@ -3028,9 +3175,39 @@ async function refreshPeopleSources_() {
 }
 
 async function ensureAssistantsViewData_() {
-  if (!state.peopleDirectory.length) {
+  if (!state.loaded.peopleDirectory) {
     await loadPeopleDirectory();
   }
+}
+
+async function ensureParticipantsViewData_() {
+  if (!state.loaded.people) {
+    await loadPeople();
+  }
+
+  await loadParticipantsData();
+}
+
+async function ensureQrViewData_() {
+  if (!state.loaded.people) {
+    await loadPeople();
+  }
+
+  await loadQrSummary();
+}
+
+function warmCommonDataInBackground_() {
+  if (!state.user || state.loaded.people || pendingResourceLoads.people) {
+    return;
+  }
+
+  void loadPeople()
+    .then(() => {
+      if (state.currentView === "dashboard") {
+        renderApp();
+      }
+    })
+    .catch(() => {});
 }
 
 async function ensureSessionsForSeason(seasonId) {
@@ -5099,6 +5276,15 @@ function scrollToSection_(sectionId) {
   });
 }
 
+function toOptionalNumber_(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
 function normalizeInlineText_(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -5146,6 +5332,19 @@ async function testConnection() {
 function resetRuntimeState() {
   stopQrScannerRuntime_();
   state.connectionStatus = null;
+  state.metrics = {
+    peopleCount: null,
+    directoryCount: null
+  };
+  state.loaded = {
+    bootstrap: false,
+    groups: false,
+    ministries: false,
+    seasons: false,
+    people: false,
+    peopleDirectory: false,
+    activeSession: false
+  };
   state.catalogs = {
     groups: [],
     ministries: []
@@ -5176,6 +5375,10 @@ function resetRuntimeState() {
   state.ui = {
     mobileNavOpen: false
   };
+
+  Object.keys(pendingResourceLoads).forEach((key) => {
+    pendingResourceLoads[key] = null;
+  });
 }
 
 function detectPreferredQrCameraFacing_() {
