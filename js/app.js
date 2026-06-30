@@ -36,6 +36,8 @@ const VIEW_META = {
   }
 };
 
+const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
+
 const state = {
   user: getStoredUser(),
   apiUrl: getStoredApiUrl(),
@@ -61,7 +63,8 @@ const state = {
     enabled: false,
     status: "idle",
     message: "Activa la camara para comenzar el registro automatico.",
-    result: null
+    result: null,
+    cameraFacing: ""
   },
   selectedBulkPeople: [],
   filters: {
@@ -86,7 +89,8 @@ const state = {
       seasonId: "",
       sessionId: "",
       personId: "",
-      peopleSearch: ""
+      peopleSearch: "",
+      cameraFacing: DEFAULT_QR_CAMERA_FACING
     }
   }
 };
@@ -967,6 +971,8 @@ function renderQrView() {
   const kioskBadge = kioskResult ? kioskResult.badge : (state.qrScanner.enabled ? "Escaneo en vivo" : "Kiosko en espera");
   const kioskTitle = kioskResult ? kioskResult.title : "Escanea tu codigo QR";
   const kioskMessage = kioskResult ? kioskResult.message : state.qrScanner.message;
+  const selectedCameraLabel = getQrCameraLabel_(filter.cameraFacing);
+  const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || filter.cameraFacing);
   const kioskSessionLabel = kioskContext
     ? `${kioskContext.sessionId} | ${filter.mode === "manual" ? "Sesion forzada" : "Sesion activa"}`
     : "Sin sesion seleccionada";
@@ -997,6 +1003,15 @@ function renderQrView() {
           <span class="kiosk-chip">${escapeHtml(filter.mode === "manual" ? "Modo manual" : "Modo automatico")}</span>
           <span class="kiosk-chip">${escapeHtml(kioskSessionLabel)}</span>
           <span class="kiosk-chip">${escapeHtml(activeSession ? activeSession.name : "Sin sesion abierta hoy")}</span>
+          <span class="kiosk-chip">Camara seleccionada: ${escapeHtml(selectedCameraLabel)}</span>
+        </div>
+
+        <div class="kiosk-camera-row">
+          <span class="kiosk-camera-label">Camara del kiosko</span>
+          <div class="toggle-group kiosk-toggle-group">
+            <button class="toggle-button ${filter.cameraFacing === "front" ? "active" : ""}" data-action="set-kiosk-camera" data-camera-facing="front">Frontal</button>
+            <button class="toggle-button ${filter.cameraFacing === "rear" ? "active" : ""}" data-action="set-kiosk-camera" data-camera-facing="rear">Trasera</button>
+          </div>
         </div>
 
         <div class="kiosk-grid">
@@ -1021,8 +1036,11 @@ function renderQrView() {
               <span class="status-chip ${state.qrScanner.enabled ? "success" : "neutral"}">
                 ${state.qrScanner.enabled ? "Camara activa" : "Camara apagada"}
               </span>
+              <span class="kiosk-camera-note">
+                Vista actual: ${escapeHtml(activeCameraLabel)}
+              </span>
               <span class="footer-note">
-                Recomendado: Chrome o Edge sobre HTTPS para aprovechar la deteccion nativa de QR con mejor rendimiento.
+                En iPad se prioriza la camara frontal y puedes alternar a trasera cuando lo necesites.
               </span>
             </div>
           </div>
@@ -1547,7 +1565,7 @@ async function handleClick(event) {
     if (action === "start-kiosk-camera") {
       state.qrScanner.enabled = true;
       state.qrScanner.status = "starting";
-      state.qrScanner.message = "Solicitando acceso a la camara y preparando el lector...";
+      state.qrScanner.message = `Solicitando acceso a la camara ${getQrCameraLabel_(state.filters.qr.cameraFacing)} y preparando el lector...`;
       renderApp();
       return;
     }
@@ -1568,6 +1586,28 @@ async function handleClick(event) {
 
     if (action === "clear-kiosk-result") {
       state.qrScanner.result = null;
+      renderApp();
+      return;
+    }
+
+    if (action === "set-kiosk-camera") {
+      const nextFacing = button.dataset.cameraFacing === "front" ? "front" : "rear";
+      if (state.filters.qr.cameraFacing === nextFacing) {
+        return;
+      }
+
+      state.filters.qr.cameraFacing = nextFacing;
+      state.qrScanner.result = null;
+
+      if (state.qrScanner.enabled) {
+        state.qrScanner.status = "starting";
+        state.qrScanner.message = `Cambiando a camara ${getQrCameraLabel_(nextFacing)}...`;
+        stopQrScannerRuntime_(true);
+      } else {
+        state.qrScanner.cameraFacing = "";
+        state.qrScanner.message = `Camara ${getQrCameraLabel_(nextFacing)} lista para iniciar el kiosko.`;
+      }
+
       renderApp();
       return;
     }
@@ -2218,20 +2258,7 @@ async function ensureQrScannerStarted_() {
 
   if (!qrScannerRuntime.stream) {
     try {
-      qrScannerRuntime.stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: {
-            ideal: "environment"
-          },
-          width: {
-            ideal: 1280
-          },
-          height: {
-            ideal: 720
-          }
-        }
-      });
+      qrScannerRuntime.stream = await requestQrCameraStream_(state.filters.qr.cameraFacing);
     } catch (error) {
       throwQrScannerError_("CAMERA_PERMISSION_DENIED", "No se pudo abrir la camara. Revisa permisos del navegador y vuelve a intentar.");
       return;
@@ -2249,10 +2276,11 @@ async function ensureQrScannerStarted_() {
     return;
   }
 
+  state.qrScanner.cameraFacing = resolveQrCameraFacingFromStream_(qrScannerRuntime.stream, state.filters.qr.cameraFacing);
   state.qrScanner.status = "scanning";
   state.qrScanner.message = qrScannerRuntime.engine === "native"
-    ? "Escaneo activo. Acerca el QR al marco central."
-    : "Escaneo activo con lector compatible. Acerca el QR al marco central.";
+    ? `Escaneo activo con camara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`
+    : `Escaneo activo con lector compatible y camara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`;
 
   if (!qrScannerRuntime.animationFrameId) {
     scanQrFrame_();
@@ -2285,6 +2313,7 @@ function stopQrScannerRuntime_(keepStatus = false) {
   }
 
   if (!keepStatus) {
+    state.qrScanner.cameraFacing = "";
     state.qrScanner.status = "idle";
     state.qrScanner.message = "Activa la camara para comenzar el registro automatico.";
   }
@@ -2612,9 +2641,99 @@ function resetRuntimeState() {
     enabled: false,
     status: "idle",
     message: "Activa la camara para comenzar el registro automatico.",
-    result: null
+    result: null,
+    cameraFacing: ""
   };
   state.selectedBulkPeople = [];
+}
+
+function detectPreferredQrCameraFacing_() {
+  if (typeof navigator === "undefined") {
+    return "rear";
+  }
+
+  const userAgent = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const touchPoints = Number(navigator.maxTouchPoints || 0);
+  const isTouchMac = platform === "MacIntel" && touchPoints > 1;
+  const isIOSLike = /iPad|iPhone|iPod/i.test(userAgent) || isTouchMac;
+
+  return isIOSLike ? "front" : "rear";
+}
+
+function normalizeQrCameraFacing_(value, fallback = "rear") {
+  if (value === "user" || value === "front") {
+    return "front";
+  }
+
+  if (value === "environment" || value === "rear") {
+    return "rear";
+  }
+
+  return fallback;
+}
+
+function getQrFacingModeConstraint_(cameraFacing) {
+  return cameraFacing === "front" ? "user" : "environment";
+}
+
+function getQrCameraLabel_(cameraFacing = "rear") {
+  return cameraFacing === "front" ? "frontal" : "trasera";
+}
+
+function buildQrCameraConstraints_(cameraFacing, strict = false) {
+  const facingMode = getQrFacingModeConstraint_(cameraFacing);
+
+  return {
+    audio: false,
+    video: {
+      facingMode: strict
+        ? { exact: facingMode }
+        : { ideal: facingMode },
+      width: {
+        ideal: 1280
+      },
+      height: {
+        ideal: 720
+      }
+    }
+  };
+}
+
+async function requestQrCameraStream_(cameraFacing) {
+  const attempts = [
+    buildQrCameraConstraints_(cameraFacing, true),
+    buildQrCameraConstraints_(cameraFacing, false),
+    {
+      audio: false,
+      video: {
+        width: {
+          ideal: 1280
+        },
+        height: {
+          ideal: 720
+        }
+      }
+    }
+  ];
+
+  let lastError = null;
+
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("QR camera unavailable");
+}
+
+function resolveQrCameraFacingFromStream_(stream, fallback = "rear") {
+  const track = stream?.getVideoTracks?.()[0];
+  const detectedFacingMode = track?.getSettings?.().facingMode || "";
+  return normalizeQrCameraFacing_(detectedFacingMode, fallback);
 }
 
 function ensureContextReady(filter, label) {
