@@ -43,6 +43,14 @@ const VIEW_META = {
 const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
 const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Líder"];
 const CREDENTIAL_PREVIEW_LIMIT = 8;
+const MOBILE_NAV_ITEMS = [
+  { view: "dashboard", label: "Inicio", description: "Hoy" },
+  { view: "assistants", label: "Padron", description: "Gente" },
+  { view: "seasons", label: "Temp.", description: "Ciclos" },
+  { view: "participants", label: "Grupos", description: "Asignar" },
+  { view: "attendance", label: "Lista", description: "Manual" },
+  { view: "qr", label: "QR", description: "Kiosko" }
+];
 
 const state = {
   user: getStoredUser(),
@@ -81,6 +89,9 @@ const state = {
     cameraFacing: ""
   },
   selectedBulkPeople: [],
+  ui: {
+    mobileNavOpen: false
+  },
   filters: {
     assistants: {
       search: "",
@@ -137,6 +148,9 @@ document.addEventListener("click", handleClick);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("change", handleChange);
 document.addEventListener("input", handleInput);
+window.addEventListener("resize", () => {
+  syncAppShellAfterRender_();
+});
 window.addEventListener("beforeunload", () => {
   stopQrScannerRuntime_();
 });
@@ -161,11 +175,28 @@ function renderApp() {
   const view = VIEW_META[state.currentView] || VIEW_META.dashboard;
   const apiDescriptor = describeApiUrl(state.apiUrl);
   const apiHost = describeApiHost(state.apiUrl);
+  const mobileNavOpen = Boolean(state.ui.mobileNavOpen);
 
   root.innerHTML = `
-    <div class="app-shell">
-      <aside class="sidebar">
+    <div class="app-shell ${mobileNavOpen ? "app-shell-nav-open" : ""}">
+      <button
+        class="mobile-nav-backdrop ${mobileNavOpen ? "visible" : ""}"
+        data-action="close-mobile-nav"
+        aria-label="Cerrar menu"
+      ></button>
+
+      ${renderMobileAppBar_(view)}
+
+      <aside class="sidebar ${mobileNavOpen ? "is-open" : ""}">
         <div class="sidebar-inner">
+          <div class="sidebar-mobile-head">
+            <div class="sidebar-mobile-copy">
+              <span class="sidebar-mobile-label">Navegacion</span>
+              <strong>${escapeHtml(APP_CONFIG.appName)}</strong>
+            </div>
+            <button class="btn btn-ghost sidebar-close-button" data-action="close-mobile-nav">Cerrar</button>
+          </div>
+
           <div class="sidebar-brand">
             <img src="assets/logo-fuertes.png" alt="Fuertes">
             <p>${escapeHtml(APP_CONFIG.appName)}<br>Control ministerial, asistencia y seguimiento.</p>
@@ -211,6 +242,8 @@ function renderApp() {
 
         ${renderCurrentView()}
       </main>
+
+      ${renderMobileTabBar_()}
     </div>
   `;
 
@@ -224,6 +257,9 @@ function schedulePostRenderSync_() {
 }
 
 async function syncRuntimeAfterRender_() {
+  syncResponsiveTablesAfterRender_();
+  syncAppShellAfterRender_();
+
   if (!state.user) {
     stopQrScannerRuntime_();
     return;
@@ -375,6 +411,37 @@ function renderLoginView() {
         </div>
       </aside>
     </div>
+  `;
+}
+
+function renderMobileAppBar_(view) {
+  const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
+
+  return `
+    <header class="mobile-appbar">
+      <div class="mobile-appbar-brand">
+        <img src="assets/logo-fuertes.png" alt="Fuertes">
+        <div class="mobile-appbar-copy">
+          <span class="mobile-appbar-label">${escapeHtml(APP_CONFIG.appName)}</span>
+          <strong>${escapeHtml(view.title)}</strong>
+        </div>
+      </div>
+
+      <div class="mobile-appbar-actions">
+        ${activeSession ? `<span class="mobile-appbar-chip">Sesion ABIERTA</span>` : ""}
+        <button class="btn btn-ghost mobile-menu-button" data-action="toggle-mobile-nav">Menu</button>
+      </div>
+    </header>
+  `;
+}
+
+function renderMobileTabBar_() {
+  return `
+    <nav class="mobile-tabbar" aria-label="Navegacion principal movil">
+      <div class="mobile-tabbar-inner">
+        ${MOBILE_NAV_ITEMS.map((item) => renderMobileNavButton_(item.view, item.label, item.description)).join("")}
+      </div>
+    </nav>
   `;
 }
 
@@ -1858,6 +1925,17 @@ function renderNavButton(view, description) {
   `;
 }
 
+function renderMobileNavButton_(view, label, description) {
+  const isActive = state.currentView === view;
+
+  return `
+    <button class="mobile-tab-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
+      <strong>${escapeHtml(label)}</strong>
+      <small>${escapeHtml(description)}</small>
+    </button>
+  `;
+}
+
 function renderQuickLink(view, title, copy) {
   if (true) {
     return `
@@ -2067,6 +2145,18 @@ async function handleClick(event) {
   const { action } = button.dataset;
 
   try {
+    if (action === "toggle-mobile-nav") {
+      state.ui.mobileNavOpen = !state.ui.mobileNavOpen;
+      renderApp();
+      return;
+    }
+
+    if (action === "close-mobile-nav") {
+      state.ui.mobileNavOpen = false;
+      renderApp();
+      return;
+    }
+
     if (action === "save-api-url") {
       const value = document.getElementById("api-url-input")?.value?.trim();
       ensureApiUrl(value);
@@ -2085,6 +2175,7 @@ async function handleClick(event) {
 
     if (action === "navigate") {
       state.currentView = button.dataset.view;
+      state.ui.mobileNavOpen = false;
       await loadCurrentViewData();
       renderApp();
       return;
@@ -4748,6 +4839,51 @@ function downloadFallbackTemplateCsv_(headers) {
   URL.revokeObjectURL(link.href);
 }
 
+function syncResponsiveTablesAfterRender_() {
+  root.querySelectorAll(".table-wrap table").forEach((table) => {
+    const headers = Array.from(table.querySelectorAll("thead th")).map((header, index) => {
+      const normalized = normalizeInlineText_(header.textContent);
+      return normalized || `Columna ${index + 1}`;
+    });
+
+    Array.from(table.tBodies).forEach((tbody) => {
+      Array.from(tbody.rows).forEach((row) => {
+        let columnIndex = 0;
+
+        Array.from(row.cells).forEach((cell) => {
+          if (cell.tagName !== "TD") {
+            return;
+          }
+
+          const colspan = Math.max(Number(cell.getAttribute("colspan") || 1), 1);
+          const label = headers[columnIndex] || "";
+
+          if (label && colspan === 1) {
+            cell.setAttribute("data-label", label);
+          } else {
+            cell.removeAttribute("data-label");
+          }
+
+          columnIndex += colspan;
+        });
+      });
+    });
+  });
+}
+
+function syncAppShellAfterRender_() {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const shouldLockBody = Boolean(state.user && state.ui.mobileNavOpen && window.innerWidth <= 980);
+  document.body.classList.toggle("mobile-nav-open", shouldLockBody);
+}
+
+function normalizeInlineText_(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
 function filterPeople(people, searchTerm) {
   const normalizedSearch = normalizeText(searchTerm);
   if (!normalizedSearch) {
@@ -4818,6 +4954,9 @@ function resetRuntimeState() {
     cameraFacing: ""
   };
   state.selectedBulkPeople = [];
+  state.ui = {
+    mobileNavOpen: false
+  };
 }
 
 function detectPreferredQrCameraFacing_() {
