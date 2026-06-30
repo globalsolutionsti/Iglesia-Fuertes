@@ -45,8 +45,8 @@ const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Líder"]
 const CREDENTIAL_PREVIEW_LIMIT = 8;
 const MOBILE_NAV_ITEMS = [
   { view: "dashboard", label: "Inicio", description: "Hoy" },
-  { view: "assistants", label: "Padron", description: "Gente" },
-  { view: "seasons", label: "Temp.", description: "Ciclos" },
+  { view: "assistants", label: "Padron", description: "Base" },
+  { view: "seasons", label: "Ciclos", description: "Temp." },
   { view: "participants", label: "Grupos", description: "Asignar" },
   { view: "attendance", label: "Lista", description: "Manual" },
   { view: "qr", label: "QR", description: "Kiosko" }
@@ -178,7 +178,7 @@ function renderApp() {
   const mobileNavOpen = Boolean(state.ui.mobileNavOpen);
 
   root.innerHTML = `
-    <div class="app-shell ${mobileNavOpen ? "app-shell-nav-open" : ""}">
+    <div class="app-shell view-${escapeHtml(state.currentView)} ${mobileNavOpen ? "app-shell-nav-open" : ""}">
       <button
         class="mobile-nav-backdrop ${mobileNavOpen ? "visible" : ""}"
         data-action="close-mobile-nav"
@@ -224,7 +224,7 @@ function renderApp() {
 
       <main class="workspace">
         <header class="topbar">
-          <div>
+          <div class="topbar-copy">
             <span class="eyebrow">Frontend V2 conectado</span>
             <h1>${escapeHtml(view.title)}</h1>
             <p>${escapeHtml(view.subtitle)}</p>
@@ -445,6 +445,34 @@ function renderMobileTabBar_() {
   `;
 }
 
+function renderDashboardMobileHero_(latestSeason, latestSeasonSessions, activeSession, apiDescriptor) {
+  return `
+    <article class="dashboard-mobile-hero">
+      <div class="dashboard-mobile-hero-head">
+        <div>
+          <span class="eyebrow">Centro de mando</span>
+          <h2>Operacion de hoy</h2>
+          <p>Todo lo esencial del sistema en una sola vista movil, listo para decidir el siguiente paso.</p>
+        </div>
+        <span class="pill ${activeSession ? "success" : "warning"}">${activeSession ? "Sesion ABIERTA" : "Sin sesion abierta"}</span>
+      </div>
+
+      <div class="dashboard-mobile-chip-grid">
+        <span class="context-item"><strong>Temporada:</strong> ${latestSeason ? escapeHtml(latestSeason.name) : "Sin datos"}</span>
+        <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(latestSeasonSessions.length))}</span>
+        <span class="context-item"><strong>API:</strong> ${escapeHtml(apiDescriptor)}</span>
+        <span class="context-item"><strong>Estado:</strong> ${activeSession ? escapeHtml(activeSession.name) : "Pendiente"}</span>
+      </div>
+
+      <div class="actions-row dashboard-mobile-cta">
+        <button class="btn btn-primary" data-action="navigate" data-view="attendance">Abrir lista</button>
+        <button class="btn btn-secondary" data-action="navigate" data-view="qr">Abrir QR</button>
+        <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderCurrentView() {
   switch (state.currentView) {
     case "assistants":
@@ -471,7 +499,9 @@ function renderDashboardView() {
 
   return `
     <section class="view-grid">
-      <div class="stats-grid">
+      ${renderDashboardMobileHero_(latestSeason, latestSeasonSessions, activeSession, apiDescriptor)}
+
+      <div class="stats-grid dashboard-stats-grid">
         <article class="stat-card">
           <span class="status-chip neutral">Temporadas</span>
           <strong>${state.seasons.length}</strong>
@@ -500,7 +530,7 @@ function renderDashboardView() {
       </div>
 
       <div class="view-grid columns-2">
-        <article class="hero-card">
+        <article class="hero-card dashboard-activity-card">
           <div class="panel-head">
             <div>
               <h2>Actividad reciente</h2>
@@ -548,7 +578,7 @@ function renderDashboardView() {
           </div>
         </article>
 
-        <article class="panel-card">
+        <article class="panel-card dashboard-shortcuts-card">
           <div class="panel-head">
             <div>
               <h2>Accesos rapidos</h2>
@@ -2178,6 +2208,7 @@ async function handleClick(event) {
       state.ui.mobileNavOpen = false;
       await loadCurrentViewData();
       renderApp();
+      scrollViewportToTop_();
       return;
     }
 
@@ -2411,6 +2442,7 @@ async function handleClick(event) {
       state.currentView = "qr";
       await loadQrSummary();
       renderApp();
+      scrollViewportToTop_();
       return;
     }
 
@@ -2420,6 +2452,7 @@ async function handleClick(event) {
       state.currentView = "qr";
       await loadQrSummary();
       renderApp();
+      scrollViewportToTop_();
       return;
     }
 
@@ -2537,6 +2570,7 @@ async function handleSubmit(event) {
         state.currentView = "dashboard";
         showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
         await bootstrapApplication();
+        scrollViewportToTop_();
       }, "Validando credenciales...");
 
       return;
@@ -4878,6 +4912,20 @@ function syncAppShellAfterRender_() {
 
   const shouldLockBody = Boolean(state.user && state.ui.mobileNavOpen && window.innerWidth <= 980);
   document.body.classList.toggle("mobile-nav-open", shouldLockBody);
+}
+
+function scrollViewportToTop_() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "auto"
+    });
+  });
 }
 
 function normalizeInlineText_(value) {
