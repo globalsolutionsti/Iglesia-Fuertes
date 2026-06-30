@@ -695,14 +695,9 @@ div {
 }
 
 .mobile-tabbar-inner {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.mobile-tabbar-inner::-webkit-scrollbar {
-  display: none;
 }
 
 .mobile-tab-button {
@@ -739,6 +734,10 @@ div {
   color: var(--white);
   border-color: transparent;
   box-shadow: 0 14px 24px rgba(0, 0, 0, 0.14);
+}
+
+.topbar-copy {
+  min-width: 0;
 }
 
 .topbar {
@@ -806,6 +805,52 @@ div {
 
 .view-grid.columns-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-mobile-hero {
+  display: none;
+  padding: 24px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.05), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f3f3f3 100%);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+}
+
+.dashboard-mobile-hero-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.dashboard-mobile-hero h2 {
+  margin: 14px 0 0;
+  font-size: 28px;
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.dashboard-mobile-hero p {
+  margin: 10px 0 0;
+  color: var(--text-soft);
+  line-height: 1.65;
+}
+
+.dashboard-mobile-chip-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.dashboard-mobile-cta {
+  margin-top: 18px;
+}
+
+.dashboard-mobile-cta .btn {
+  flex: 1 1 180px;
 }
 
 .hero-card,
@@ -1489,7 +1534,8 @@ tbody tr:hover {
 
 .kiosk-toggle-group .toggle-button {
   min-width: 112px;
-  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .kiosk-toggle-group .toggle-button.active {
@@ -1914,6 +1960,20 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .login-shell {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  .login-panel {
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  .login-aside {
+    display: none;
+  }
+
   .mobile-appbar,
   .mobile-tabbar,
   .sidebar-mobile-head {
@@ -1968,17 +2028,22 @@ tbody tr:hover {
 
   .topbar {
     padding-top: 8px;
-    flex-direction: column;
-    align-items: stretch;
+    gap: 14px;
   }
 
   .topbar-actions {
+    width: 100%;
     justify-content: flex-start;
   }
 
   .topbar-meta {
     min-width: 0;
     max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .topbar-actions .btn {
+    width: 100%;
   }
 
   .panel-head,
@@ -2002,6 +2067,17 @@ tbody tr:hover {
     flex: 1 1 100%;
   }
 
+  .mobile-tabbar-inner {
+    width: 100%;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .mobile-tab-button {
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
   .field input,
   .field select,
   .field textarea,
@@ -2015,6 +2091,22 @@ tbody tr:hover {
 
   .stat-card strong {
     font-size: 30px;
+  }
+
+  .dashboard-mobile-hero {
+    display: block;
+  }
+
+  .app-shell.view-dashboard .topbar {
+    display: none;
+  }
+
+  .app-shell.view-dashboard .dashboard-activity-card .table-wrap {
+    display: none;
+  }
+
+  .app-shell.view-dashboard .dashboard-activity-card .summary-strip {
+    margin-bottom: 0;
   }
 }
 
@@ -2035,6 +2127,43 @@ tbody tr:hover {
     padding: 16px;
   }
 
+  .login-panel {
+    padding: 22px;
+    border-radius: 28px;
+  }
+
+  .brand-logo {
+    width: 164px;
+  }
+
+  .login-title {
+    font-size: clamp(32px, 12vw, 48px);
+    line-height: 0.95;
+  }
+
+  .login-copy {
+    font-size: 14px;
+    line-height: 1.68;
+  }
+
+  .feature-list {
+    gap: 10px;
+  }
+
+  .feature-item {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .feature-copy {
+    font-size: 12px;
+  }
+
+  .login-form-card {
+    margin-top: 18px;
+    padding: 18px;
+  }
+
   .workspace {
     padding-left: 14px;
     padding-right: 14px;
@@ -2042,10 +2171,14 @@ tbody tr:hover {
 
   .field-grid.two,
   .metric-grid,
-  .stats-grid,
   .view-grid.columns-3,
   .directory-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .stats-grid,
+  .dashboard-mobile-chip-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .credential-grid {
@@ -2074,10 +2207,22 @@ tbody tr:hover {
     padding-right: 12px;
   }
 
+  .mobile-tabbar-inner {
+    gap: 6px;
+  }
+
   .mobile-tab-button {
-    min-width: 78px;
-    min-height: 56px;
-    padding: 10px;
+    min-height: 52px;
+    padding: 8px 4px;
+  }
+
+  .mobile-tab-button strong {
+    font-size: 11px;
+    line-height: 1.1;
+  }
+
+  .mobile-tab-button small {
+    display: none;
   }
 
   .topbar h1 {
@@ -2093,6 +2238,46 @@ tbody tr:hover {
   .summary-strip,
   .context-strip {
     gap: 8px;
+  }
+
+  .topbar-copy {
+    display: block;
+  }
+
+  .topbar {
+    padding: 0 0 14px;
+  }
+
+  .topbar-copy .eyebrow,
+  .topbar-copy h1 {
+    display: none;
+  }
+
+  .topbar-copy p {
+    margin-top: 0;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .topbar-actions {
+    display: none;
+  }
+
+  .dashboard-mobile-hero {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .dashboard-mobile-hero-head {
+    flex-direction: column;
+  }
+
+  .dashboard-mobile-hero h2 {
+    font-size: 24px;
+  }
+
+  .dashboard-mobile-cta .btn {
+    flex: 1 1 100%;
   }
 
   .attendance-row {
