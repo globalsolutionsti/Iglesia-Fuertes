@@ -862,6 +862,10 @@ tbody tr:hover {
   gap: 10px;
 }
 
+.directory-filter-grid {
+  grid-template-columns: 1.2fr repeat(2, minmax(0, 0.5fr));
+}
+
 .context-item {
   padding: 10px 12px;
   border-radius: 14px;
@@ -953,6 +957,62 @@ tbody tr:hover {
 .check-item input {
   width: 18px;
   height: 18px;
+}
+
+.import-dropzone,
+.import-progress-card {
+  margin-top: 8px;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+  border: 1px solid var(--line);
+}
+
+.import-dropzone strong,
+.import-progress-card strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.import-dropzone p,
+.import-progress-card .row-meta {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  line-height: 1.65;
+}
+
+.import-alert-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.import-alert-item {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(172, 107, 0, 0.08);
+  border: 1px solid rgba(172, 107, 0, 0.18);
+}
+
+.import-alert-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.import-alert-item span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.compact-table th,
+.compact-table td {
+  padding-top: 12px;
+  padding-bottom: 12px;
 }
 
 .inline-select,
@@ -1573,7 +1633,8 @@ tbody tr:hover {
   .field-grid.two,
   .metric-grid,
   .stats-grid,
-  .view-grid.columns-3 {
+  .view-grid.columns-3,
+  .directory-filter-grid {
     grid-template-columns: 1fr;
   }
 
