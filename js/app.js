@@ -2953,31 +2953,31 @@ function handleInput(event) {
 
   if (target.id === "assistants-search") {
     state.filters.assistants.search = target.value;
-    renderApp();
+    rerenderPreservingInput_(target);
     return;
   }
 
   if (target.id === "participant-people-search") {
     state.filters.participants.peopleSearch = target.value;
-    renderApp();
+    rerenderPreservingInput_(target);
     return;
   }
 
   if (target.id === "participant-bulk-search") {
     state.filters.participants.bulkSearch = target.value;
-    renderApp();
+    rerenderPreservingInput_(target);
     return;
   }
 
   if (target.id === "attendance-search") {
     state.filters.attendance.search = target.value;
-    renderApp();
+    rerenderPreservingInput_(target);
     return;
   }
 
   if (target.id === "qr-people-search") {
     state.filters.qr.peopleSearch = target.value;
-    renderApp();
+    rerenderPreservingInput_(target);
     return;
   }
 
@@ -5273,6 +5273,51 @@ function scrollToSection_(sectionId) {
   section.scrollIntoView({
     behavior: "smooth",
     block: "start"
+  });
+}
+
+function rerenderPreservingInput_(target) {
+  const focusSnapshot = captureInputFocusSnapshot_(target);
+  renderApp();
+  restoreInputFocusSnapshot_(focusSnapshot);
+}
+
+function captureInputFocusSnapshot_(target) {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    return null;
+  }
+
+  return {
+    id: target.id,
+    selectionStart: typeof target.selectionStart === "number" ? target.selectionStart : null,
+    selectionEnd: typeof target.selectionEnd === "number" ? target.selectionEnd : null,
+    selectionDirection: target.selectionDirection || "none"
+  };
+}
+
+function restoreInputFocusSnapshot_(snapshot) {
+  if (!snapshot || typeof window === "undefined") {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    const target = document.getElementById(snapshot.id);
+
+    if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    target.focus({ preventScroll: true });
+
+    if (snapshot.selectionStart === null || snapshot.selectionEnd === null) {
+      return;
+    }
+
+    try {
+      target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd, snapshot.selectionDirection);
+    } catch (error) {
+      // Some input types do not support restoring cursor selection.
+    }
   });
 }
 
