@@ -445,6 +445,67 @@ function renderMobileTabBar_() {
   `;
 }
 
+function renderModuleMobileHero_(options) {
+  const {
+    tone = "neutral",
+    eyebrow = "",
+    title = "",
+    copy = "",
+    badge = null,
+    metrics = [],
+    actions = []
+  } = options || {};
+
+  return `
+    <article class="module-mobile-hero module-mobile-hero-${escapeHtml(tone)}">
+      <div class="module-mobile-hero-head">
+        <div>
+          ${eyebrow ? `<span class="eyebrow">${escapeHtml(eyebrow)}</span>` : ""}
+          <h2>${escapeHtml(title)}</h2>
+          <p>${escapeHtml(copy)}</p>
+        </div>
+        ${badge ? `<span class="pill ${escapeHtml(badge.kind || "dark")}">${escapeHtml(badge.label || "")}</span>` : ""}
+      </div>
+
+      ${metrics.length ? `
+        <div class="module-mobile-metrics">
+          ${metrics.map((metric) => renderModuleMobileMetric_(metric)).join("")}
+        </div>
+      ` : ""}
+
+      ${actions.length ? `
+        <div class="actions-row module-mobile-actions">
+          ${actions.map((action) => renderModuleMobileAction_(action)).join("")}
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function renderModuleMobileMetric_(metric) {
+  return `
+    <span class="context-item">
+      <strong>${escapeHtml(metric.label || "")}:</strong> ${escapeHtml(metric.value || "")}
+    </span>
+  `;
+}
+
+function renderModuleMobileAction_(action) {
+  const variant = action.variant || "secondary";
+  const actionName = action.action || (action.view ? "navigate" : "scroll-to-section");
+  const sectionIdAttribute = action.sectionId ? ` data-section-id="${escapeHtml(action.sectionId)}"` : "";
+  const viewAttribute = action.view ? ` data-view="${escapeHtml(action.view)}"` : "";
+
+  return `
+    <button
+      class="btn btn-${escapeHtml(variant)}"
+      data-action="${escapeHtml(actionName)}"${sectionIdAttribute}${viewAttribute}
+    >
+      ${escapeHtml(action.label || "Abrir")}
+    </button>
+  `;
+}
+
 function renderDashboardMobileHero_(latestSeason, latestSeasonSessions, activeSession, apiDescriptor) {
   return `
     <article class="dashboard-mobile-hero">
@@ -619,7 +680,29 @@ function renderAssistantsView() {
 
   return `
     <section class="view-grid">
-      <div class="stats-grid">
+      ${renderModuleMobileHero_({
+        tone: "assistants",
+        eyebrow: "Padron y QR",
+        title: "Elige si hoy vas a registrar, importar o entregar credenciales",
+        copy: "Primero entra por la tarea principal del momento y despues baja al detalle del padron.",
+        badge: {
+          label: `${summary.active} activos`,
+          kind: "dark"
+        },
+        metrics: [
+          { label: "Padron", value: String(summary.total) },
+          { label: "Servidores", value: String(summary.servers) },
+          { label: "Filtrados", value: String(rows.length) },
+          { label: "Importacion", value: importSummary ? `${importSummary.validRows} listas` : "Sin archivo" }
+        ],
+        actions: [
+          { label: "Alta", variant: "primary", sectionId: "assistants-create" },
+          { label: "Importar", variant: "secondary", sectionId: "assistants-import" },
+          { label: "Credenciales", variant: "ghost", sectionId: "assistants-credentials" }
+        ]
+      })}
+
+      <div class="stats-grid assistants-stats-grid">
         <article class="stat-card">
           <span class="status-chip neutral">Padron total</span>
           <strong>${escapeHtml(String(summary.total))}</strong>
@@ -645,8 +728,8 @@ function renderAssistantsView() {
         </article>
       </div>
 
-      <div class="view-grid columns-2">
-        <article class="panel-card">
+      <div class="view-grid columns-2 assistants-mobile-grid">
+        <article class="panel-card module-section-anchor assistants-create-card" id="assistants-create">
           <div class="panel-head">
             <div>
               <h2>Alta individual</h2>
@@ -713,7 +796,7 @@ function renderAssistantsView() {
           </form>
         </article>
 
-        <article class="panel-card">
+        <article class="panel-card module-section-anchor assistants-import-card" id="assistants-import">
           <div class="panel-head">
             <div>
               <h2>Importacion desde Excel</h2>
@@ -808,7 +891,7 @@ function renderAssistantsView() {
         </article>
       </div>
 
-      <article class="detail-card">
+      <article class="detail-card module-section-anchor" id="assistants-directory">
         <div class="panel-head">
           <div>
             <h2>Padron de personas</h2>
@@ -888,7 +971,7 @@ function renderAssistantsView() {
         `}
       </article>
 
-      <article class="detail-card">
+      <article class="detail-card module-section-anchor" id="assistants-credentials">
         <div class="panel-head">
           <div>
             <h2>Credenciales QR</h2>
@@ -937,11 +1020,34 @@ function renderSeasonsView() {
   const selectedSeason = state.seasons.find((item) => item.id === state.filters.seasons.seasonId) || getLatestSeason();
   const sessions = selectedSeason ? getSessions(selectedSeason.id) : [];
   const sessionGroups = selectedSeason && sessions.length ? getSessionGroups(selectedSeason.id, sessions[0].id) : [];
+  const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
 
   return `
     <section class="view-grid">
-      <div class="view-grid columns-2">
-        <article class="panel-card">
+      ${renderModuleMobileHero_({
+        tone: "seasons",
+        eyebrow: "Ciclo operativo",
+        title: "Controla la temporada y la sesion correcta",
+        copy: "Primero revisa el estado actual y despues baja a crear o ajustar sesiones.",
+        badge: {
+          label: activeSession ? "Sesion ABIERTA hoy" : "Sin sesion hoy",
+          kind: activeSession ? "success" : "warning"
+        },
+        metrics: [
+          { label: "Temporada", value: selectedSeason ? selectedSeason.name : "Sin crear" },
+          { label: "Sesiones", value: String(sessions.length) },
+          { label: "Inicio", value: selectedSeason ? formatDate(selectedSeason.startDate) : "Pendiente" },
+          { label: "Grupos", value: String(state.catalogs.groups.length) }
+        ],
+        actions: [
+          { label: "Nueva", variant: "primary", sectionId: "seasons-create" },
+          { label: "Temporadas", variant: "secondary", sectionId: "seasons-list" },
+          { label: "Sesiones", variant: "ghost", sectionId: "seasons-sessions" }
+        ]
+      })}
+
+      <div class="view-grid columns-2 seasons-mobile-grid">
+        <article class="panel-card module-section-anchor seasons-create-card" id="seasons-create">
           <div class="panel-head">
             <div>
               <h2>Nueva temporada</h2>
@@ -979,7 +1085,7 @@ function renderSeasonsView() {
           </form>
         </article>
 
-        <article class="summary-card">
+        <article class="summary-card seasons-summary-card module-section-anchor" id="seasons-current">
           <div class="panel-head">
             <div>
               <h2>Resumen operativo</h2>
@@ -1009,7 +1115,7 @@ function renderSeasonsView() {
         </article>
       </div>
 
-      <article class="panel-card">
+      <article class="panel-card module-section-anchor" id="seasons-list">
         <div class="panel-head">
           <div>
             <h2>Temporadas creadas</h2>
@@ -1054,7 +1160,7 @@ function renderSeasonsView() {
         </div>
       </article>
 
-      <article class="detail-card">
+      <article class="detail-card module-section-anchor" id="seasons-sessions">
         <div class="panel-head">
           <div>
             <h2>Sesiones de la temporada</h2>
@@ -1120,6 +1226,8 @@ function renderParticipantsView() {
   const groups = getSessionGroups(filter.seasonId, filter.sessionId);
   const context = state.participantContext;
   const sessions = getSessions(filter.seasonId);
+  const selectedSession = sessions.find((item) => item.id === filter.sessionId) || null;
+  const selectedGroup = groups.find((group) => String(group.groupId) === String(filter.groupId)) || null;
   const participantPersonIds = getParticipantPersonIdSet_();
   const peopleSearchResults = filterPeople(state.people, filter.peopleSearch).slice(0, 8);
   const bulkResults = filterPeople(state.people, filter.bulkSearch).slice(0, 12);
@@ -1130,6 +1238,28 @@ function renderParticipantsView() {
 
   return `
     <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "participants",
+        eyebrow: "Grupo en operacion",
+        title: "Define el contexto y luego asigna personas",
+        copy: "Primero elige temporada, sesion y grupo; despues decide si la carga sera individual o masiva.",
+        badge: {
+          label: context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Selecciona grupo"),
+          kind: context ? "dark" : "warning"
+        },
+        metrics: [
+          { label: "Temporada", value: context ? context.season.name : (resolveSeasonName_(filter.seasonId) || "Pendiente") },
+          { label: "Sesion", value: context ? context.session.name : (selectedSession ? selectedSession.name : "Pendiente") },
+          { label: "Grupo", value: context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Pendiente") },
+          { label: "Participantes", value: String(state.participants.length) }
+        ],
+        actions: [
+          { label: "Contexto", variant: "primary", sectionId: "participants-context" },
+          { label: "Individual", variant: "secondary", sectionId: "participants-single" },
+          { label: "Masivo", variant: "ghost", sectionId: "participants-bulk" }
+        ]
+      })}
+
       <div class="stats-grid participant-stats-grid">
         <article class="stat-card">
           <span>Participantes actuales</span>
@@ -1153,7 +1283,7 @@ function renderParticipantsView() {
         </article>
       </div>
 
-      <article class="panel-card">
+      <article class="panel-card module-section-anchor" id="participants-context">
         <div class="panel-head">
           <div>
             <h2>Contexto del grupo</h2>
@@ -1179,8 +1309,8 @@ function renderParticipantsView() {
         </div>
       </article>
 
-      <div class="view-grid columns-2">
-        <article class="panel-card">
+      <div class="view-grid columns-2 participants-mobile-grid">
+        <article class="panel-card module-section-anchor" id="participants-single">
           <div class="panel-head">
             <div>
               <h2>Agregar participante individual</h2>
@@ -1221,7 +1351,7 @@ function renderParticipantsView() {
           </div>
         </article>
 
-        <article class="panel-card">
+        <article class="panel-card module-section-anchor" id="participants-bulk">
           <div class="panel-head">
             <div>
               <h2>Asignacion masiva a toda la temporada</h2>
@@ -1278,7 +1408,7 @@ function renderParticipantsView() {
         </article>
       </div>
 
-      <article class="detail-card">
+      <article class="detail-card module-section-anchor" id="participants-roster">
         <div class="panel-head">
           <div>
             <h2>Participantes del grupo</h2>
@@ -1377,7 +1507,30 @@ function renderAttendanceView() {
 
   return `
     <section class="view-grid">
-      <article class="panel-card">
+      ${renderModuleMobileHero_({
+        tone: "attendance",
+        eyebrow: "Captura del dia",
+        title: "Pasa lista con el grupo correcto",
+        copy: "La prioridad movil es detectar la sesion activa y entrar rapido a la lista o al escaneo.",
+        badge: {
+          label: activeSession ? (context && context.alreadyCaptured ? "Edicion activa" : "Lista lista") : "Sin sesion ABIERTA",
+          kind: activeSession ? (context && context.alreadyCaptured ? "warning" : "success") : "warning"
+        },
+        metrics: [
+          { label: "Temporada", value: activeSeasonName || "Pendiente" },
+          { label: "Sesion", value: activeSession ? activeSession.name : "Sin abrir" },
+          { label: "Grupo", value: context ? context.group.name : (groups.find((group) => String(group.groupId) === String(filter.groupId))?.groupName || "Pendiente") },
+          { label: "Asistieron", value: String(summary.present) }
+        ],
+        actions: [
+          { label: "Contexto", variant: "secondary", sectionId: "attendance-context" },
+          { label: "Lista", variant: "primary", sectionId: "attendance-list" },
+          { label: "QR", action: "open-qr-operator", variant: "ghost" },
+          { label: "Kiosko", action: "open-qr-kiosk", variant: "ghost" }
+        ]
+      })}
+
+      <article class="panel-card module-section-anchor" id="attendance-context">
         <div class="panel-head">
           <div>
             <h2>Contexto de captura</h2>
@@ -1425,8 +1578,8 @@ function renderAttendanceView() {
         </div>
       </article>
 
-      <div class="view-grid columns-2">
-        <article class="detail-card">
+      <div class="view-grid columns-2 attendance-mobile-grid">
+        <article class="detail-card module-section-anchor" id="attendance-list">
           <div class="panel-head">
             <div>
               <h2>Lista de asistencia</h2>
@@ -1483,7 +1636,7 @@ function renderAttendanceView() {
           `}
         </article>
 
-        <article class="summary-card">
+        <article class="summary-card module-section-anchor attendance-summary-card" id="attendance-summary-card">
           <div class="panel-head">
             <div>
               <h2>Resumen de la captura</h2>
@@ -1516,7 +1669,7 @@ function renderAttendanceView() {
         </article>
       </div>
 
-      <article class="detail-card">
+      <article class="detail-card module-section-anchor" id="attendance-detail">
         <div class="panel-head">
           <div>
             <h2>Detalle historico del grupo</h2>
@@ -2200,6 +2353,11 @@ async function handleClick(event) {
     if (action === "test-api-connection") {
       await testConnection();
       renderApp();
+      return;
+    }
+
+    if (action === "scroll-to-section") {
+      scrollToSection_(button.dataset.sectionId || "");
       return;
     }
 
@@ -4925,6 +5083,19 @@ function scrollViewportToTop_() {
       left: 0,
       behavior: "auto"
     });
+  });
+}
+
+function scrollToSection_(sectionId) {
+  const section = document.getElementById(sectionId);
+
+  if (!section) {
+    return;
+  }
+
+  section.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
   });
 }
 
