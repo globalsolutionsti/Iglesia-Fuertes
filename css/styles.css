@@ -1109,8 +1109,34 @@ tbody tr:hover {
   letter-spacing: 0.08em;
 }
 
+.credential-ops-note {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.credential-ops-note strong {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.credential-ops-note span {
+  color: var(--text-soft);
+  line-height: 1.65;
+}
+
 .credential-actions {
   margin-top: 16px;
+}
+
+.credential-actions .btn {
+  flex: 1 1 180px;
 }
 
 .compact-table th,
