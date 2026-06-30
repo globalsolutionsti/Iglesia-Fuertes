@@ -1222,6 +1222,78 @@ tbody tr:hover {
   margin-bottom: 10px;
 }
 
+.participant-flow-note {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+  display: grid;
+  gap: 5px;
+}
+
+.participant-flow-note strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.participant-flow-note span,
+.participant-picker-empty span {
+  color: var(--text-soft);
+  line-height: 1.65;
+}
+
+.participant-search-meta {
+  margin-top: 14px;
+}
+
+.participants-picker-results {
+  margin-top: 16px;
+}
+
+.participant-picker-card,
+.bulk-queue-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+}
+
+.participant-action-stack {
+  min-width: 190px;
+  display: grid;
+  gap: 8px;
+}
+
+.participant-action-stack .btn {
+  width: 100%;
+}
+
+.participants-bulk-builder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.bulk-search-panel,
+.bulk-queue-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.bulk-queue-list {
+  gap: 12px;
+}
+
+.participant-picker-empty {
+  display: grid;
+  gap: 6px;
+}
+
+.participant-picker-empty strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
 .bulk-impact-card,
 .bulk-selection-bar,
 .bulk-selected-tray,
@@ -1404,6 +1476,19 @@ tbody tr:hover {
 .bulk-footer-copy {
   display: grid;
   gap: 5px;
+}
+
+@media (max-width: 820px) {
+  .participant-picker-card .result-row,
+  .bulk-queue-card .result-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .participant-action-stack {
+    min-width: 0;
+    width: 100%;
+  }
 }
 
 .import-dropzone,
