@@ -680,6 +680,10 @@ a {
   gap: 16px;
 }
 
+.participant-stats-grid .stat-card strong {
+  font-size: 30px;
+}
+
 .stat-card {
   padding: 20px;
   overflow: hidden;
@@ -893,11 +897,36 @@ tbody tr:hover {
   background: #fbfbfb;
 }
 
+.result-card-muted {
+  background: #f5f5f5;
+}
+
 .result-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+}
+
+.result-copy-stack,
+.check-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.result-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.participant-bulk-toolbar {
+  margin-bottom: 10px;
+}
+
+.participant-bulk-note {
+  margin-bottom: 10px;
 }
 
 .check-list {
@@ -914,6 +943,11 @@ tbody tr:hover {
   border-radius: 14px;
   background: #fafafa;
   border: 1px solid var(--line);
+}
+
+.check-item-highlight {
+  background: linear-gradient(180deg, #fbfffc 0%, #f5fbf7 100%);
+  border-color: rgba(31, 122, 67, 0.22);
 }
 
 .check-item input {
