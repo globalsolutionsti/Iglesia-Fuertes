@@ -84,6 +84,7 @@ const state = {
   participantContext: null,
   attendanceContext: null,
   attendanceForm: {},
+  attendanceBaseline: {},
   attendanceDetail: null,
   realtimeSummary: null,
   qrSessionActivity: [],
@@ -1673,6 +1674,15 @@ function renderAttendanceView() {
   const context = state.attendanceContext;
   const summary = buildAttendanceSummary();
   const filteredParticipants = getFilteredAttendanceParticipants_();
+  const selectedGroup = groups.find((group) => String(group.groupId) === String(filter.groupId)) || null;
+  const selectedGroupName = context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Pendiente");
+  const visiblePresent = filteredParticipants.filter((participant) => state.attendanceForm[participant.personId] === "SI").length;
+  const visibleAbsent = Math.max(filteredParticipants.length - visiblePresent, 0);
+  const draftLabel = summary.changed
+    ? `${summary.changed} cambio${summary.changed === 1 ? "" : "s"} sin guardar`
+    : (context
+      ? (context.alreadyCaptured ? "Sin cambios pendientes" : "Lista lista para guardar")
+      : "Pendiente");
   const listCaption = context
     ? `${escapeHtml(context.season.name)} | ${escapeHtml(context.session.name)} | ${escapeHtml(context.group.name)}`
     : (!activeSession
@@ -1691,21 +1701,21 @@ function renderAttendanceView() {
       ${renderModuleMobileHero_({
         tone: "attendance",
         eyebrow: "Captura del dia",
-        title: "Pasa lista con el grupo correcto",
-        copy: "La prioridad movil es detectar la sesion activa y entrar rapido a la lista o al escaneo.",
+        title: "Asistencia lista para operar",
+        copy: "El sistema detecta la sesion activa del dia. Solo eliges el grupo y empiezas a marcar o editar la asistencia.",
         badge: {
-          label: activeSession ? (context && context.alreadyCaptured ? "Edicion activa" : "Lista lista") : "Sin sesion ABIERTA",
-          kind: activeSession ? (context && context.alreadyCaptured ? "warning" : "success") : "warning"
+          label: activeSession ? draftLabel : "Sin sesion ABIERTA",
+          kind: activeSession ? (summary.changed ? "warning" : (context && context.alreadyCaptured ? "dark" : "success")) : "warning"
         },
         metrics: [
           { label: "Temporada", value: activeSeasonName || "Pendiente" },
           { label: "Sesion", value: activeSession ? activeSession.name : "Sin abrir" },
-          { label: "Grupo", value: context ? context.group.name : (groups.find((group) => String(group.groupId) === String(filter.groupId))?.groupName || "Pendiente") },
+          { label: "Grupo", value: selectedGroupName },
           { label: "Asistieron", value: String(summary.present) }
         ],
         actions: [
-          { label: "Contexto", variant: "secondary", sectionId: "attendance-context" },
-          { label: "Lista", variant: "primary", sectionId: "attendance-list" },
+          { label: "Contexto", variant: "primary", sectionId: "attendance-context" },
+          { label: "Lista", variant: "secondary", sectionId: "attendance-list" },
           { label: "QR", action: "open-qr-operator", variant: "ghost" },
           { label: "Kiosko", action: "open-qr-kiosk", variant: "ghost" }
         ]
@@ -1715,12 +1725,12 @@ function renderAttendanceView() {
         <div class="panel-head">
           <div>
             <h2>Contexto de captura</h2>
-            <p>La captura manual trabaja sobre la sesion activa del dia. Solo eliges el grupo y el sistema carga a sus asistentes.</p>
+            <p>La captura manual trabaja sobre la sesion activa del dia. Elige el grupo y el sistema cargara al instante su lista operativa.</p>
           </div>
           <button class="btn btn-secondary" data-action="load-attendance">Actualizar sesion de hoy</button>
         </div>
 
-        <div class="field-grid two">
+        <div class="field-grid two attendance-context-grid">
           <div class="field">
             <label>Sesion activa detectada</label>
             ${activeSession ? `
@@ -1735,14 +1745,30 @@ function renderAttendanceView() {
               <div class="empty-state">Hoy no hay una sesion ABIERTA. Abrela desde Temporadas y Sesiones para capturar asistencia manual.</div>
             `}
           </div>
-          ${activeSession ? renderGroupSelect("attendance-group", groups, filter.groupId) : `
-            <div class="field">
-              <label for="attendance-group">Grupo</label>
-              <select id="attendance-group" disabled>
-                <option value="">Sin sesion activa</option>
-              </select>
-            </div>
-          `}
+
+          <div class="field">
+            <label>Grupo de captura</label>
+            ${activeSession ? `
+              <div class="attendance-group-grid">
+                ${groups.length ? groups.map((group) => `
+                  <button
+                    class="attendance-group-card ${String(filter.groupId) === String(group.groupId) ? "active" : ""}"
+                    data-action="set-attendance-group"
+                    data-group-id="${escapeHtml(String(group.groupId))}"
+                  >
+                    <strong>${escapeHtml(group.groupName)}</strong>
+                    <span>${String(filter.groupId) === String(group.groupId) ? "Grupo actual" : `Grupo ${escapeHtml(String(group.groupId))}`}</span>
+                  </button>
+                `).join("") : `
+                  <div class="empty-state">No hay grupos asociados a la sesion activa.</div>
+                `}
+              </div>
+              <span class="field-help">Toca un grupo para cargar su lista. No necesitas abrir menus para comenzar.</span>
+            ` : `
+              <div class="empty-state">Sin sesion activa no se habilita la seleccion de grupo.</div>
+            `}
+          </div>
+
           <div class="field">
             <label>Estado actual</label>
             <div class="context-strip">
@@ -1753,9 +1779,57 @@ function renderAttendanceView() {
           </div>
         </div>
 
-        <div class="actions-row">
+        <div class="actions-row attendance-context-actions">
           <button class="btn btn-secondary" data-action="open-qr-operator">Ir a escaneo QR</button>
           <button class="btn btn-ghost" data-action="open-qr-kiosk">Ir a modo kiosko</button>
+        </div>
+      </article>
+
+      <article class="panel-card attendance-ops-card">
+        <div class="panel-head">
+          <div>
+            <h2>Operacion rapida</h2>
+            <p>Usa estos atajos para marcar grupos completos o guardar sin moverte de pantalla.</p>
+          </div>
+          <span class="pill ${summary.changed ? "warning" : "dark"}" data-role="attendance-draft-badge">${escapeHtml(draftLabel)}</span>
+        </div>
+
+        <div class="summary-stack attendance-ops-grid">
+          <div class="summary-box">
+            <span class="status-chip neutral">Participantes</span>
+            <strong data-role="attendance-total-count">${summary.total}</strong>
+            <span>Total cargado en el grupo actual.</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip success">Asistieron</span>
+            <strong data-role="attendance-present-count">${summary.present}</strong>
+            <span>Marcados actualmente como SI.</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip warning">No asistieron</span>
+            <strong data-role="attendance-absent-count">${summary.absent}</strong>
+            <span>Marcados actualmente como NO.</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip dark">Cambios</span>
+            <strong data-role="attendance-dirty-count">${summary.changed}</strong>
+            <span>Pendientes de guardar en esta vista.</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Visibles</span>
+            <strong data-role="attendance-visible-count">${filteredParticipants.length}</strong>
+            <span>${visiblePresent} SI y ${visibleAbsent} NO segun el filtro actual.</span>
+          </div>
+        </div>
+
+        <div class="actions-row attendance-bulk-actions">
+          <button class="btn btn-secondary" data-action="set-attendance-all" data-value="SI" ${context && context.participants.length ? "" : "disabled"}>Marcar todo el grupo SI</button>
+          <button class="btn btn-ghost" data-action="set-attendance-all" data-value="NO" ${context && context.participants.length ? "" : "disabled"}>Marcar todo el grupo NO</button>
+          <button class="btn btn-secondary" data-action="set-attendance-visible" data-value="SI" ${filteredParticipants.length ? "" : "disabled"}>Marcar visibles SI</button>
+          <button class="btn btn-ghost" data-action="set-attendance-visible" data-value="NO" ${filteredParticipants.length ? "" : "disabled"}>Marcar visibles NO</button>
+          <button class="btn btn-primary" type="submit" form="attendance-form" ${context && context.participants.length ? "" : "disabled"}>
+            ${context && context.alreadyCaptured ? "Guardar cambios" : "Guardar asistencia"}
+          </button>
         </div>
       </article>
 
@@ -1770,45 +1844,62 @@ function renderAttendanceView() {
           </div>
 
           ${context && context.participants.length ? `
-            <div class="field" style="margin-bottom: 16px;">
+            <div class="field attendance-search-field">
               <label for="attendance-search">Buscar participante</label>
               <input id="attendance-search" value="${escapeHtml(filter.search)}" placeholder="Nombre, QR ID o tipo de persona">
-              <span class="field-help">Filtra la lista para marcar rapidamente solo una parte del grupo.</span>
+              <span class="field-help">Filtra la lista para trabajar solo con una parte del grupo sin perder el resto de tu captura.</span>
             </div>
 
-            <div class="actions-row" style="margin-bottom: 12px;">
-              <button class="btn btn-secondary" data-action="set-attendance-all" data-value="SI">Marcar todos SI</button>
-              <button class="btn btn-ghost" data-action="set-attendance-all" data-value="NO">Marcar todos NO</button>
-              <button class="btn btn-secondary" data-action="set-attendance-visible" data-value="SI" ${filteredParticipants.length ? "" : "disabled"}>Marcar visibles SI</button>
-              <button class="btn btn-ghost" data-action="set-attendance-visible" data-value="NO" ${filteredParticipants.length ? "" : "disabled"}>Marcar visibles NO</button>
-            </div>
-
-            <p class="footer-note">Mostrando ${escapeHtml(String(filteredParticipants.length))} de ${escapeHtml(String(context.participants.length))} participantes en esta captura.</p>
+            <p class="footer-note attendance-list-note">
+              Mostrando ${escapeHtml(String(filteredParticipants.length))} de ${escapeHtml(String(context.participants.length))} participantes.
+              Marca cada tarjeta con <strong>SI</strong> o <strong>NO</strong> y guarda cuando termines.
+            </p>
 
             <form id="attendance-form" class="attendance-grid">
               ${filteredParticipants.length ? filteredParticipants.map((participant) => `
-                <div class="attendance-row">
-                  <div>
-                    <span class="row-title">${escapeHtml(participant.name)}</span>
-                    <span class="row-meta">${escapeHtml(participant.personId)} | ${escapeHtml(participant.type || "")}</span>
+                <article
+                  class="attendance-row ${state.attendanceForm[participant.personId] === "SI" ? "attendance-row-present" : "attendance-row-absent"}"
+                  data-role="attendance-card"
+                  data-person-id="${escapeHtml(participant.personId)}"
+                >
+                  <div class="attendance-row-main">
+                    <div>
+                      <span class="row-title">${escapeHtml(participant.name)}</span>
+                      <span class="row-meta">${escapeHtml(participant.personId)} | ${escapeHtml(participant.type || "")}</span>
+                      <span class="row-meta">${state.attendanceForm[participant.personId] === "SI" ? "Marcado como asistente" : "Marcado como no asistente"}</span>
+                    </div>
                   </div>
-                  <div class="field">
-                    <label for="attendance-${escapeHtml(participant.personId)}">Asistencia</label>
-                    <select
-                      id="attendance-${escapeHtml(participant.personId)}"
-                      data-role="attendance-select"
+                  <div class="attendance-choice-group">
+                    <button
+                      type="button"
+                      class="attendance-choice ${state.attendanceForm[participant.personId] === "SI" ? "active" : ""}"
+                      data-role="attendance-choice"
                       data-person-id="${escapeHtml(participant.personId)}"
+                      data-action="set-person-attendance"
+                      data-value="SI"
+                      aria-pressed="${state.attendanceForm[participant.personId] === "SI" ? "true" : "false"}"
                     >
-                      <option value="SI" ${state.attendanceForm[participant.personId] === "SI" ? "selected" : ""}>SI</option>
-                      <option value="NO" ${state.attendanceForm[participant.personId] === "NO" ? "selected" : ""}>NO</option>
-                    </select>
+                      SI
+                    </button>
+                    <button
+                      type="button"
+                      class="attendance-choice ${state.attendanceForm[participant.personId] === "NO" ? "active" : ""}"
+                      data-role="attendance-choice"
+                      data-person-id="${escapeHtml(participant.personId)}"
+                      data-action="set-person-attendance"
+                      data-value="NO"
+                      aria-pressed="${state.attendanceForm[participant.personId] === "NO" ? "true" : "false"}"
+                    >
+                      NO
+                    </button>
                   </div>
-                </div>
+                </article>
               `).join("") : `
                 <div class="empty-state">No hay participantes que coincidan con la busqueda actual.</div>
               `}
 
-              <div class="actions-row">
+              <div class="actions-row attendance-form-footer">
+                <button class="btn btn-ghost" type="button" data-action="refresh-attendance-detail" ${filter.groupId ? "" : "disabled"}>Cargar detalle historico</button>
                 <button class="btn btn-primary" type="submit">${context.alreadyCaptured ? "Guardar cambios" : "Guardar asistencia"}</button>
               </div>
             </form>
@@ -1820,32 +1911,42 @@ function renderAttendanceView() {
         <article class="summary-card module-section-anchor attendance-summary-card" id="attendance-summary-card">
           <div class="panel-head">
             <div>
-              <h2>Resumen de la captura</h2>
-              <p>Se actualiza con base en lo que vayas seleccionando arriba.</p>
+              <h2>Resumen y control</h2>
+              <p>Monitorea tu avance actual y usa el detalle historico solo cuando realmente lo necesites.</p>
             </div>
           </div>
 
           <div class="summary-stack" id="attendance-summary">
             <div class="summary-box">
               <span class="status-chip neutral">Participantes</span>
-              <strong>${summary.total}</strong>
+              <strong data-role="attendance-total-count">${summary.total}</strong>
               <span>Total cargado en el grupo actual.</span>
             </div>
             <div class="summary-box">
               <span class="status-chip success">Asistieron</span>
-              <strong>${summary.present}</strong>
+              <strong data-role="attendance-present-count">${summary.present}</strong>
               <span>Marcados actualmente como SI.</span>
             </div>
             <div class="summary-box">
               <span class="status-chip warning">No asistieron</span>
-              <strong>${summary.absent}</strong>
+              <strong data-role="attendance-absent-count">${summary.absent}</strong>
               <span>Marcados actualmente como NO.</span>
             </div>
             <div class="summary-box">
-              <span class="status-chip dark">Visibles</span>
-              <strong>${filteredParticipants.length}</strong>
-              <span>Participantes mostrados segun el filtro actual.</span>
+              <span class="status-chip dark">Cambios</span>
+              <strong data-role="attendance-dirty-count">${summary.changed}</strong>
+              <span>Cambios pendientes de guardar.</span>
             </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Visibles</span>
+              <strong data-role="attendance-visible-count">${filteredParticipants.length}</strong>
+              <span>${visiblePresent} SI y ${visibleAbsent} NO segun el filtro actual.</span>
+            </div>
+          </div>
+
+          <div class="attendance-flow-note">
+            <strong>Flujo recomendado</strong>
+            <span>1. Elige el grupo. 2. Marca rapidamente con SI o NO. 3. Guarda. 4. Si necesitas revisar el historial del grupo, cargalo al final.</span>
           </div>
         </article>
       </div>
@@ -1854,9 +1955,9 @@ function renderAttendanceView() {
         <div class="panel-head">
           <div>
             <h2>Detalle historico del grupo</h2>
-            <p>Consulta por temporada y grupo para ver una matriz rapida de asistencias.</p>
+            <p>Consulta la matriz solo si la necesitas. Se carga aparte para que la captura diaria sea mas rapida.</p>
           </div>
-          <button class="btn btn-secondary" data-action="refresh-attendance-detail">Actualizar detalle</button>
+          <button class="btn btn-secondary" data-action="refresh-attendance-detail" ${filter.groupId ? "" : "disabled"}>${state.attendanceDetail ? "Actualizar detalle" : "Cargar detalle"}</button>
         </div>
 
         ${state.attendanceDetail && state.attendanceDetail.sessions && state.attendanceDetail.sessions.length ? `
@@ -1892,7 +1993,7 @@ function renderAttendanceView() {
             </table>
           </div>
         ` : `
-          <div class="empty-state">Cargando o sin detalle disponible para este grupo.</div>
+          <div class="empty-state">Aun no has cargado el detalle historico de este grupo en esta vista.</div>
         `}
       </article>
     </section>
@@ -2760,6 +2861,22 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-attendance-group") {
+      const nextGroupId = String(button.dataset.groupId || "");
+
+      if (!nextGroupId || state.filters.attendance.groupId === nextGroupId) {
+        return;
+      }
+
+      state.filters.attendance.groupId = nextGroupId;
+      state.filters.attendance.search = "";
+      await loadAttendanceData();
+      renderApp();
+      scrollToSection_("attendance-list");
+      focusInputById_("attendance-search");
+      return;
+    }
+
     if (action === "refresh-attendance-detail") {
       await loadAttendanceDetailOnly();
       renderApp();
@@ -2769,12 +2886,28 @@ async function handleClick(event) {
     if (action === "set-attendance-all") {
       setAttendanceForAll(button.dataset.value);
       renderApp();
+      focusInputById_("attendance-search");
       return;
     }
 
     if (action === "set-attendance-visible") {
       setAttendanceForVisible(button.dataset.value);
       renderApp();
+      focusInputById_("attendance-search");
+      return;
+    }
+
+    if (action === "set-person-attendance") {
+      const personId = String(button.dataset.personId || "");
+      const nextValue = button.dataset.value === "SI" ? "SI" : "NO";
+
+      if (!personId || state.attendanceForm[personId] === nextValue) {
+        return;
+      }
+
+      setAttendanceForPerson_(personId, nextValue);
+      syncAttendanceCardUi_(personId);
+      syncAttendanceSummaryDom_();
       return;
     }
 
@@ -3047,6 +3180,7 @@ async function handleChange(event) {
       state.filters.attendance.search = "";
       await loadAttendanceData();
       renderApp();
+      focusInputById_("attendance-search");
       return;
     }
 
@@ -3072,10 +3206,6 @@ async function handleChange(event) {
       return;
     }
 
-    if (target.dataset.role === "attendance-select") {
-      state.attendanceForm[target.dataset.personId] = target.value;
-      return;
-    }
   } catch (error) {
     handleError(error);
   }
@@ -3669,30 +3799,28 @@ async function loadAttendanceData() {
     state.attendanceContext = null;
     state.attendanceDetail = null;
     state.attendanceForm = {};
+    state.attendanceBaseline = {};
     return;
   }
 
   await withLoading(async () => {
-    const [context, detail] = await Promise.all([
-      apiGet("attendances.captureContext", {
-        seasonId: filter.seasonId,
-        sessionId: filter.sessionId,
-        groupId: filter.groupId
-      }),
-      apiGet("attendances.groupDetail", {
-        seasonId: filter.seasonId,
-        groupId: filter.groupId
-      })
-    ]);
+    const context = await apiGet("attendances.captureContext", {
+      seasonId: filter.seasonId,
+      sessionId: filter.sessionId,
+      groupId: filter.groupId
+    });
 
     state.attendanceContext = context;
-    state.attendanceDetail = detail;
+    state.attendanceDetail = null;
     state.attendanceForm = {};
+    state.attendanceBaseline = {};
 
     context.participants.forEach((participant) => {
-      state.attendanceForm[participant.personId] = participant.attendance === "SI" ? "SI" : "NO";
+      const normalizedValue = participant.attendance === "SI" ? "SI" : "NO";
+      state.attendanceForm[participant.personId] = normalizedValue;
+      state.attendanceBaseline[participant.personId] = normalizedValue;
     });
-  }, "Cargando asistencia...");
+  }, "Cargando lista de asistencia...");
 }
 
 async function syncAttendanceFilterState_() {
@@ -3736,6 +3864,7 @@ async function loadAttendanceDetailOnly() {
 
 async function saveAttendanceCapture() {
   const filter = state.filters.attendance;
+  const summary = buildAttendanceSummary();
   ensureContextReady(filter, "captura de asistencia");
 
   const attendances = Object.entries(state.attendanceForm).map(([personId, attended]) => ({
@@ -3745,6 +3874,11 @@ async function saveAttendanceCapture() {
 
   if (!attendances.length) {
     showToast("Sin participantes", "No hay registros para guardar en esta captura.", "warning");
+    return;
+  }
+
+  if (state.attendanceContext && state.attendanceContext.alreadyCaptured && summary.changed === 0) {
+    showToast("Sin cambios", "No hay cambios nuevos por guardar en esta captura.", "warning");
     return;
   }
 
@@ -4249,11 +4383,17 @@ function resetParticipantInteractionState_() {
 function buildAttendanceSummary() {
   const values = Object.values(state.attendanceForm);
   const present = values.filter((value) => value === "SI").length;
+  const changed = Object.keys(state.attendanceForm).filter((personId) => {
+    const currentValue = state.attendanceForm[personId] === "SI" ? "SI" : "NO";
+    const baselineValue = state.attendanceBaseline[personId] === "SI" ? "SI" : "NO";
+    return currentValue !== baselineValue;
+  }).length;
 
   return {
     total: values.length,
     present,
-    absent: values.length - present
+    absent: values.length - present,
+    changed
   };
 }
 
@@ -4277,6 +4417,96 @@ function setAttendanceForVisible(value) {
 
   getFilteredAttendanceParticipants_().forEach((participant) => {
     state.attendanceForm[participant.personId] = normalizedValue;
+  });
+}
+
+function setAttendanceForPerson_(personId, value) {
+  const normalizedPersonId = String(personId || "");
+
+  if (!normalizedPersonId) {
+    return;
+  }
+
+  state.attendanceForm[normalizedPersonId] = value === "SI" ? "SI" : "NO";
+}
+
+function syncAttendanceCardUi_(personId) {
+  const normalizedPersonId = String(personId || "");
+  const currentValue = state.attendanceForm[normalizedPersonId] === "SI" ? "SI" : "NO";
+
+  root.querySelectorAll('[data-role="attendance-card"]').forEach((card) => {
+    if (!(card instanceof HTMLElement) || card.dataset.personId !== normalizedPersonId) {
+      return;
+    }
+
+    card.classList.toggle("attendance-row-present", currentValue === "SI");
+    card.classList.toggle("attendance-row-absent", currentValue !== "SI");
+
+    const metaRows = card.querySelectorAll(".row-meta");
+    const statusCopy = metaRows[1];
+    if (statusCopy instanceof HTMLElement) {
+      statusCopy.textContent = currentValue === "SI" ? "Marcado como asistente" : "Marcado como no asistente";
+    }
+  });
+
+  root.querySelectorAll('[data-role="attendance-choice"]').forEach((button) => {
+    if (!(button instanceof HTMLButtonElement) || button.dataset.personId !== normalizedPersonId) {
+      return;
+    }
+
+    const isActive = button.dataset.value === currentValue;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+function syncAttendanceSummaryDom_() {
+  const summary = buildAttendanceSummary();
+  const filteredParticipants = getFilteredAttendanceParticipants_();
+  const visiblePresent = filteredParticipants.filter((participant) => state.attendanceForm[participant.personId] === "SI").length;
+  const visibleAbsent = Math.max(filteredParticipants.length - visiblePresent, 0);
+  const draftLabel = summary.changed
+    ? `${summary.changed} cambio${summary.changed === 1 ? "" : "s"} sin guardar`
+    : (state.attendanceContext
+      ? (state.attendanceContext.alreadyCaptured ? "Sin cambios pendientes" : "Lista lista para guardar")
+      : "Pendiente");
+
+  root.querySelectorAll('[data-role="attendance-total-count"]').forEach((element) => {
+    element.textContent = String(summary.total);
+  });
+  root.querySelectorAll('[data-role="attendance-present-count"]').forEach((element) => {
+    element.textContent = String(summary.present);
+  });
+  root.querySelectorAll('[data-role="attendance-absent-count"]').forEach((element) => {
+    element.textContent = String(summary.absent);
+  });
+  root.querySelectorAll('[data-role="attendance-dirty-count"]').forEach((element) => {
+    element.textContent = String(summary.changed);
+  });
+  root.querySelectorAll('[data-role="attendance-visible-count"]').forEach((element) => {
+    element.textContent = String(filteredParticipants.length);
+  });
+  root.querySelectorAll('[data-role="attendance-draft-badge"]').forEach((element) => {
+    element.textContent = draftLabel;
+
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    element.classList.remove("warning", "dark", "success");
+    element.classList.add(summary.changed ? "warning" : (state.attendanceContext && state.attendanceContext.alreadyCaptured ? "dark" : "success"));
+  });
+
+  root.querySelectorAll(".summary-box").forEach((box) => {
+    const countNode = box.querySelector('[data-role="attendance-visible-count"]');
+    if (!countNode) {
+      return;
+    }
+
+    const description = box.querySelector("span:last-child");
+    if (description instanceof HTMLElement) {
+      description.textContent = `${visiblePresent} SI y ${visibleAbsent} NO segun el filtro actual.`;
+    }
   });
 }
 
@@ -5659,6 +5889,7 @@ function resetRuntimeState() {
   state.participantContext = null;
   state.attendanceContext = null;
   state.attendanceForm = {};
+  state.attendanceBaseline = {};
   state.attendanceDetail = null;
   state.realtimeSummary = null;
   state.qrSessionActivity = [];
