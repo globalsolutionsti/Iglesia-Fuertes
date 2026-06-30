@@ -126,6 +126,10 @@ const qrScannerRuntime = {
   lastValueAt: 0
 };
 
+const credentialRenderRuntime = {
+  logoPromise: null
+};
+
 document.addEventListener("click", handleClick);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("change", handleChange);
@@ -788,11 +792,12 @@ function renderAssistantsView() {
         <div class="panel-head">
           <div>
             <h2>Credenciales QR</h2>
-            <p>El QR queda listo para kiosko y registro rapido. Cada credencial muestra ID, nombre, grupo de conexion y tipo de persona.</p>
+            <p>El QR queda listo para kiosko y registro rapido. Puedes descargar un lote masivo para WhatsApp o compartir una credencial individual desde iPad o movil.</p>
           </div>
           <div class="inline-actions">
             <button class="btn btn-secondary" data-action="print-credential-preview" ${credentialPreviewRows.length ? "" : "disabled"}>Imprimir vista previa</button>
-            <button class="btn btn-primary" data-action="print-credential-batch" ${rows.length ? "" : "disabled"}>Imprimir filtradas</button>
+            <button class="btn btn-secondary" data-action="print-credential-batch" ${rows.length ? "" : "disabled"}>Imprimir filtradas</button>
+            <button class="btn btn-primary" data-action="download-credential-batch" ${rows.length ? "" : "disabled"}>Descargar lote ZIP</button>
           </div>
         </div>
 
@@ -802,6 +807,11 @@ function renderAssistantsView() {
           <span class="context-item"><strong>Líderes:</strong> ${escapeHtml(String(summary.leaders))}</span>
           <span class="context-item"><strong>Credenciales filtradas:</strong> ${escapeHtml(String(rows.length))}</span>
           <span class="context-item"><strong>Vista previa:</strong> ${escapeHtml(String(credentialPreviewRows.length))}</span>
+        </div>
+
+        <div class="credential-ops-note">
+          <strong>Flujo recomendado para WhatsApp</strong>
+          <span>Primero filtra el padron, luego descarga el lote ZIP con PNG y CSV de apoyo. En iPad, iPhone o Android tambien puedes usar <strong>Compartir</strong> en cada credencial para abrir el menu nativo y elegir WhatsApp.</span>
         </div>
 
         ${credentialPreviewRows.length ? `
@@ -1923,6 +1933,8 @@ function renderCredentialCard_(person) {
       </div>
 
       <div class="actions-row credential-actions">
+        <button class="btn btn-secondary" data-action="download-single-credential" data-person-id="${escapeHtml(person.id || "")}">Descargar PNG</button>
+        <button class="btn btn-primary" data-action="share-single-credential" data-person-id="${escapeHtml(person.id || "")}">Compartir</button>
         <button class="btn btn-ghost" data-action="print-single-credential" data-person-id="${escapeHtml(person.id || "")}">Imprimir esta credencial</button>
       </div>
     </article>
@@ -2013,6 +2025,11 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "download-credential-batch") {
+      await downloadCredentialBatchZip_(getFilteredPeopleDirectory_(), "Credenciales QR - Lote completo");
+      return;
+    }
+
     if (action === "print-single-credential") {
       const person = state.peopleDirectory.find((item) => String(item.id) === String(button.dataset.personId || ""));
       if (!person) {
@@ -2021,6 +2038,28 @@ async function handleClick(event) {
       }
 
       printCredentialCards_([person], `Credencial QR - ${person.nombreCompleto || person.nombre || "Persona"}`);
+      return;
+    }
+
+    if (action === "download-single-credential") {
+      const person = state.peopleDirectory.find((item) => String(item.id) === String(button.dataset.personId || ""));
+      if (!person) {
+        showToast("Credencial no disponible", "No se encontro la persona seleccionada para descargar su credencial.", "warning");
+        return;
+      }
+
+      await downloadCredentialPng_(person);
+      return;
+    }
+
+    if (action === "share-single-credential") {
+      const person = state.peopleDirectory.find((item) => String(item.id) === String(button.dataset.personId || ""));
+      if (!person) {
+        showToast("Credencial no disponible", "No se encontro la persona seleccionada para compartir su credencial.", "warning");
+        return;
+      }
+
+      await shareCredentialPng_(person);
       return;
     }
 
@@ -3784,6 +3823,467 @@ function buildCredentialQrDataUrl_(person, size = 220) {
   const canvas = document.createElement("canvas");
   renderCredentialQrCanvas_(canvas, buildCredentialQrValue_(person), size);
   return canvas.toDataURL("image/png");
+}
+
+async function downloadCredentialPng_(person, options = {}) {
+  const fileName = `${buildCredentialFileName_(person)}.png`;
+
+  await withLoading(async () => {
+    const blob = await buildCredentialPngBlob_(person);
+    downloadBlob_(blob, fileName);
+  }, "Generando credencial PNG...");
+
+  if (options.showToast !== false) {
+    showToast("Credencial descargada", "El PNG quedo listo para enviarlo por WhatsApp o guardarlo.", "success");
+  }
+}
+
+async function shareCredentialPng_(person) {
+  const shareTitle = `Credencial QR - ${person.nombreCompleto || person.nombre || "Persona"}`;
+  const fileName = `${buildCredentialFileName_(person)}.png`;
+
+  await withLoading(async () => {
+    const blob = await buildCredentialPngBlob_(person);
+    const file = new File([blob], fileName, {
+      type: "image/png"
+    });
+
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      const canShareFiles = typeof navigator.canShare !== "function" || navigator.canShare({
+        files: [file]
+      });
+
+      if (canShareFiles) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: shareTitle,
+            text: buildCredentialShareText_(person)
+          });
+          showToast("Menu de compartir abierto", "Puedes elegir WhatsApp, AirDrop, Mail u otra app compatible.", "success");
+          return;
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            return;
+          }
+
+          throw error;
+        }
+      }
+    }
+
+    downloadBlob_(blob, fileName);
+    showToast("Compartir no disponible", "Este navegador no permite compartir archivos directo. Se descargó el PNG para enviarlo manualmente por WhatsApp.", "warning");
+  }, "Preparando credencial para compartir...");
+}
+
+async function downloadCredentialBatchZip_(people, title) {
+  const rows = Array.isArray(people) ? people.filter(Boolean) : [];
+
+  if (!rows.length) {
+    showToast("Sin credenciales", "No hay personas disponibles para generar el lote con los filtros actuales.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const JSZipLibrary = window.JSZip;
+
+    if (!JSZipLibrary) {
+      throw new ApiError("No se encontro la libreria para generar el ZIP. Recarga la pagina y vuelve a intentar.", "ZIP_LIBRARY_NOT_AVAILABLE");
+    }
+
+    const zip = new JSZipLibrary();
+    const folder = zip.folder("credenciales_qr");
+    const manifestCsv = buildCredentialManifestCsv_(rows);
+    const helpText = buildCredentialBatchHelpText_(rows.length, title);
+
+    for (const person of rows) {
+      const fileName = `${buildCredentialFileName_(person)}.png`;
+      const blob = await buildCredentialPngBlob_(person);
+      folder.file(fileName, blob);
+    }
+
+    zip.file("MANIFIESTO_CREDENCIALES.csv", manifestCsv);
+    zip.file("README_WHATSAPP.txt", helpText);
+
+    const zipBlob = await zip.generateAsync({
+      type: "blob",
+      compression: "DEFLATE",
+      compressionOptions: {
+        level: 6
+      }
+    });
+
+    downloadBlob_(zipBlob, buildCredentialBatchZipFileName_(rows.length));
+  }, `Generando ${rows.length} credenciales para descarga masiva...`);
+
+  showToast("Lote descargado", `Se generó un ZIP con ${rows.length} credenciales PNG y un CSV de apoyo para WhatsApp.`, "success");
+}
+
+async function buildCredentialPngBlob_(person, options = {}) {
+  const width = Number(options.width || 1080);
+  const height = Number(options.height || 1600);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const assets = await getCredentialRenderAssets_();
+  const qrImage = await loadImageElement_(buildCredentialQrDataUrl_(person, 620));
+  const name = (person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
+  const type = normalizePersonTypeValue_(person.tipoPersona).toUpperCase();
+  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+  const qrId = person.id || "SIN QR ID";
+  const cardX = 52;
+  const cardY = 52;
+  const cardWidth = width - (cardX * 2);
+  const cardHeight = height - (cardY * 2);
+  const qrShellSize = 652;
+  const qrSize = 560;
+  const qrShellX = (width - qrShellSize) / 2;
+  const qrShellY = 308;
+  const qrX = qrShellX + ((qrShellSize - qrSize) / 2);
+  const qrY = qrShellY + ((qrShellSize - qrSize) / 2);
+
+  if (!context) {
+    throw new ApiError("No se pudo crear el lienzo para exportar la credencial.", "CANVAS_NOT_AVAILABLE");
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+
+  context.fillStyle = "#f3f3f3";
+  context.fillRect(0, 0, width, height);
+
+  context.save();
+  context.shadowColor = "rgba(0, 0, 0, 0.08)";
+  context.shadowBlur = 36;
+  context.shadowOffsetY = 16;
+  drawRoundedRectPath_(context, cardX, cardY, cardWidth, cardHeight, 54);
+  context.fillStyle = "#ffffff";
+  context.fill();
+  context.restore();
+
+  context.lineWidth = 2;
+  context.strokeStyle = "#ececec";
+  drawRoundedRectPath_(context, cardX, cardY, cardWidth, cardHeight, 54);
+  context.stroke();
+
+  const logoWidth = Math.min(assets.logo.naturalWidth, 540);
+  const logoScale = logoWidth / assets.logo.naturalWidth;
+  const logoRenderWidth = assets.logo.naturalWidth * logoScale;
+  const logoRenderHeight = assets.logo.naturalHeight * logoScale;
+  const logoX = (width - logoRenderWidth) / 2;
+
+  context.drawImage(assets.logo, logoX, 118, logoRenderWidth, logoRenderHeight);
+
+  context.fillStyle = "#5f5f5f";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "500 42px Manrope, Arial, sans-serif";
+  context.fillText("Credencial Digital", width / 2, 264);
+
+  context.fillStyle = "#ffffff";
+  context.strokeStyle = "#e7e7e7";
+  context.lineWidth = 2;
+  drawRoundedRectPath_(context, qrShellX, qrShellY, qrShellSize, qrShellSize, 42);
+  context.fill();
+  context.stroke();
+  context.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+
+  const nameBlock = fitCanvasTextBlock_(context, name, 760, {
+    maxLines: 2,
+    maxFontSize: 78,
+    minFontSize: 42,
+    fontWeight: 800
+  });
+  const nameLineHeight = Math.round(nameBlock.fontSize * 1.02);
+  let cursorY = 1046;
+
+  context.fillStyle = "#1a1a1a";
+  context.font = `800 ${nameBlock.fontSize}px Manrope, Arial, sans-serif`;
+  nameBlock.lines.forEach((line) => {
+    context.fillText(line, width / 2, cursorY);
+    cursorY += nameLineHeight;
+  });
+
+  cursorY += 42;
+  context.fillStyle = "#2f2f2f";
+  context.font = "700 34px Manrope, Arial, sans-serif";
+  context.fillText(type, width / 2, cursorY);
+
+  const groupBlock = fitCanvasTextBlock_(context, `Grupo de conexion: ${groupName}`, 760, {
+    maxLines: 2,
+    maxFontSize: 27,
+    minFontSize: 22,
+    fontWeight: 700
+  });
+  const groupLineHeight = Math.round(groupBlock.fontSize * 1.2);
+  cursorY += 78;
+  context.fillStyle = "#666666";
+  context.font = `700 ${groupBlock.fontSize}px Manrope, Arial, sans-serif`;
+  groupBlock.lines.forEach((line) => {
+    context.fillText(line, width / 2, cursorY);
+    cursorY += groupLineHeight;
+  });
+
+  context.strokeStyle = "#ededed";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(180, 1410);
+  context.lineTo(width - 180, 1410);
+  context.stroke();
+
+  context.fillStyle = "#7d7d7d";
+  context.font = "800 20px Manrope, Arial, sans-serif";
+  context.fillText("QR ID", width / 2, 1474);
+
+  context.fillStyle = "#1a1a1a";
+  context.font = "700 42px Manrope, Arial, sans-serif";
+  context.fillText(qrId, width / 2, 1538);
+
+  return canvasToBlob_(canvas, "image/png");
+}
+
+function getCredentialRenderAssets_() {
+  if (!credentialRenderRuntime.logoPromise) {
+    credentialRenderRuntime.logoPromise = loadImageElement_(getCredentialLogoAssetUrl_()).then((logo) => ({
+      logo
+    }));
+  }
+
+  return credentialRenderRuntime.logoPromise;
+}
+
+function loadImageElement_(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new ApiError(`No se pudo cargar el recurso visual: ${src}`, "ASSET_LOAD_ERROR"));
+    image.src = src;
+  });
+}
+
+function canvasToBlob_(canvas, type = "image/png", quality = 1) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+
+      reject(new ApiError("No se pudo exportar la credencial como archivo.", "BLOB_EXPORT_ERROR"));
+    }, type, quality);
+  });
+}
+
+function drawRoundedRectPath_(context, x, y, width, height, radius) {
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.arcTo(x + width, y, x + width, y + height, safeRadius);
+  context.arcTo(x + width, y + height, x, y + height, safeRadius);
+  context.arcTo(x, y + height, x, y, safeRadius);
+  context.arcTo(x, y, x + width, y, safeRadius);
+  context.closePath();
+}
+
+function wrapCanvasText_(context, text, maxWidth) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let currentLine = "";
+
+  if (!words.length) {
+    return [""];
+  }
+
+  words.forEach((word) => {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (context.measureText(candidate).width <= maxWidth || !currentLine) {
+      currentLine = candidate;
+      return;
+    }
+
+    lines.push(currentLine);
+    currentLine = word;
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
+function trimCanvasLineWithEllipsis_(context, text, maxWidth) {
+  let output = String(text || "").trim();
+
+  while (output && context.measureText(`${output}...`).width > maxWidth) {
+    output = output.slice(0, -1).trim();
+  }
+
+  return output ? `${output}...` : "...";
+}
+
+function fitCanvasTextBlock_(context, text, maxWidth, options = {}) {
+  const maxLines = Number(options.maxLines || 2);
+  const maxFontSize = Number(options.maxFontSize || 64);
+  const minFontSize = Number(options.minFontSize || 26);
+  const fontWeight = Number(options.fontWeight || 700);
+
+  for (let fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 2) {
+    context.font = `${fontWeight} ${fontSize}px Manrope, Arial, sans-serif`;
+    const lines = wrapCanvasText_(context, text, maxWidth);
+
+    if (lines.length <= maxLines) {
+      return {
+        fontSize,
+        lines
+      };
+    }
+  }
+
+  context.font = `${fontWeight} ${minFontSize}px Manrope, Arial, sans-serif`;
+  const lines = wrapCanvasText_(context, text, maxWidth).slice(0, maxLines);
+
+  if (lines.length) {
+    lines[lines.length - 1] = trimCanvasLineWithEllipsis_(context, lines[lines.length - 1], maxWidth);
+  }
+
+  return {
+    fontSize: minFontSize,
+    lines
+  };
+}
+
+function buildCredentialFileName_(person) {
+  const qrId = sanitizeFileNamePart_(person.id || "sin_qr_id");
+  const name = sanitizeFileNamePart_(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "persona");
+  return `CREDENCIAL_QR_${qrId}_${name}`.slice(0, 120);
+}
+
+function sanitizeFileNamePart_(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64) || "SIN_DATO";
+}
+
+function buildCredentialBatchZipFileName_(total) {
+  return `CREDENCIALES_QR_${formatTimestampToken_()}_${String(total || 0).padStart(3, "0")}.zip`;
+}
+
+function formatTimestampToken_() {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    "_",
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0")
+  ].join("");
+}
+
+function buildCredentialManifestCsv_(people) {
+  const rows = [
+    ["QR_ID", "NUMERO", "NOMBRE", "TIPO_PERSONA", "GRUPO", "TELEFONO", "EMAIL", "WHATSAPP_URL"]
+  ];
+
+  people.forEach((person) => {
+    rows.push([
+      person.id || "",
+      person.numero || "",
+      person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "",
+      normalizePersonTypeValue_(person.tipoPersona),
+      resolveGroupName_(person.grupo) || person.grupo || "",
+      person.telefono || "",
+      person.email || "",
+      buildWhatsappShareUrl_(person)
+    ]);
+  });
+
+  return rows.map((row) => row.map(toCsvValue_).join(",")).join("\n");
+}
+
+function toCsvValue_(value) {
+  const text = String(value ?? "");
+  if (!/[",\n]/.test(text)) {
+    return text;
+  }
+
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
+function buildCredentialBatchHelpText_(total, title) {
+  return [
+    title || "Credenciales QR",
+    `Total de credenciales: ${total}`,
+    "",
+    "Uso sugerido:",
+    "1. Descomprime este archivo ZIP.",
+    "2. Encontraras un PNG por persona listo para compartir.",
+    "3. Usa MANIFIESTO_CREDENCIALES.csv como apoyo para identificar telefono, grupo y QR ID.",
+    "4. Para envio automatico masivo por WhatsApp se requiere una integracion aparte con WhatsApp Business Cloud API."
+  ].join("\n");
+}
+
+function buildCredentialShareText_(person) {
+  const name = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Persona";
+  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+  const type = normalizePersonTypeValue_(person.tipoPersona);
+  const qrId = person.id || "Sin QR ID";
+
+  return [
+    `Credencial QR de ${name}`,
+    `Grupo: ${groupName}`,
+    `Tipo: ${type}`,
+    `QR ID: ${qrId}`,
+    "Presentala al llegar al kiosko o en el registro de asistencia."
+  ].join("\n");
+}
+
+function buildWhatsappShareUrl_(person) {
+  const phone = normalizeWhatsappPhone_(person.telefono);
+
+  if (!phone) {
+    return "";
+  }
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(buildCredentialShareText_(person))}`;
+}
+
+function normalizeWhatsappPhone_(value) {
+  const digits = normalizePhone_(value);
+
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length === 10) {
+    return `52${digits}`;
+  }
+
+  if (digits.length === 13 && digits.indexOf("521") === 0) {
+    return `52${digits.slice(-10)}`;
+  }
+
+  return digits;
+}
+
+function downloadBlob_(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1500);
 }
 
 function printCredentialCards_(people, title) {
