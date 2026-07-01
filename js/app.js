@@ -144,6 +144,7 @@ const state = {
   dashboardExecutive: null,
   dashboardLeaderDetail: null,
   dashboardSessionInsights: null,
+  dashboardSeasonMatrix: null,
   adminUsers: [],
   adminUsersSupport: {
     available: true,
@@ -154,7 +155,8 @@ const state = {
     participants: "",
     attendance: "",
     attendanceDetail: "",
-    qrSummary: ""
+    qrSummary: "",
+    dashboardSeasonMatrix: ""
   },
   loaded: {
     bootstrap: false,
@@ -822,41 +824,22 @@ function renderDashboardMobileHero_(options) {
     attendanceRate = 0,
     activeSessionOpen = false
   } = options || {};
-  const shortcuts = [
-    { label: "Consultar grupos", copy: "Ver detalle y exportar", sectionId: "dashboard-toolbar" },
-    { label: "Congregantes", copy: "Padron y credenciales", view: "assistants" },
-    { label: "Catalogos", copy: "Grupos y ministerios", view: "catalogs" },
-    { label: "Temporadas", copy: "Abrir o revisar sesiones", view: "seasons" },
-    { label: "Participantes", copy: "Asignacion por grupo", view: "participants" },
-    { label: "Asistencia", copy: "Captura manual", view: "attendance" },
-    { label: "Administracion", copy: "Usuarios y API", view: "admin-settings" }
-  ];
 
   return `
     <article class="dashboard-mobile-hero">
       <div class="dashboard-mobile-hero-head">
         <div>
-          <span class="eyebrow">Centro de mando</span>
-          <h2>Dashboard movil</h2>
-          <p>Consulta grupos, exporta cortes y entra al modulo que necesites.</p>
+          <h2>Dashboard Ejecutivo</h2>
         </div>
         <span class="pill ${activeSessionOpen ? "success" : "warning"}">${activeSessionOpen ? "Sesion abierta" : "Sin sesion"}</span>
       </div>
 
       <div class="dashboard-mobile-chip-grid">
         <span class="context-item"><strong>Temporada:</strong> ${escapeHtml(seasonName)}</span>
+        <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(sessionsCount || 0))}</span>
         <span class="context-item"><strong>Sesion:</strong> ${escapeHtml(activeSessionName || "Sin sesion")}</span>
         <span class="context-item"><strong>Pendientes:</strong> ${escapeHtml(String(groupsPending || 0))}</span>
         <span class="context-item"><strong>Cobertura:</strong> ${escapeHtml(String(attendanceRate || 0))}%</span>
-      </div>
-
-      <div class="dashboard-mobile-shortcuts">
-        ${shortcuts.map((shortcut) => renderDashboardMobileShortcut_(shortcut)).join("")}
-      </div>
-
-      <div class="dashboard-mobile-actions">
-        <button class="btn btn-primary" data-action="export-dashboard-ranking">Exportar resumen</button>
-        <button class="btn btn-secondary" data-action="navigate" data-view="attendance">Pasar lista</button>
       </div>
     </article>
   `;
@@ -1516,9 +1499,8 @@ function renderDashboardView() {
   const selectedGroupId = state.filters.dashboard.groupId;
   const selectedGroupRow = groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
   const leaderSummary = buildDashboardLeaderSummary_(selectedGroupRow, state.dashboardLeaderDetail);
-  const sessionInsights = state.dashboardSessionInsights;
+  const seasonMatrix = state.dashboardSeasonMatrix;
   const dashboardSeasonId = state.filters.dashboard.seasonId || focusSeason?.id || "";
-  const seasonSessions = getSessions(dashboardSeasonId);
   const recentCongregants = getRecentCongregants_("dashboard");
   const mobileSeasonSessionsCount = focusSeason
     ? Number(focusSeason.sessionsCount || getSessions(focusSeason.id).length || 0)
@@ -1533,14 +1515,6 @@ function renderDashboardView() {
     })),
     selectedGroupId,
     'Selecciona grupo'
-  );
-  const dashboardSessionOptions = renderOptions(
-    seasonSessions.map((session) => ({
-      value: session.id,
-      label: `${session.name} | ${formatDate(session.date)}`
-    })),
-    state.filters.dashboard.sessionId,
-    "Selecciona sesion"
   );
 
   return `
@@ -1569,16 +1543,6 @@ function renderDashboardView() {
         <div class="field-grid two dashboard-filter-grid">
           ${renderSeasonSelect('dashboard-season', state.filters.dashboard.seasonId)}
           <div class="field">
-            <label for="dashboard-session">Sesion global</label>
-            <select id="dashboard-session">
-              ${dashboardSessionOptions}
-            </select>
-            <span class="field-help">Base para el corte global por sesion.</span>
-          </div>
-        </div>
-
-        <div class="field-grid two dashboard-filter-grid">
-          <div class="field">
             <label for="dashboard-group">Consulta para lideres</label>
             <select id="dashboard-group">
               ${dashboardGroupOptions}
@@ -1598,7 +1562,7 @@ function renderDashboardView() {
 
         <div class="summary-strip">
           <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : 'Sin temporada'}</span>
-          <span class="context-item"><strong>Sesion global:</strong> ${escapeHtml(sessionInsights?.sessionName || seasonSessions.find((session) => session.id === state.filters.dashboard.sessionId)?.name || "Sin sesion")}</span>
+          <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(seasonMatrix?.sessions?.length || focusSeason?.sessionsCount || 0))}</span>
           <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : 'Cargando...')}</span>
         </div>
 
@@ -1609,6 +1573,70 @@ function renderDashboardView() {
           <button class="btn btn-secondary" data-action="export-dashboard-group-detail" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Exportar grupo</button>
           <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? '' : 'disabled'}>Limpiar consulta</button>
         </div>
+      </article>
+
+      <article class="detail-card dashboard-season-matrix-card">
+        <div class="panel-head">
+          <div>
+            <h2>Grupos por sesion</h2>
+            <p>Consulta vital para Pastor: cada celda muestra el total del grupo en la sesion y su composicion entre voluntarios y congregantes. Toca un grupo para abrir su detalle.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(seasonMatrix?.groups?.length || 0))} grupos</span>
+        </div>
+
+        ${seasonMatrix ? `
+          <div class="summary-strip">
+            <span class="context-item"><strong>Temporada:</strong> ${escapeHtml(seasonMatrix.seasonName || focusSeason?.name || "Sin temporada")}</span>
+            <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(seasonMatrix.sessions.length || 0))}</span>
+            <span class="context-item"><strong>Clave:</strong> Total = Voluntarios + Congregantes</span>
+          </div>
+
+          <div class="table-wrap season-matrix-wrap">
+            <table class="season-matrix-table">
+              <thead>
+                <tr>
+                  <th>Grupo</th>
+                  ${seasonMatrix.sessions.map((session) => `
+                    <th>${escapeHtml(session.shortLabel || session.name)}</th>
+                  `).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${seasonMatrix.groups.length ? seasonMatrix.groups.map((group) => `
+                  <tr>
+                    <td>
+                      <button
+                        class="season-matrix-group-button"
+                        data-action="open-dashboard-session-group"
+                        data-group-id="${escapeHtml(String(group.groupId || ""))}"
+                        type="button"
+                      >
+                        <span class="row-title">${escapeHtml(group.groupName)}</span>
+                        <span class="row-meta">Grupo ${escapeHtml(String(group.groupId))}</span>
+                      </button>
+                    </td>
+                    ${group.sessions.map((cell) => `
+                      <td>
+                        <div class="season-matrix-cell">
+                          <strong>${escapeHtml(String(cell.total || 0))}</strong>
+                          <span>${escapeHtml(`${cell.volunteers || 0} V + ${cell.congregants || 0} C`)}</span>
+                        </div>
+                      </td>
+                    `).join("")}
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="${Math.max((seasonMatrix.sessions.length || 0) + 1, 2)}">
+                      <div class="empty-state">Aun no hay participantes cargados en esta temporada.</div>
+                    </td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state">Estamos preparando la matriz de grupos por sesion para esta temporada.</div>
+        `}
       </article>
 
       <div class="stats-grid dashboard-stats-grid">
@@ -1708,12 +1736,6 @@ function renderDashboardView() {
               <strong>${escapeHtml(String(today.groupsPending || 0))}</strong>
               <span>${today.pendingGroupNames && today.pendingGroupNames.length ? escapeHtml(today.pendingGroupNames.join(', ')) : 'Sin pendientes visibles'}</span>
             </div>
-          </div>
-
-          <div class="quick-actions dashboard-quick-actions">
-            ${renderQuickLink('attendance', 'Captura manual', 'Entra directo a la lista del grupo activo')}
-            ${renderQuickLink('attendance', 'QR y kiosko', 'Cambia de modalidad dentro de asistencias')}
-            ${renderQuickLink('participants', 'Asignacion por grupo', 'Consulta o corrige participantes antes de capturar')}
           </div>
         </article>
       </div>
@@ -1831,64 +1853,6 @@ function renderDashboardView() {
       </div>
 
       <div class="view-grid columns-2">
-        <article class="detail-card dashboard-session-breakdown-card">
-          <div class="panel-head">
-            <div>
-              <h2>Corte global por sesion</h2>
-              <p>Diferencia congregantes y voluntarios para la sesion seleccionada y entra al detalle por grupo.</p>
-            </div>
-            <span class="pill dark">${escapeHtml(sessionInsights?.sessionName || "Sin sesion")}</span>
-          </div>
-
-          ${sessionInsights ? `
-            <div class="summary-strip">
-              <span class="context-item"><strong>Participantes:</strong> ${escapeHtml(String(sessionInsights.totalParticipants || 0))}</span>
-              <span class="context-item"><strong>Presentes:</strong> ${escapeHtml(String(sessionInsights.totalPresent || 0))}</span>
-              <span class="context-item"><strong>Cobertura:</strong> ${escapeHtml(String(sessionInsights.attendanceRate || 0))}%</span>
-            </div>
-
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Grupo</th>
-                    <th>Congregantes</th>
-                    <th>Voluntarios</th>
-                    <th>Presentes</th>
-                    <th>Cobertura</th>
-                    <th>Detalle</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${sessionInsights.groups.length ? sessionInsights.groups.map((group) => `
-                    <tr>
-                      <td>
-                        <span class="row-title">${escapeHtml(group.groupName)}</span>
-                        <span class="row-meta">${escapeHtml(String(group.groupId))}</span>
-                      </td>
-                      <td>${escapeHtml(String(group.congregants || 0))}</td>
-                      <td>${escapeHtml(String(group.volunteers || 0))}</td>
-                      <td>${escapeHtml(String(group.present || 0))}/${escapeHtml(String(group.total || 0))}</td>
-                      <td>${escapeHtml(String(group.rate || 0))}%</td>
-                      <td>
-                        <button class="btn btn-secondary" data-action="open-dashboard-session-group" data-group-id="${escapeHtml(String(group.groupId))}">
-                          Ver grupo
-                        </button>
-                      </td>
-                    </tr>
-                  `).join("") : `
-                    <tr>
-                      <td colspan="6"><div class="empty-state">Aun no hay participantes cargados para la sesion seleccionada.</div></td>
-                    </tr>
-                  `}
-                </tbody>
-              </table>
-            </div>
-          ` : `
-            <div class="empty-state">Selecciona una temporada y una sesion para construir el corte global.</div>
-          `}
-        </article>
-
         <article class="detail-card dashboard-recent-people-card">
           <div class="panel-head">
             <div>
@@ -1981,6 +1945,97 @@ function getDashboardSelectedGroupRow_() {
   const groupsRanking = state.dashboardExecutive?.groupsRanking || [];
   const selectedGroupId = state.filters.dashboard.groupId;
   return groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
+}
+
+function buildDashboardSeasonMatrix_({ seasonId, seasonName, sessions, sessionGroupsBySession, participantsBySession }) {
+  const groupMap = new Map();
+
+  (sessions || []).forEach((session) => {
+    const sessionGroups = sessionGroupsBySession[String(session.id)] || [];
+
+    sessionGroups.forEach((group) => {
+      const groupId = String(group.groupId || "");
+
+      if (!groupMap.has(groupId)) {
+        groupMap.set(groupId, {
+          groupId,
+          groupName: group.groupName || resolveGroupName_(groupId) || `Grupo ${groupId}`,
+          cells: {}
+        });
+      }
+    });
+  });
+
+  (sessions || []).forEach((session) => {
+    const sessionId = String(session.id || "");
+    const rows = participantsBySession[sessionId] || [];
+
+    rows.forEach((participant) => {
+      const groupId = String(participant.groupId || "");
+      const typeKey = getPersonTypeKey_(participant.type || "");
+      let group = groupMap.get(groupId);
+
+      if (!group) {
+        group = {
+          groupId,
+          groupName: resolveGroupName_(groupId) || `Grupo ${groupId}`,
+          cells: {}
+        };
+        groupMap.set(groupId, group);
+      }
+
+      if (!group.cells[sessionId]) {
+        group.cells[sessionId] = {
+          total: 0,
+          volunteers: 0,
+          congregants: 0
+        };
+      }
+
+      group.cells[sessionId].total += 1;
+
+      if (typeKey === "congregante") {
+        group.cells[sessionId].congregants += 1;
+      } else {
+        group.cells[sessionId].volunteers += 1;
+      }
+    });
+  });
+
+  return {
+    key: String(seasonId || ""),
+    seasonId: String(seasonId || ""),
+    seasonName: seasonName || resolveSeasonName_(seasonId) || "",
+    sessions: (sessions || []).map((session) => ({
+      id: session.id,
+      name: session.name,
+      shortLabel: session.number ? `S${session.number}` : session.name,
+      date: session.date
+    })),
+    groups: Array.from(groupMap.values())
+      .map((group) => ({
+        groupId: group.groupId,
+        groupName: group.groupName,
+        sessions: (sessions || []).map((session) => {
+          const cell = group.cells[String(session.id)] || {
+            total: 0,
+            volunteers: 0,
+            congregants: 0
+          };
+
+          return {
+            sessionId: session.id,
+            ...cell
+          };
+        })
+      }))
+      .sort((left, right) => normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es"))
+  };
+}
+
+function invalidateDashboardSeasonMatrix_() {
+  state.dashboardSeasonMatrix = null;
+  state.cacheKeys.dashboardSeasonMatrix = "";
 }
 
 function buildDashboardSessionInsights_({ seasonId, sessionId, sessionGroups, participants, attendances }) {
@@ -4234,7 +4289,7 @@ async function handleClick(event) {
         force: true,
         message: "Actualizando indicadores ejecutivos..."
       });
-      await loadDashboardSessionInsights_({
+      await loadDashboardSeasonMatrix_({
         force: true,
         showLoading: false
       });
@@ -4523,6 +4578,7 @@ async function handleClick(event) {
           groupId: targetGroupId
         });
         delete state.filters.participants.moveTargets[participantId];
+        invalidateDashboardSeasonMatrix_();
         await loadParticipantsData({
           force: true
         });
@@ -4546,6 +4602,7 @@ async function handleClick(event) {
           participantId
         });
         delete state.filters.participants.moveTargets[participantId];
+        invalidateDashboardSeasonMatrix_();
         await loadParticipantsData({
           force: true
         });
@@ -4792,6 +4849,7 @@ async function handleSubmit(event) {
       await withLoading(async () => {
         const result = await apiPost("seasons.create", payload);
         await refreshSeasons();
+        invalidateDashboardSeasonMatrix_();
         state.filters.seasons.seasonId = result.season.id;
         state.filters.participants.seasonId = result.season.id;
         state.filters.attendance.seasonId = result.season.id;
@@ -4906,25 +4964,14 @@ async function handleChange(event) {
       state.filters.dashboard.seasonId = target.value;
       state.filters.dashboard.sessionId = "";
       state.dashboardLeaderDetail = null;
-      state.dashboardSessionInsights = null;
+      invalidateDashboardSeasonMatrix_();
       await loadDashboardExecutive_({
         force: true,
         message: "Actualizando temporada ejecutiva..."
       });
-      await loadDashboardSessionInsights_({
+      await loadDashboardSeasonMatrix_({
         force: true,
         showLoading: false
-      });
-      renderApp();
-      return;
-    }
-
-    if (target.id === "dashboard-session") {
-      state.filters.dashboard.sessionId = target.value;
-      state.dashboardSessionInsights = null;
-      await loadDashboardSessionInsights_({
-        force: true,
-        message: "Actualizando corte global..."
       });
       renderApp();
       return;
@@ -5470,7 +5517,7 @@ async function ensureDashboardViewData_() {
     showLoading: false
   });
   await loadPeopleDirectory();
-  await loadDashboardSessionInsights_({
+  await loadDashboardSeasonMatrix_({
     showLoading: false
   });
 
@@ -5604,6 +5651,61 @@ async function loadDashboardSessionInsights_(options = {}) {
   }
 
   return withLoading(task, options.message || "Calculando sesion ejecutiva...");
+}
+
+async function loadDashboardSeasonMatrix_(options = {}) {
+  syncDashboardFilterState_();
+
+  const seasonId = state.filters.dashboard.seasonId || getLatestSeason()?.id || "";
+  const cacheKey = String(seasonId || "");
+
+  if (!seasonId) {
+    state.dashboardSeasonMatrix = null;
+    state.cacheKeys.dashboardSeasonMatrix = "";
+    return null;
+  }
+
+  if (!options.force && state.cacheKeys.dashboardSeasonMatrix === cacheKey && state.dashboardSeasonMatrix) {
+    return state.dashboardSeasonMatrix;
+  }
+
+  const task = async () => {
+    const sessions = await ensureSessionsForSeason(seasonId);
+    const sessionGroupsList = await Promise.all(
+      sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id))
+    );
+    const participantsList = await Promise.all(
+      sessions.map((session) => apiGet("participants.list", {
+        seasonId,
+        sessionId: session.id,
+        status: "ACTIVO"
+      }))
+    );
+    const sessionGroupsBySession = {};
+    const participantsBySession = {};
+    const seasonName = resolveSeasonName_(seasonId) || sessions[0]?.seasonName || "";
+
+    sessions.forEach((session, index) => {
+      sessionGroupsBySession[String(session.id)] = sessionGroupsList[index] || [];
+      participantsBySession[String(session.id)] = participantsList[index] || [];
+    });
+
+    state.dashboardSeasonMatrix = buildDashboardSeasonMatrix_({
+      seasonId,
+      seasonName,
+      sessions,
+      sessionGroupsBySession,
+      participantsBySession
+    });
+    state.cacheKeys.dashboardSeasonMatrix = cacheKey;
+    return state.dashboardSeasonMatrix;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Preparando matriz pastoral...");
 }
 
 async function ensureSessionGroupsFor(seasonId, sessionId) {
@@ -5862,6 +5964,7 @@ async function addParticipant(personId) {
     });
   }, "Agregando participante...");
 
+  invalidateDashboardSeasonMatrix_();
   mergeParticipantsIntoCurrentContext_([createdParticipant]);
   showToast("Participante agregado", "La persona ya fue agregada al grupo actual.", "success");
   renderApp();
@@ -5895,6 +5998,7 @@ async function bulkAssignParticipants() {
     state.selectedBulkPeople = [];
   }, "Asignando participantes...");
 
+  invalidateDashboardSeasonMatrix_();
   mergeParticipantsIntoCurrentContext_((assignmentResult && assignmentResult.inserted) || []);
   showToast(
     "Asignacion completada",
@@ -8093,6 +8197,7 @@ function resetRuntimeState() {
   state.dashboardExecutive = null;
   state.dashboardLeaderDetail = null;
   state.dashboardSessionInsights = null;
+  state.dashboardSeasonMatrix = null;
   state.adminUsers = [];
   state.adminUsersSupport = {
     available: true,
@@ -8103,7 +8208,8 @@ function resetRuntimeState() {
     participants: "",
     attendance: "",
     attendanceDetail: "",
-    qrSummary: ""
+    qrSummary: "",
+    dashboardSeasonMatrix: ""
   };
   state.loaded = {
     bootstrap: false,
