@@ -43,6 +43,7 @@ const VIEW_META = {
 const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
 const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Líder"];
 const CREDENTIAL_PREVIEW_LIMIT = 8;
+PERSON_TYPE_OPTIONS.splice(0, PERSON_TYPE_OPTIONS.length, "Congregante", "Servidor", "Coordinador", "L\u00edder");
 const MOBILE_NAV_ITEMS = [
   { view: "dashboard", label: "Inicio", description: "Hoy" },
   { view: "assistants", label: "Padron", description: "Base" },
@@ -61,6 +62,8 @@ const state = {
     peopleCount: null,
     directoryCount: null
   },
+  dashboardExecutive: null,
+  dashboardLeaderDetail: null,
   loaded: {
     bootstrap: false,
     groups: false,
@@ -107,6 +110,10 @@ const state = {
     mobileNavOpen: false
   },
   filters: {
+    dashboard: {
+      seasonId: "",
+      groupId: ""
+    },
     assistants: {
       search: "",
       status: "ACTIVO",
@@ -530,7 +537,7 @@ function renderModuleMobileAction_(action) {
   `;
 }
 
-function renderDashboardMobileHero_(latestSeason, latestSeasonSessions, activeSession, apiDescriptor) {
+function renderDashboardMobileHero_(latestSeason, latestSeasonSessionsCount, activeSession, apiDescriptor) {
   return `
     <article class="dashboard-mobile-hero">
       <div class="dashboard-mobile-hero-head">
@@ -544,7 +551,7 @@ function renderDashboardMobileHero_(latestSeason, latestSeasonSessions, activeSe
 
       <div class="dashboard-mobile-chip-grid">
         <span class="context-item"><strong>Temporada:</strong> ${latestSeason ? escapeHtml(latestSeason.name) : "Sin datos"}</span>
-        <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(latestSeasonSessions.length))}</span>
+        <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(latestSeasonSessionsCount || 0))}</span>
         <span class="context-item"><strong>API:</strong> ${escapeHtml(apiDescriptor)}</span>
         <span class="context-item"><strong>Estado:</strong> ${activeSession ? escapeHtml(activeSession.name) : "Pendiente"}</span>
       </div>
@@ -577,108 +584,303 @@ function renderCurrentView() {
 }
 
 function renderDashboardView() {
+  const executive = state.dashboardExecutive;
   const latestSeason = getLatestSeason();
-  const latestSeasonSessions = latestSeason ? getSessions(latestSeason.id) : [];
-  const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
+  const focusSeason = executive?.seasonFocus || (latestSeason ? {
+    id: latestSeason.id,
+    name: latestSeason.name,
+    status: latestSeason.status,
+    startDate: latestSeason.startDate,
+    sessionsCount: latestSeason.sessionsCount || getSessions(latestSeason.id).length
+  } : null);
+  const activeSession = executive?.activeSession || (state.activeSession && state.activeSession.found ? state.activeSession.session : null);
   const apiDescriptor = describeApiUrl(state.apiUrl);
   const peopleCount = getDashboardPeopleCount_();
+  const totals = executive?.totals || {};
+  const pastor = executive?.pastorIndicators || {};
+  const seasonal = executive?.seasonalIndicators || {};
+  const today = executive?.todaySummary || {
+    found: false,
+    totalGroups: 0,
+    groupsCaptured: 0,
+    groupsPending: 0,
+    totalParticipants: 0,
+    presentCount: 0,
+    attendanceRate: 0,
+    pendingGroupNames: []
+  };
+  const groupsRanking = executive?.groupsRanking || [];
+  const topGroups = executive?.topGroups || groupsRanking.slice(0, 5);
+  const selectedGroupId = state.filters.dashboard.groupId;
+  const selectedGroupRow = groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
+  const leaderSummary = buildDashboardLeaderSummary_(selectedGroupRow, state.dashboardLeaderDetail);
+  const mobileSeasonSessionsCount = focusSeason
+    ? Number(focusSeason.sessionsCount || getSessions(focusSeason.id).length || 0)
+    : Number(latestSeason?.sessionsCount || getSessions(latestSeason?.id || "").length || 0);
+  const seasonStatsLabel = focusSeason
+    ? `${focusSeason.name} | ${focusSeason.sessionsCount || 0} sesiones`
+    : "Selecciona una temporada para ver el resumen ejecutivo";
+  const dashboardGroupOptions = renderOptions(
+    state.catalogs.groups.map((group) => ({
+      value: String(group.id),
+      label: `${group.name} (${group.id})`
+    })),
+    selectedGroupId,
+    "Selecciona grupo"
+  );
 
   return `
     <section class="view-grid">
-      ${renderDashboardMobileHero_(latestSeason, latestSeasonSessions, activeSession, apiDescriptor)}
+      ${renderDashboardMobileHero_(focusSeason || latestSeason, mobileSeasonSessionsCount, activeSession, apiDescriptor)}
+
+      <article class="panel-card dashboard-toolbar-card">
+        <div class="panel-head">
+          <div>
+            <h2>Dashboard ejecutivo</h2>
+            <p>Indicadores consolidados para pastor y consultas puntuales para líderes sobre una temporada específica.</p>
+          </div>
+          <button class="btn btn-secondary" data-action="refresh-dashboard-executive">Actualizar indicadores</button>
+        </div>
+
+        <div class="field-grid two dashboard-filter-grid">
+          ${renderSeasonSelect("dashboard-season", state.filters.dashboard.seasonId)}
+          <div class="field">
+            <label for="dashboard-group">Consulta para líderes</label>
+            <select id="dashboard-group">
+              ${dashboardGroupOptions}
+            </select>
+            <span class="field-help">Selecciona un grupo y luego consulta su panorama acumulado.</span>
+          </div>
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : "Sin temporada"}</span>
+          <span class="context-item"><strong>API base:</strong> ${escapeHtml(apiDescriptor)}</span>
+          <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : "Cargando...")}</span>
+        </div>
+
+        <div class="actions-row dashboard-filter-actions">
+          <button class="btn btn-primary" data-action="load-dashboard-group-query" ${state.filters.dashboard.groupId ? "" : "disabled"}>Consultar grupo</button>
+          <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? "" : "disabled"}>Limpiar consulta</button>
+        </div>
+      </article>
 
       <div class="stats-grid dashboard-stats-grid">
         <article class="stat-card">
-          <span class="status-chip neutral">Temporadas</span>
-          <strong>${state.seasons.length}</strong>
-          <span>Temporadas creadas en la V2</span>
+          <span class="status-chip neutral">Padron activo</span>
+          <strong>${escapeHtml(String(totals.activePeople || peopleCount || 0))}</strong>
+          <span>Personas activas listas para seguimiento pastoral</span>
         </article>
 
         <article class="stat-card">
-          <span class="status-chip neutral">Personas</span>
-          <strong>${escapeHtml(peopleCount)}</strong>
-          <span>${peopleCount === "..." ? "Sincronizando padron activo" : "Personas activas en el padron"}</span>
+          <span class="status-chip dark">Liderazgo</span>
+          <strong>${escapeHtml(String(totals.leadership || 0))}</strong>
+          <span>${escapeHtml(String(pastor.leadershipRatio || 0))}% del padron activo esta en coordinacion o liderazgo</span>
         </article>
 
         <article class="stat-card">
-          <span class="status-chip neutral">Grupos</span>
-          <strong>${state.catalogs.groups.length}</strong>
-          <span>Grupos disponibles en catalogo</span>
+          <span class="status-chip success">Asistencia temporada</span>
+          <strong>${escapeHtml(String(seasonal.attendanceRate || 0))}%</strong>
+          <span>${escapeHtml(seasonStatsLabel)}</span>
         </article>
 
         <article class="stat-card">
-          <span class="status-chip ${activeSession ? "success" : "warning"}">
-            ${activeSession ? "Sesion activa" : "Sin sesion abierta"}
+          <span class="status-chip ${today.found ? (today.groupsPending ? "warning" : "success") : "warning"}">
+            ${today.found ? "Pendientes hoy" : "Sesion no detectada"}
           </span>
-          <strong>${activeSession ? escapeHtml(activeSession.name) : "0"}</strong>
-          <span>${activeSession ? escapeHtml(formatDate(activeSession.date)) : "Abre una sesion para usar QR automatico"}</span>
+          <strong>${escapeHtml(String(today.groupsPending || 0))}</strong>
+          <span>${today.found ? `${today.groupsCaptured || 0} de ${today.totalGroups || 0} grupos ya capturaron` : "Abre una sesion para usar control operativo"}</span>
         </article>
       </div>
 
       <div class="view-grid columns-2">
-        <article class="hero-card dashboard-activity-card">
+        <article class="hero-card dashboard-activity-card dashboard-executive-card">
           <div class="panel-head">
             <div>
-              <h2>Actividad reciente</h2>
-              <p>Una vista rapida para saber por donde seguir trabajando hoy.</p>
+              <h2>Indicadores para Pastor</h2>
+              <p>Panorama resumido de crecimiento, cobertura y avance de la temporada seleccionada.</p>
             </div>
-            ${activeSession ? `<span class="pill success">${escapeHtml(activeSession.status)}</span>` : `<span class="pill warning">Pendiente</span>`}
+            ${focusSeason ? renderPill(focusSeason.status) : `<span class="pill warning">Sin temporada</span>`}
           </div>
 
-          <div class="summary-strip">
-            <span class="context-item"><strong>Temporada principal:</strong> ${latestSeason ? escapeHtml(latestSeason.name) : "Sin datos"}</span>
-            <span class="context-item"><strong>Sesiones cargadas:</strong> ${latestSeasonSessions.length}</span>
-            <span class="context-item" title="${escapeHtml(state.apiUrl)}"><strong>API base:</strong> ${escapeHtml(apiDescriptor)}</span>
-          </div>
-
-          <div class="table-wrap" style="margin-top: 18px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Temporada</th>
-                  <th>Estado</th>
-                  <th>Inicio</th>
-                  <th>Sesiones</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${state.seasons.length ? state.seasons.map((season) => `
-                  <tr>
-                    <td>
-                      <span class="row-title">${escapeHtml(season.name)}</span>
-                      <span class="row-meta">${escapeHtml(season.id)} | ${escapeHtml(String(season.year || ""))}</span>
-                    </td>
-                    <td>${renderPill(season.status)}</td>
-                    <td>${escapeHtml(formatDate(season.startDate))}</td>
-                    <td>${escapeHtml(String(season.sessionsCount || 0))}</td>
-                  </tr>
-                `).join("") : `
-                  <tr>
-                    <td colspan="4">
-                      <div class="empty-state">Todavia no hay temporadas creadas. Puedes comenzar desde la pantalla de temporadas y sesiones.</div>
-                    </td>
-                  </tr>
-                `}
-              </tbody>
-            </table>
+          <div class="summary-stack dashboard-summary-grid">
+            <div class="summary-box">
+              <span class="status-chip neutral">Nuevos este mes</span>
+              <strong>${escapeHtml(String(pastor.newPeopleThisMonth || 0))}</strong>
+              <span>Registros activos con fecha de ingreso dentro del mes actual.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip dark">Progreso de captura</span>
+              <strong>${escapeHtml(String(seasonal.captureProgress || 0))}%</strong>
+              <span>${escapeHtml(String(seasonal.capturedSessionGroups || 0))} de ${escapeHtml(String(seasonal.totalSessionGroups || 0))} capturas temporada-grupo.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip success">Grupos fuertes</span>
+              <strong>${escapeHtml(String(pastor.strongGroups || 0))}</strong>
+              <span>Grupos con asistencia acumulada igual o superior al 70%.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip warning">Grupos a vigilar</span>
+              <strong>${escapeHtml(String(pastor.watchGroups || 0))}</strong>
+              <span>Grupos con asistencia acumulada menor al 50%.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Personas unicas</span>
+              <strong>${escapeHtml(String(seasonal.uniquePeople || 0))}</strong>
+              <span>Participantes distintos involucrados en la temporada analizada.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip dark">Sesiones capturadas</span>
+              <strong>${escapeHtml(String(seasonal.sessionsCaptured || 0))}/${escapeHtml(String(seasonal.sessionsCount || 0))}</strong>
+              <span>Sesiones con al menos una captura registrada.</span>
+            </div>
           </div>
         </article>
 
-        <article class="panel-card dashboard-shortcuts-card">
+        <article class="panel-card dashboard-shortcuts-card dashboard-ops-card">
           <div class="panel-head">
             <div>
-              <h2>Accesos rapidos</h2>
-              <p>Flujo sugerido para operar el sistema sin perder tiempo.</p>
+              <h2>Operacion del dia</h2>
+              <p>Control rapido para saber si la sesion actual ya avanzo o si aun faltan grupos por capturar.</p>
+            </div>
+            ${today.found ? `<span class="pill ${today.groupsPending ? "warning" : "success"}">${today.session ? escapeHtml(today.session.name) : "Sesion activa"}</span>` : `<span class="pill warning">Sin sesion</span>`}
+          </div>
+
+          <div class="summary-stack dashboard-summary-grid">
+            <div class="summary-box">
+              <span class="status-chip neutral">Participantes hoy</span>
+              <strong>${escapeHtml(String(today.totalParticipants || 0))}</strong>
+              <span>Total esperado entre todos los grupos de la sesion activa.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip success">Presentes hoy</span>
+              <strong>${escapeHtml(String(today.presentCount || 0))}</strong>
+              <span>${escapeHtml(String(today.attendanceRate || 0))}% de asistencia sobre los participantes cargados.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip warning">Grupos pendientes</span>
+              <strong>${escapeHtml(String(today.groupsPending || 0))}</strong>
+              <span>${today.pendingGroupNames && today.pendingGroupNames.length ? escapeHtml(today.pendingGroupNames.join(", ")) : "Sin pendientes visibles"}</span>
             </div>
           </div>
 
-          <div class="quick-actions">
-            ${renderQuickLink("assistants", "Gestionar asistentes", "Da de alta personas o importa desde Excel")}
-            ${renderQuickLink("seasons", "Crear o revisar temporadas", "Define sesiones y abre o cierra estados")}
-            ${renderQuickLink("participants", "Asignar participantes", "Carga personas al grupo correcto")}
-            ${renderQuickLink("attendance", "Capturar asistencia", "Guarda o edita asistencias manuales")}
-            ${renderQuickLink("qr", "Usar QR o kiosko", "Registro rapido para sesiones activas")}
+          <div class="quick-actions dashboard-quick-actions">
+            ${renderQuickLink("attendance", "Captura manual", "Entra directo a la lista del grupo activo")}
+            ${renderQuickLink("qr", "QR y kiosko", "Opera registro rapido para la sesion de hoy")}
+            ${renderQuickLink("participants", "Asignacion por grupo", "Consulta o corrige participantes antes de capturar")}
           </div>
+        </article>
+      </div>
+
+      <article class="detail-card dashboard-ranking-card">
+        <div class="panel-head">
+          <div>
+            <h2>Ranking de grupos por temporada</h2>
+            <p>Comparativo rapido para identificar constancia, cobertura y grupos que necesitan seguimiento.</p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Grupo</th>
+                <th>Personas</th>
+                <th>Asistencia</th>
+                <th>Sesiones capturadas</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topGroups.length ? topGroups.map((group) => `
+                <tr>
+                  <td>
+                    <span class="row-title">${escapeHtml(group.groupName)}</span>
+                    <span class="row-meta">${escapeHtml(String(group.groupId))}</span>
+                  </td>
+                  <td>${escapeHtml(String(group.uniquePeople || 0))}</td>
+                  <td>${escapeHtml(String(group.attendanceRate || 0))}%</td>
+                  <td>${escapeHtml(String(group.sessionsCaptured || 0))}/${escapeHtml(String(group.totalSessions || 0))}</td>
+                  <td>${renderPill(group.status)}</td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="5">
+                    <div class="empty-state">Todavia no hay actividad suficiente para construir el ranking ejecutivo.</div>
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <div class="view-grid columns-2 dashboard-leader-grid">
+        <article class="panel-card dashboard-leader-query-card">
+          <div class="panel-head">
+            <div>
+              <h2>Consulta para líderes</h2>
+              <p>Selecciona un grupo para revisar su comportamiento acumulado dentro de la temporada elegida.</p>
+            </div>
+            ${selectedGroupRow ? renderPill(selectedGroupRow.status) : `<span class="pill dark">Sin grupo</span>`}
+          </div>
+
+          ${selectedGroupRow ? `
+            <div class="summary-stack dashboard-summary-grid">
+              <div class="summary-box">
+                <span class="status-chip neutral">Grupo</span>
+                <strong>${escapeHtml(selectedGroupRow.groupName)}</strong>
+                <span>${escapeHtml(String(selectedGroupRow.groupId))}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip success">Asistencia</span>
+                <strong>${escapeHtml(String(selectedGroupRow.attendanceRate || 0))}%</strong>
+                <span>${escapeHtml(String(selectedGroupRow.attendanceYes || 0))} asistencias positivas sobre ${escapeHtml(String(selectedGroupRow.attendanceRecords || 0))} registros.</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Personas</span>
+                <strong>${escapeHtml(String(selectedGroupRow.uniquePeople || 0))}</strong>
+                <span>${escapeHtml(String(selectedGroupRow.participantAssignments || 0))} asignaciones acumuladas en la temporada.</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip dark">Captura</span>
+                <strong>${escapeHtml(String(selectedGroupRow.sessionsCaptured || 0))}/${escapeHtml(String(selectedGroupRow.totalSessions || 0))}</strong>
+                <span>${escapeHtml(String(selectedGroupRow.captureProgress || 0))}% de sesiones del grupo ya quedaron capturadas.</span>
+              </div>
+            </div>
+          ` : `
+            <div class="empty-state">Elige un grupo en la parte superior para abrir la consulta de líder.</div>
+          `}
+        </article>
+
+        <article class="panel-card dashboard-leader-roster-card">
+          <div class="panel-head">
+            <div>
+              <h2>Personas destacadas del grupo</h2>
+              <p>Ranking simple para que el líder vea constancia y seguimiento dentro de su grupo.</p>
+            </div>
+          </div>
+
+          ${leaderSummary ? `
+            <div class="results-list dashboard-leader-list">
+              ${leaderSummary.topPeople.length ? leaderSummary.topPeople.map((person) => `
+                <article class="result-card">
+                  <div class="result-row">
+                    <div class="result-copy-stack">
+                      <span class="row-title">${escapeHtml(person.name)}</span>
+                      <span class="row-meta">${escapeHtml(person.personId)} | ${escapeHtml(String(person.totalPresent || 0))} asistencias SI</span>
+                      <span class="row-meta">${escapeHtml(String(leaderSummary.totalSessions))} sesiones en el periodo consultado.</span>
+                    </div>
+                    <span class="pill dark">${escapeHtml(String(person.attendanceRate))}%</span>
+                  </div>
+                </article>
+              `).join("") : `
+                <div class="empty-state">El grupo seleccionado todavía no tiene historial suficiente para mostrar personas destacadas.</div>
+              `}
+            </div>
+          ` : `
+            <div class="empty-state">Cuando consultes un grupo, aqui veras a las personas con mayor constancia y el estado general del equipo.</div>
+          `}
         </article>
       </div>
     </section>
@@ -695,6 +897,34 @@ function getDashboardPeopleCount_() {
   }
 
   return "...";
+}
+
+function buildDashboardLeaderSummary_(groupAggregate, detail) {
+  if (!groupAggregate || !detail) {
+    return null;
+  }
+
+  const totalSessions = Number(groupAggregate.totalSessions || detail?.totalSessions || 0);
+  const topPeople = Array.isArray(detail?.people)
+    ? detail.people
+      .map((person) => ({
+        ...person,
+        attendanceRate: totalSessions ? Math.round(((Number(person.totalPresent || 0)) / totalSessions) * 100) : 0
+      }))
+      .sort((left, right) => {
+        if (right.totalPresent !== left.totalPresent) {
+          return right.totalPresent - left.totalPresent;
+        }
+
+        return normalizeText(left.name).localeCompare(normalizeText(right.name), "es");
+      })
+      .slice(0, 8)
+    : [];
+
+  return {
+    totalSessions,
+    topPeople
+  };
 }
 
 function renderAssistantsView() {
@@ -2657,6 +2887,44 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "refresh-dashboard-executive") {
+      await loadDashboardExecutive_({
+        force: true,
+        message: "Actualizando indicadores ejecutivos..."
+      });
+
+      if (state.filters.dashboard.groupId) {
+        await loadDashboardLeaderDetail_({
+          force: true,
+          showLoading: false
+        });
+      }
+
+      renderApp();
+      return;
+    }
+
+    if (action === "load-dashboard-group-query") {
+      if (!state.filters.dashboard.groupId) {
+        showToast("Selecciona un grupo", "Elige un grupo antes de abrir la consulta para líderes.", "warning");
+        return;
+      }
+
+      await loadDashboardLeaderDetail_({
+        force: true,
+        message: "Consultando grupo..."
+      });
+      renderApp();
+      return;
+    }
+
+    if (action === "clear-dashboard-group-query") {
+      state.filters.dashboard.groupId = "";
+      state.dashboardLeaderDetail = null;
+      renderApp();
+      return;
+    }
+
     if (action === "refresh-assistants") {
       await withLoading(async () => {
         await refreshPeopleSources_();
@@ -3115,6 +3383,24 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "dashboard-season") {
+      state.filters.dashboard.seasonId = target.value;
+      state.dashboardLeaderDetail = null;
+      await loadDashboardExecutive_({
+        force: true,
+        message: "Actualizando temporada ejecutiva..."
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "dashboard-group") {
+      state.filters.dashboard.groupId = target.value;
+      state.dashboardLeaderDetail = null;
+      renderApp();
+      return;
+    }
+
     if (target.id === "people-import-file" && target instanceof HTMLInputElement) {
       const file = target.files && target.files[0];
       if (file) {
@@ -3275,6 +3561,7 @@ async function bootstrapApplication(options = {}) {
   }
 
   renderApp();
+  warmDashboardExecutiveInBackground_();
   warmCommonDataInBackground_();
 }
 
@@ -3284,6 +3571,9 @@ async function loadCurrentViewData() {
   }
 
   switch (state.currentView) {
+    case "dashboard":
+      await ensureDashboardViewData_();
+      return;
     case "assistants":
       await ensureAssistantsViewData_();
       return;
@@ -3300,7 +3590,6 @@ async function loadCurrentViewData() {
     case "qr":
       await ensureQrViewData_();
       return;
-    case "dashboard":
     default:
       await ensureSessionsForSeason(getLatestSeason()?.id || "");
   }
@@ -3378,6 +3667,10 @@ async function loadLegacyBootstrapData_() {
 }
 
 function syncBootstrapFilters_() {
+  state.filters.dashboard.seasonId = ensureValidSeasonId(state.filters.dashboard.seasonId);
+  if (!state.catalogs.groups.some((group) => String(group.id) === String(state.filters.dashboard.groupId))) {
+    state.filters.dashboard.groupId = "";
+  }
   state.filters.seasons.seasonId = ensureValidSeasonId(state.filters.seasons.seasonId);
 }
 
@@ -3446,6 +3739,70 @@ async function refreshPeopleSources_() {
   ]);
 }
 
+function syncDashboardFilterState_() {
+  state.filters.dashboard.seasonId = ensureValidSeasonId(state.filters.dashboard.seasonId);
+
+  if (!state.catalogs.groups.some((group) => String(group.id) === String(state.filters.dashboard.groupId))) {
+    state.filters.dashboard.groupId = "";
+  }
+}
+
+async function loadDashboardExecutive_(options = {}) {
+  syncDashboardFilterState_();
+
+  const seasonId = state.filters.dashboard.seasonId;
+  const currentSeasonId = state.dashboardExecutive?.seasonFocus?.id || "";
+
+  if (!options.force && state.dashboardExecutive && currentSeasonId === seasonId) {
+    return state.dashboardExecutive;
+  }
+
+  const task = async () => {
+    state.dashboardExecutive = await apiGet("dashboard.executive", {
+      seasonId
+    });
+    return state.dashboardExecutive;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Calculando dashboard ejecutivo...");
+}
+
+async function loadDashboardLeaderDetail_(options = {}) {
+  syncDashboardFilterState_();
+
+  const seasonId = state.filters.dashboard.seasonId;
+  const groupId = state.filters.dashboard.groupId;
+  const currentDetailSeasonId = state.dashboardLeaderDetail?.seasonId || "";
+  const currentDetailGroupId = String(state.dashboardLeaderDetail?.groupId || "");
+
+  if (!seasonId || !groupId) {
+    state.dashboardLeaderDetail = null;
+    return null;
+  }
+
+  if (!options.force && state.dashboardLeaderDetail && currentDetailSeasonId === seasonId && currentDetailGroupId === String(groupId)) {
+    return state.dashboardLeaderDetail;
+  }
+
+  const task = async () => {
+    state.dashboardLeaderDetail = await apiGet("attendances.groupDetail", {
+      seasonId,
+      groupId
+    });
+    return state.dashboardLeaderDetail;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Consultando grupo...");
+}
+
 async function ensureAssistantsViewData_() {
   if (!state.loaded.peopleDirectory) {
     await loadPeopleDirectory();
@@ -3460,12 +3817,39 @@ async function ensureParticipantsViewData_() {
   await loadParticipantsData();
 }
 
+async function ensureDashboardViewData_() {
+  syncDashboardFilterState_();
+  await loadDashboardExecutive_({
+    showLoading: false
+  });
+
+  if (state.filters.dashboard.groupId) {
+    await loadDashboardLeaderDetail_({
+      showLoading: false
+    });
+  }
+}
+
 async function ensureQrViewData_() {
   if (!state.loaded.people) {
     await loadPeople();
   }
 
   await loadQrSummary();
+}
+
+function warmDashboardExecutiveInBackground_() {
+  if (!state.user || state.currentView !== "dashboard") {
+    return;
+  }
+
+  void ensureDashboardViewData_()
+    .then(() => {
+      if (state.currentView === "dashboard") {
+        renderApp();
+      }
+    })
+    .catch(() => {});
 }
 
 function warmCommonDataInBackground_() {
@@ -4906,6 +5290,17 @@ function normalizePersonTypeValue_(value) {
   return rawValue || "Congregante";
 }
 
+const normalizePersonTypeValueBase_ = normalizePersonTypeValue_;
+normalizePersonTypeValue_ = function(value) {
+  const resolvedValue = normalizePersonTypeValueBase_(value);
+
+  if (normalizeText(resolvedValue) === "lider") {
+    return "L\u00edder";
+  }
+
+  return resolvedValue;
+};
+
 function getPersonTypeKey_(value) {
   return normalizeText(normalizePersonTypeValue_(value));
 }
@@ -5866,6 +6261,8 @@ function resetRuntimeState() {
     peopleCount: null,
     directoryCount: null
   };
+  state.dashboardExecutive = null;
+  state.dashboardLeaderDetail = null;
   state.loaded = {
     bootstrap: false,
     groups: false,
@@ -5905,6 +6302,10 @@ function resetRuntimeState() {
   state.selectedBulkPeople = [];
   state.ui = {
     mobileNavOpen: false
+  };
+  state.filters.dashboard = {
+    seasonId: "",
+    groupId: ""
   };
 
   Object.keys(pendingResourceLoads).forEach((key) => {
