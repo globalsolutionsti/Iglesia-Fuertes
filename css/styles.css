@@ -1169,6 +1169,82 @@ tbody tr:hover {
   color: var(--text);
 }
 
+.dashboard-toolbar-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.06), transparent 26%),
+    linear-gradient(180deg, #ffffff 0%, #f4f4f4 100%);
+}
+
+.dashboard-toolbar-card::after {
+  content: "";
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  right: -44px;
+  bottom: -88px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+  pointer-events: none;
+}
+
+.dashboard-filter-grid {
+  grid-template-columns: 1.05fr 0.95fr;
+  align-items: end;
+}
+
+.dashboard-filter-actions {
+  margin-top: 18px;
+}
+
+.dashboard-stats-grid .stat-card {
+  min-height: 168px;
+}
+
+.dashboard-executive-card,
+.dashboard-ops-card,
+.dashboard-ranking-card,
+.dashboard-leader-query-card,
+.dashboard-leader-roster-card {
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.035), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.dashboard-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-summary-grid .summary-box {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.dashboard-quick-actions {
+  margin-top: 18px;
+}
+
+.dashboard-ranking-card .table-wrap {
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.dashboard-leader-grid {
+  align-items: stretch;
+}
+
+.dashboard-leader-query-card,
+.dashboard-leader-roster-card {
+  min-height: 100%;
+}
+
+.dashboard-leader-list {
+  gap: 10px;
+}
+
+.dashboard-leader-list .result-card {
+  background: rgba(255, 255, 255, 0.88);
+}
+
 .empty-state {
   padding: 28px;
   border-radius: 18px;
@@ -2491,6 +2567,11 @@ tbody tr:hover {
     width: 100%;
   }
 
+  .dashboard-filter-grid,
+  .dashboard-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
   .panel-head,
   .actions-row,
   .toolbar-actions,
@@ -2643,6 +2724,10 @@ tbody tr:hover {
   .stats-grid,
   .dashboard-mobile-chip-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-stats-grid .stat-card {
+    min-height: auto;
   }
 
   .credential-grid {
