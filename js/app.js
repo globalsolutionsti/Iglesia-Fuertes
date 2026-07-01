@@ -15,42 +15,121 @@ const loadingMessage = document.getElementById("loading-message");
 
 const VIEW_META = {
   dashboard: {
-    title: "Dashboard",
-    subtitle: "Resumen general del sistema, actividad del dia y atajos operativos."
+    module: "dashboard",
+    title: "Dashboard Ejecutivo",
+    subtitle: "Indicadores pastorales, consulta de grupos y crecimiento reciente."
   },
   assistants: {
-    title: "Asistentes",
-    subtitle: "Alta individual, importacion desde Excel y padron operativo de personas."
+    module: "congregants",
+    title: "Congregantes",
+    subtitle: "Padron general, altas, importacion y credenciales QR."
+  },
+  "congregants-new": {
+    module: "congregants",
+    title: "Nuevos Congregantes",
+    subtitle: "Consulta altas recientes por periodo y revisa datos pastorales clave."
+  },
+  catalogs: {
+    module: "connection",
+    title: "Catalogos",
+    subtitle: "Administra grupos de conexion y ministerios base del sistema."
   },
   seasons: {
-    title: "Temporadas y Sesiones",
-    subtitle: "Crea temporadas, revisa sesiones y controla cuales estan abiertas o cerradas."
+    module: "connection",
+    title: "Temporadas",
+    subtitle: "Crea temporadas, sesiones y controla el calendario operativo."
   },
   participants: {
-    title: "Participantes por Grupo",
-    subtitle: "Asigna personas por grupo, mueve registros y administra participantes activos."
+    module: "connection",
+    title: "Asignacion de Participantes",
+    subtitle: "Asigna personas a grupos de forma individual o masiva."
   },
   attendance: {
-    title: "Captura de Asistencia",
-    subtitle: "Registra o edita asistencias manuales por temporada, sesion y grupo."
+    module: "connection",
+    title: "Asistencias",
+    subtitle: "Opera la captura manual, escaneo QR asistido y modo kiosko."
   },
   qr: {
-    title: "QR y Kiosko",
-    subtitle: "Registra asistencia rapida desde lector QR o kiosko de busqueda manual."
+    module: "connection",
+    title: "Asistencias",
+    subtitle: "Opera la captura manual, escaneo QR asistido y modo kiosko."
+  },
+  "admin-settings": {
+    module: "admin",
+    title: "Configuracion",
+    subtitle: "Actualiza URL de API, prueba conexion y revisa estado general."
+  },
+  "admin-users": {
+    module: "admin",
+    title: "Usuarios y Accesos",
+    subtitle: "Crea usuarios, define perfiles y controla las fichas visibles."
   }
 };
+
+const MODULE_META = {
+  dashboard: {
+    title: "Dashboard Ejecutivo",
+    description: "Pastor, lideres e indicadores clave",
+    defaultView: "dashboard"
+  },
+  congregants: {
+    title: "Congregantes",
+    description: "Padron, altas y credenciales",
+    defaultView: "assistants"
+  },
+  connection: {
+    title: "Grupos de Conexion",
+    description: "Catalogos, temporadas, asignacion y asistencias",
+    defaultView: "catalogs"
+  },
+  admin: {
+    title: "Administracion",
+    description: "Configuracion, usuarios y permisos",
+    defaultView: "admin-settings"
+  }
+};
+
+const MODULE_TABS = {
+  dashboard: [
+    { view: "dashboard", label: "Resumen", description: "Pastor y lideres" }
+  ],
+  congregants: [
+    { view: "assistants", label: "Congregantes", description: "Padron y credenciales" },
+    { view: "congregants-new", label: "Nuevos", description: "Altas por periodo" }
+  ],
+  connection: [
+    { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
+    { view: "seasons", label: "Temporadas", description: "Sesiones y estados" },
+    { view: "participants", label: "Asignacion", description: "Individual y masiva" },
+    { view: "attendance", label: "Asistencias", description: "Manual, QR y kiosko" }
+  ],
+  admin: [
+    { view: "admin-settings", label: "Configuracion", description: "API y conexion" },
+    { view: "admin-users", label: "Usuarios", description: "Perfiles y accesos" }
+  ]
+};
+
+const ACCESSIBLE_VIEWS = [
+  "dashboard",
+  "assistants",
+  "congregants-new",
+  "catalogs",
+  "seasons",
+  "participants",
+  "attendance",
+  "admin-settings",
+  "admin-users"
+];
 
 const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
 const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Lider"];
 const CREDENTIAL_PREVIEW_LIMIT = 8;
 PERSON_TYPE_OPTIONS.splice(0, PERSON_TYPE_OPTIONS.length, "Congregante", "Servidor", "Coordinador", "L\u00edder");
 const MOBILE_NAV_ITEMS = [
-  { view: "dashboard", label: "Inicio", description: "Hoy" },
-  { view: "assistants", label: "Padron", description: "Base" },
-  { view: "seasons", label: "Ciclos", description: "Temp." },
-  { view: "participants", label: "Grupos", description: "Asignar" },
-  { view: "attendance", label: "Lista", description: "Manual" },
-  { view: "qr", label: "QR", description: "Kiosko" }
+  { module: "dashboard", view: "dashboard", label: "Inicio", description: "Pastor" },
+  { module: "congregants", view: "assistants", label: "Padron", description: "Altas" },
+  { module: "connection", view: "catalogs", label: "Grupos", description: "Operacion" },
+  { module: "admin", view: "admin-settings", label: "Admin", description: "Accesos" }
 ];
 
 const state = {
@@ -64,6 +143,8 @@ const state = {
   },
   dashboardExecutive: null,
   dashboardLeaderDetail: null,
+  dashboardSessionInsights: null,
+  adminUsers: [],
   loaded: {
     bootstrap: false,
     groups: false,
@@ -71,7 +152,8 @@ const state = {
     seasons: false,
     people: false,
     peopleDirectory: false,
-    activeSession: false
+    activeSession: false,
+    users: false
   },
   catalogs: {
     groups: [],
@@ -107,17 +189,27 @@ const state = {
   },
   selectedBulkPeople: [],
   ui: {
-    mobileNavOpen: false
+    mobileNavOpen: false,
+    editingGroupId: "",
+    editingMinistryId: "",
+    editingUserEmail: ""
   },
   filters: {
     dashboard: {
       seasonId: "",
-      groupId: ""
+      sessionId: "",
+      groupId: "",
+      recentFrom: "",
+      recentTo: ""
     },
     assistants: {
       search: "",
       status: "ACTIVO",
       type: "ALL"
+    },
+    congregants: {
+      recentFrom: "",
+      recentTo: ""
     },
     seasons: {
       seasonId: ""
@@ -134,7 +226,8 @@ const state = {
       seasonId: "",
       sessionId: "",
       groupId: "",
-      search: ""
+      search: "",
+      mode: "manual"
     },
     qr: {
       mode: "active",
@@ -144,6 +237,11 @@ const state = {
       personId: "",
       peopleSearch: "",
       cameraFacing: DEFAULT_QR_CAMERA_FACING
+    },
+    admin: {
+      userSearch: "",
+      groupSearch: "",
+      ministrySearch: ""
     }
   }
 };
@@ -155,7 +253,8 @@ const pendingResourceLoads = {
   seasons: null,
   people: null,
   peopleDirectory: null,
-  activeSession: null
+  activeSession: null,
+  users: null
 };
 
 const qrScannerRuntime = {
@@ -189,11 +288,109 @@ window.addEventListener("beforeunload", () => {
 init();
 
 async function init() {
+  initializeDateFilters_();
   renderApp();
 
   if (state.user) {
     await bootstrapApplication();
   }
+}
+
+function initializeDateFilters_() {
+  const dashboardRange = getDefaultRecentRange_(90);
+  const congregantsRange = getDefaultRecentRange_(30);
+
+  if (!state.filters.dashboard.recentFrom) {
+    state.filters.dashboard.recentFrom = dashboardRange.from;
+  }
+
+  if (!state.filters.dashboard.recentTo) {
+    state.filters.dashboard.recentTo = dashboardRange.to;
+  }
+
+  if (!state.filters.congregants.recentFrom) {
+    state.filters.congregants.recentFrom = congregantsRange.from;
+  }
+
+  if (!state.filters.congregants.recentTo) {
+    state.filters.congregants.recentTo = congregantsRange.to;
+  }
+}
+
+function getCurrentModule_() {
+  const view = VIEW_META[state.currentView];
+  return view?.module || "dashboard";
+}
+
+function getModuleTabs_(moduleId) {
+  return (MODULE_TABS[moduleId] || []).filter((item) => canAccessView_(item.view));
+}
+
+function getUserPermissions_() {
+  return Array.isArray(state.user?.permissions) && state.user.permissions.length
+    ? state.user.permissions
+    : ACCESSIBLE_VIEWS.slice();
+}
+
+function canAccessView_(view) {
+  return getUserPermissions_().includes(view);
+}
+
+function getFirstAccessibleView_(views) {
+  const allowed = views.find((view) => canAccessView_(view));
+  return allowed || "dashboard";
+}
+
+function getDefaultViewForModule_(moduleId) {
+  const meta = MODULE_META[moduleId];
+  const tabs = getModuleTabs_(moduleId);
+
+  if (tabs.length) {
+    return tabs[0].view;
+  }
+
+  return meta?.defaultView || "dashboard";
+}
+
+function ensureAccessibleCurrentView_() {
+  if (!state.user) {
+    return;
+  }
+
+  if (!VIEW_META[state.currentView] || !canAccessView_(state.currentView)) {
+    state.currentView = getFirstAccessibleView_(ACCESSIBLE_VIEWS);
+  }
+}
+
+function renderModuleTabs_(moduleId) {
+  const tabs = getModuleTabs_(moduleId);
+
+  if (tabs.length <= 1) {
+    return "";
+  }
+
+  return `
+    <div class="module-tabs" role="tablist" aria-label="Fichas del modulo">
+      ${tabs.map((tab) => renderModuleTabButton_(tab)).join("")}
+    </div>
+  `;
+}
+
+function renderModuleTabButton_(tab) {
+  const isActive = state.currentView === tab.view || (tab.view === "attendance" && state.currentView === "qr");
+
+  return `
+    <button
+      class="module-tab-button ${isActive ? "active" : ""}"
+      data-action="navigate"
+      data-view="${escapeHtml(tab.view)}"
+      role="tab"
+      aria-selected="${isActive ? "true" : "false"}"
+    >
+      <strong>${escapeHtml(tab.label)}</strong>
+      <small>${escapeHtml(tab.description || "")}</small>
+    </button>
+  `;
 }
 
 function renderApp() {
@@ -203,7 +400,11 @@ function renderApp() {
     return;
   }
 
+  ensureAccessibleCurrentView_();
+
   const view = VIEW_META[state.currentView] || VIEW_META.dashboard;
+  const currentModule = getCurrentModule_();
+  const moduleMeta = MODULE_META[currentModule] || MODULE_META.dashboard;
   const apiDescriptor = describeApiUrl(state.apiUrl);
   const apiHost = describeApiHost(state.apiUrl);
   const mobileNavOpen = Boolean(state.ui.mobileNavOpen);
@@ -234,12 +435,7 @@ function renderApp() {
           </div>
 
           <nav class="sidebar-nav">
-            ${renderNavButton("dashboard", "Resumen y actividad")}
-            ${renderNavButton("assistants", "Padron e importacion")}
-            ${renderNavButton("seasons", "Temporadas y sesiones")}
-            ${renderNavButton("participants", "Asignacion por grupo")}
-            ${renderNavButton("attendance", "Captura manual")}
-            ${renderNavButton("qr", "Registro rapido")}
+            ${Object.keys(MODULE_META).map((moduleId) => renderNavButton(moduleId)).filter(Boolean).join("")}
           </nav>
 
           <div class="sidebar-foot">
@@ -256,7 +452,7 @@ function renderApp() {
       <main class="workspace">
         <header class="topbar">
           <div class="topbar-copy">
-            <span class="eyebrow">Frontend V2 conectado</span>
+            <span class="eyebrow">${escapeHtml(moduleMeta.title)}</span>
             <h1>${escapeHtml(view.title)}</h1>
             <p>${escapeHtml(view.subtitle)}</p>
           </div>
@@ -264,12 +460,14 @@ function renderApp() {
           <div class="topbar-actions">
             <div class="topbar-meta" title="${escapeHtml(state.apiUrl)}">
               <span class="topbar-meta-label">API conectada</span>
-              <strong class="topbar-meta-value">${escapeHtml(apiDescriptor)}</strong>
-              <small class="topbar-meta-copy">${escapeHtml(apiHost)}</small>
+              <strong class="topbar-meta-value">${escapeHtml(apiHost)}</strong>
+              <small class="topbar-meta-copy">${escapeHtml(apiDescriptor)}</small>
             </div>
-            <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
+            <button class="btn btn-ghost" data-action="refresh-app">Actualizar</button>
           </div>
         </header>
+
+        ${renderModuleTabs_(currentModule)}
 
         ${renderCurrentView()}
       </main>
@@ -302,7 +500,10 @@ async function syncRuntimeAfterRender_() {
     return;
   }
 
-  if (state.currentView !== "qr") {
+  const attendanceMode = resolveConnectionAttendanceMode_();
+  const shouldKeepQrRuntime = state.currentView === "qr" || (state.currentView === "attendance" && attendanceMode !== "manual");
+
+  if (!shouldKeepQrRuntime) {
     stopQrScannerRuntime_();
     return;
   }
@@ -470,7 +671,7 @@ function renderMobileTabBar_() {
   return `
     <nav class="mobile-tabbar" aria-label="Navegacion principal movil">
       <div class="mobile-tabbar-inner">
-        ${MOBILE_NAV_ITEMS.map((item) => renderMobileNavButton_(item.view, item.label, item.description)).join("")}
+        ${MOBILE_NAV_ITEMS.map((item) => renderMobileNavButton_(item.module, item.view, item.label, item.description)).filter(Boolean).join("")}
       </div>
     </nav>
   `;
@@ -564,11 +765,12 @@ function renderDashboardMobileHero_(options) {
   } = options || {};
   const shortcuts = [
     { label: "Consultar grupos", copy: "Ver detalle y exportar", sectionId: "dashboard-toolbar" },
-    { label: "Asistentes", copy: "Padron y credenciales", view: "assistants" },
+    { label: "Congregantes", copy: "Padron y credenciales", view: "assistants" },
+    { label: "Catalogos", copy: "Grupos y ministerios", view: "catalogs" },
     { label: "Temporadas", copy: "Abrir o revisar sesiones", view: "seasons" },
     { label: "Participantes", copy: "Asignacion por grupo", view: "participants" },
     { label: "Asistencia", copy: "Captura manual", view: "attendance" },
-    { label: "QR y kiosko", copy: "Escaneo rapido", view: "qr" }
+    { label: "Administracion", copy: "Usuarios y API", view: "admin-settings" }
   ];
 
   return `
@@ -604,19 +806,610 @@ function renderDashboardMobileHero_(options) {
 function renderCurrentView() {
   switch (state.currentView) {
     case "assistants":
-      return renderAssistantsView();
+      return renderCongregantsDirectoryView_();
+    case "congregants-new":
+      return renderCongregantsRecentView_();
+    case "catalogs":
+      return renderCatalogsView_();
     case "seasons":
-      return renderSeasonsView();
+      return renderConnectionSectionView_(renderSeasonsView());
     case "participants":
-      return renderParticipantsView();
+      return renderConnectionSectionView_(renderParticipantsView());
     case "attendance":
-      return renderAttendanceView();
+      return renderConnectionAttendanceView_();
     case "qr":
-      return renderQrView();
+      return renderConnectionAttendanceView_();
+    case "admin-settings":
+      return renderAdminSettingsView_();
+    case "admin-users":
+      return renderAdminUsersView_();
     case "dashboard":
     default:
       return renderDashboardView();
   }
+}
+
+function renderCongregantsDirectoryView_() {
+  return renderAssistantsView();
+}
+
+function renderConnectionSectionView_(content) {
+  return content;
+}
+
+function resolveConnectionAttendanceMode_() {
+  if (state.currentView === "qr") {
+    return state.filters.qr.surface === "kiosk" ? "kiosk" : "qr";
+  }
+
+  if (state.filters.attendance.mode === "qr" || state.filters.attendance.mode === "kiosk") {
+    return state.filters.attendance.mode;
+  }
+
+  return "manual";
+}
+
+function renderConnectionAttendanceView_() {
+  const mode = resolveConnectionAttendanceMode_();
+  const modeCards = [
+    {
+      mode: "manual",
+      title: "Captura manual",
+      copy: "Elige grupo, revisa sesion activa y pasa lista en pantalla."
+    },
+    {
+      mode: "qr",
+      title: "Escaneo QR asistido",
+      copy: "Un operador escanea o captura el QR con seguimiento inmediato."
+    },
+    {
+      mode: "kiosk",
+      title: "Modo kiosko",
+      copy: "Pantalla tipo aeropuerto para auto registro con camara."
+    }
+  ];
+  const content = mode === "manual" ? renderAttendanceView() : renderQrView();
+
+  return `
+    <section class="view-grid">
+      <article class="panel-card attendance-mode-switcher">
+        <div class="panel-head">
+          <div>
+            <h2>Modalidades de asistencia</h2>
+            <p>El modulo de asistencias concentra tus tres formas de operacion en un solo punto.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(mode === "manual" ? "Manual" : (mode === "qr" ? "QR asistido" : "Kiosko"))}</span>
+        </div>
+
+        <div class="mode-card-grid">
+          ${modeCards.map((item) => `
+            <button
+              class="mode-card ${mode === item.mode ? "active" : ""}"
+              data-action="set-attendance-mode"
+              data-mode="${escapeHtml(item.mode)}"
+            >
+              <strong>${escapeHtml(item.title)}</strong>
+              <span>${escapeHtml(item.copy)}</span>
+            </button>
+          `).join("")}
+        </div>
+      </article>
+    </section>
+
+    ${content}
+  `;
+}
+
+function renderCongregantsRecentView_() {
+  const rows = getRecentCongregants_();
+  const activeCount = rows.filter((row) => String(row.estado || "").toUpperCase() === "ACTIVO").length;
+  const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
+  const withBirthDateCount = rows.filter((row) => String(row.fechaNacimiento || "").trim()).length;
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "assistants",
+        eyebrow: "Nuevos congregantes",
+        title: "Consulta pastoral por periodo",
+        copy: "Filtra altas recientes y revisa los datos clave para seguimiento.",
+        badge: {
+          label: `${rows.length} en periodo`,
+          kind: rows.length ? "success" : "warning"
+        },
+        metrics: [
+          { label: "Activos", value: String(activeCount) },
+          { label: "Telefonos", value: String(withPhoneCount) },
+          { label: "Nacimiento", value: String(withBirthDateCount) }
+        ],
+        actions: [
+          { label: "Ir al padron", variant: "primary", view: "assistants" }
+        ]
+      })}
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip success">Altas en periodo</span>
+          <strong>${escapeHtml(String(rows.length))}</strong>
+          <span>Congregantes nuevos segun el rango de fechas seleccionado.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Activos</span>
+          <strong>${escapeHtml(String(activeCount))}</strong>
+          <span>Registros activos listos para seguimiento pastoral.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Con telefono</span>
+          <strong>${escapeHtml(String(withPhoneCount))}</strong>
+          <span>Facilita contacto, bienvenida y seguimiento inicial.</span>
+        </article>
+      </div>
+
+      <article class="panel-card">
+        <div class="panel-head">
+          <div>
+            <h2>Filtro de periodo</h2>
+            <p>Consulta el ultimo mes o define manualmente desde y hasta.</p>
+          </div>
+        </div>
+
+        <div class="field-grid two">
+          <div class="field">
+            <label for="congregants-recent-from">Desde</label>
+            <input id="congregants-recent-from" type="date" value="${escapeHtml(state.filters.congregants.recentFrom)}">
+          </div>
+          <div class="field">
+            <label for="congregants-recent-to">Hasta</label>
+            <input id="congregants-recent-to" type="date" value="${escapeHtml(state.filters.congregants.recentTo)}">
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-secondary" data-action="set-congregants-period" data-days="30">Ultimo mes</button>
+          <button class="btn btn-ghost" data-action="set-congregants-period" data-days="90">Ultimos 3 meses</button>
+        </div>
+      </article>
+
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Consulta de nuevos congregantes</h2>
+            <p>Nombre, telefono, fecha de nacimiento, estado civil y edad de cada alta reciente.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Telefono</th>
+                <th>Fecha nacimiento</th>
+                <th>Estado civil</th>
+                <th>Edad</th>
+                <th>Alta</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map((row) => `
+                <tr>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
+                    <span class="row-meta">${escapeHtml(row.numero || "")} | QR ${escapeHtml(row.id || "")}</span>
+                  </td>
+                  <td>${escapeHtml(row.telefono || "Sin telefono")}</td>
+                  <td>${escapeHtml(formatDate(row.fechaNacimiento) || "Sin fecha")}</td>
+                  <td>${escapeHtml(row.estadoCivil || "Sin dato")}</td>
+                  <td>${escapeHtml(String(row.edad || "Sin dato"))}</td>
+                  <td>${escapeHtml(formatDate(row.fechaIngreso) || "Sin fecha")}</td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="6">
+                    <div class="empty-state">No hay congregantes nuevos en el periodo seleccionado.</div>
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
+function renderCatalogsView_() {
+  const groupSearch = normalizeText(state.filters.admin.groupSearch);
+  const ministrySearch = normalizeText(state.filters.admin.ministrySearch);
+  const groups = state.catalogs.groups.filter((group) => {
+    const haystack = `${group.id} ${group.name}`.toLowerCase();
+    return !groupSearch || haystack.includes(groupSearch);
+  });
+  const ministries = state.catalogs.ministries.filter((ministry) => {
+    const haystack = `${ministry.id} ${ministry.name}`.toLowerCase();
+    return !ministrySearch || haystack.includes(ministrySearch);
+  });
+  const editingGroup = state.catalogs.groups.find((group) => String(group.id) === String(state.ui.editingGroupId || "")) || null;
+  const editingMinistry = state.catalogs.ministries.find((ministry) => String(ministry.id) === String(state.ui.editingMinistryId || "")) || null;
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "participants",
+        eyebrow: "Base operativa",
+        title: "Catalogos de grupos y ministerios",
+        copy: "Mantiene alineados los grupos de conexion y las areas de servicio.",
+        badge: {
+          label: `${state.catalogs.groups.length} grupos`,
+          kind: "dark"
+        },
+        metrics: [
+          { label: "Grupos", value: String(state.catalogs.groups.length) },
+          { label: "Ministerios", value: String(state.catalogs.ministries.length) }
+        ],
+        actions: [
+          { label: "Temporadas", variant: "primary", view: "seasons" },
+          { label: "Asignacion", variant: "secondary", view: "participants" }
+        ]
+      })}
+
+      <div class="view-grid columns-2">
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Catalogo de grupos</h2>
+              <p>Agrega o actualiza los grupos de conexion base.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(String(groups.length))} visibles</span>
+          </div>
+
+          <form id="catalog-group-form">
+            <input type="hidden" name="id" value="${escapeHtml(editingGroup?.id || "")}">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="catalog-group-id">ID</label>
+                <input id="catalog-group-id" value="${escapeHtml(editingGroup?.id || "Automatico")}" disabled>
+              </div>
+              <div class="field">
+                <label for="catalog-group-name">Nombre del grupo</label>
+                <input id="catalog-group-name" name="name" value="${escapeHtml(editingGroup?.name || "")}" placeholder="Nuevo grupo de conexion" required>
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">${editingGroup ? "Guardar grupo" : "Crear grupo"}</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-catalog-group-form" ${editingGroup ? "" : "disabled"}>Limpiar</button>
+            </div>
+          </form>
+
+          <div class="field catalog-search-field">
+            <label for="admin-group-search">Buscar grupo</label>
+            <input id="admin-group-search" value="${escapeHtml(state.filters.admin.groupSearch)}" placeholder="Nombre o ID">
+          </div>
+
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Grupo</th>
+                  <th>Accion</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${groups.length ? groups.map((group) => `
+                  <tr>
+                    <td>${escapeHtml(String(group.id))}</td>
+                    <td>${escapeHtml(group.name)}</td>
+                    <td><button class="btn btn-secondary" data-action="edit-group-catalog" data-group-id="${escapeHtml(String(group.id))}">Editar</button></td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="3"><div class="empty-state">No hay grupos que coincidan con la busqueda.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Catalogo de ministerios</h2>
+              <p>Administra las areas ministeriales usadas en el padron.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(String(ministries.length))} visibles</span>
+          </div>
+
+          <form id="catalog-ministry-form">
+            <input type="hidden" name="id" value="${escapeHtml(editingMinistry?.id || "")}">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="catalog-ministry-id">ID</label>
+                <input id="catalog-ministry-id" value="${escapeHtml(editingMinistry?.id || "Automatico")}" disabled>
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-name">Nombre del ministerio</label>
+                <input id="catalog-ministry-name" name="name" value="${escapeHtml(editingMinistry?.name || "")}" placeholder="Nuevo ministerio" required>
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">${editingMinistry ? "Guardar ministerio" : "Crear ministerio"}</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-catalog-ministry-form" ${editingMinistry ? "" : "disabled"}>Limpiar</button>
+            </div>
+          </form>
+
+          <div class="field catalog-search-field">
+            <label for="admin-ministry-search">Buscar ministerio</label>
+            <input id="admin-ministry-search" value="${escapeHtml(state.filters.admin.ministrySearch)}" placeholder="Nombre o ID">
+          </div>
+
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Ministerio</th>
+                  <th>Accion</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ministries.length ? ministries.map((ministry) => `
+                  <tr>
+                    <td>${escapeHtml(String(ministry.id))}</td>
+                    <td>${escapeHtml(ministry.name)}</td>
+                    <td><button class="btn btn-secondary" data-action="edit-ministry-catalog" data-ministry-id="${escapeHtml(String(ministry.id))}">Editar</button></td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="3"><div class="empty-state">No hay ministerios que coincidan con la busqueda.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminSettingsView_() {
+  const permissions = getUserPermissions_();
+  const currentModule = getCurrentModule_();
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "seasons",
+        eyebrow: "Administracion",
+        title: "Configuracion del sistema",
+        copy: "Centraliza la API, prueba conexion y revisa quien opera la herramienta.",
+        badge: {
+          label: state.connectionStatus?.type === "success" ? "Conectado" : "Listo",
+          kind: state.connectionStatus?.type === "success" ? "success" : "dark"
+        },
+        metrics: [
+          { label: "Accesos", value: String(permissions.length) },
+          { label: "Usuarios", value: String(state.adminUsers.length) },
+          { label: "Modulo", value: MODULE_META[currentModule]?.title || "Admin" }
+        ],
+        actions: [
+          { label: "Usuarios", variant: "primary", view: "admin-users" },
+          { label: "Probar API", variant: "secondary", action: "test-api-connection" }
+        ]
+      })}
+
+      <div class="view-grid columns-2">
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>URL de la API</h2>
+              <p>Actualiza la direccion base del Apps Script y valida la conexion.</p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="api-url-input">URL base</label>
+            <input id="api-url-input" value="${escapeHtml(state.apiUrl || "")}" placeholder="https://script.google.com/macros/s/.../exec">
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" data-action="save-api-url">Guardar URL</button>
+            <button class="btn btn-secondary" data-action="test-api-connection">Probar conexion</button>
+          </div>
+
+          ${state.connectionStatus ? `
+            <p class="footer-note">${escapeHtml(state.connectionStatus.message || "")}</p>
+          ` : ""}
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Resumen administrativo</h2>
+              <p>Te recuerda rapidamente que partes del sistema estan listas para operar.</p>
+            </div>
+          </div>
+
+          <div class="summary-stack dashboard-summary-grid">
+            <div class="summary-box">
+              <span class="status-chip neutral">Usuarios</span>
+              <strong>${escapeHtml(String(state.adminUsers.length))}</strong>
+              <span>Operadores dados de alta en esta V2.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Permisos propios</span>
+              <strong>${escapeHtml(String(permissions.length))}</strong>
+              <span>Fichas visibles para tu usuario actual.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip dark">Grupos</span>
+              <strong>${escapeHtml(String(state.catalogs.groups.length))}</strong>
+              <span>Catalogo base ya sincronizado.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip dark">Temporadas</span>
+              <strong>${escapeHtml(String(state.seasons.length))}</strong>
+              <span>Ciclos disponibles en la V2.</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminUsersView_() {
+  const editingUser = state.adminUsers.find((user) => String(user.email) === String(state.ui.editingUserEmail || "")) || null;
+  const users = getFilteredAdminUsers_();
+  const selectedPermissions = editingUser?.permissions?.length ? editingUser.permissions : ACCESSIBLE_VIEWS.slice();
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "seasons",
+        eyebrow: "Accesos",
+        title: "Usuarios, perfiles y fichas",
+        copy: "Cada usuario puede entrar solo a los modulos que realmente necesita operar.",
+        badge: {
+          label: `${state.adminUsers.length} usuarios`,
+          kind: "dark"
+        },
+        metrics: [
+          { label: "Activos", value: String(state.adminUsers.filter((user) => String(user.status || "").toUpperCase() === "ACTIVO").length) },
+          { label: "Busqueda", value: state.filters.admin.userSearch ? "Filtrada" : "General" }
+        ],
+        actions: [
+          { label: "Nuevo usuario", variant: "primary", action: "clear-admin-user-form" },
+          { label: "Configuracion", variant: "secondary", view: "admin-settings" }
+        ]
+      })}
+
+      <div class="view-grid columns-2">
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>${editingUser ? "Editar usuario" : "Alta de usuario"}</h2>
+              <p>Define perfil, estado y fichas visibles dentro del sistema.</p>
+            </div>
+          </div>
+
+          <form id="admin-user-form">
+            <input type="hidden" name="editingEmail" value="${escapeHtml(editingUser?.email || "")}">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="admin-user-email">Correo</label>
+                <input id="admin-user-email" name="email" value="${escapeHtml(editingUser?.email || "")}" placeholder="usuario@iglesia.com" ${editingUser ? "readonly" : ""} required>
+              </div>
+              <div class="field">
+                <label for="admin-user-name">Nombre</label>
+                <input id="admin-user-name" name="name" value="${escapeHtml(editingUser?.name || "")}" placeholder="Nombre del usuario" required>
+              </div>
+            </div>
+
+            <div class="field-grid two">
+              <div class="field">
+                <label for="admin-user-role">Perfil</label>
+                <select id="admin-user-role" name="role">
+                  ${renderOptions([
+                    { value: "ADMIN", label: "ADMIN" },
+                    { value: "PASTOR", label: "PASTOR" },
+                    { value: "LIDER", label: "LIDER" },
+                    { value: "OPERADOR", label: "OPERADOR" }
+                  ], editingUser?.role || "OPERADOR", "Selecciona perfil")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="admin-user-status">Estado</label>
+                <select id="admin-user-status" name="status">
+                  ${renderOptions([
+                    { value: "ACTIVO", label: "ACTIVO" },
+                    { value: "INACTIVO", label: "INACTIVO" }
+                  ], editingUser?.status || "ACTIVO", "Selecciona estado")}
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="admin-user-password">${editingUser ? "Nueva contrasena" : "Contrasena"}</label>
+              <input id="admin-user-password" name="password" type="password" placeholder="${editingUser ? "Solo si deseas actualizarla" : "Contrasena inicial"}" ${editingUser ? "" : "required"}>
+            </div>
+
+            <div class="field">
+              <label>Fichas con acceso</label>
+              <div class="permission-grid">
+                ${ACCESSIBLE_VIEWS.map((permission) => `
+                  <label class="permission-card">
+                    <input type="checkbox" name="permissions" value="${escapeHtml(permission)}" ${selectedPermissions.includes(permission) ? "checked" : ""}>
+                    <span>
+                      <strong>${escapeHtml(getPermissionLabel_(permission))}</strong>
+                      <small>${escapeHtml(getPermissionDescription_(permission))}</small>
+                    </span>
+                  </label>
+                `).join("")}
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">${editingUser ? "Guardar cambios" : "Crear usuario"}</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-admin-user-form" ${editingUser ? "" : "disabled"}>Limpiar</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Usuarios del sistema</h2>
+              <p>Busca un operador y entra a editar su perfil o accesos.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(String(users.length))} visibles</span>
+          </div>
+
+          <div class="field">
+            <label for="admin-user-search">Buscar usuario</label>
+            <input id="admin-user-search" value="${escapeHtml(state.filters.admin.userSearch)}" placeholder="Nombre, correo o perfil">
+          </div>
+
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>Perfil</th>
+                  <th>Estado</th>
+                  <th>Fichas</th>
+                  <th>Accion</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${users.length ? users.map((user) => `
+                  <tr>
+                    <td>
+                      <span class="row-title">${escapeHtml(user.name || user.email)}</span>
+                      <span class="row-meta">${escapeHtml(user.email)}</span>
+                    </td>
+                    <td>${escapeHtml(user.role || "SIN ROL")}</td>
+                    <td>${renderPill(user.status || "ACTIVO")}</td>
+                    <td>${escapeHtml(String(user.permissions?.length || 0))}</td>
+                    <td><button class="btn btn-secondary" data-action="edit-admin-user" data-user-email="${escapeHtml(user.email)}">Editar</button></td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="5"><div class="empty-state">No hay usuarios que coincidan con la busqueda.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
 }
 
 function renderDashboardView() {
@@ -649,6 +1442,10 @@ function renderDashboardView() {
   const selectedGroupId = state.filters.dashboard.groupId;
   const selectedGroupRow = groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
   const leaderSummary = buildDashboardLeaderSummary_(selectedGroupRow, state.dashboardLeaderDetail);
+  const sessionInsights = state.dashboardSessionInsights;
+  const dashboardSeasonId = state.filters.dashboard.seasonId || focusSeason?.id || "";
+  const seasonSessions = getSessions(dashboardSeasonId);
+  const recentCongregants = getRecentCongregants_("dashboard");
   const mobileSeasonSessionsCount = focusSeason
     ? Number(focusSeason.sessionsCount || getSessions(focusSeason.id).length || 0)
     : Number(latestSeason?.sessionsCount || getSessions(latestSeason?.id || '').length || 0);
@@ -662,6 +1459,14 @@ function renderDashboardView() {
     })),
     selectedGroupId,
     'Selecciona grupo'
+  );
+  const dashboardSessionOptions = renderOptions(
+    seasonSessions.map((session) => ({
+      value: session.id,
+      label: `${session.name} | ${formatDate(session.date)}`
+    })),
+    state.filters.dashboard.sessionId,
+    "Selecciona sesion"
   );
 
   return `
@@ -690,20 +1495,42 @@ function renderDashboardView() {
         <div class="field-grid two dashboard-filter-grid">
           ${renderSeasonSelect('dashboard-season', state.filters.dashboard.seasonId)}
           <div class="field">
+            <label for="dashboard-session">Sesion global</label>
+            <select id="dashboard-session">
+              ${dashboardSessionOptions}
+            </select>
+            <span class="field-help">Base para el corte global por sesion.</span>
+          </div>
+        </div>
+
+        <div class="field-grid two dashboard-filter-grid">
+          <div class="field">
             <label for="dashboard-group">Consulta para lideres</label>
             <select id="dashboard-group">
               ${dashboardGroupOptions}
             </select>
             <span class="field-help">Elige un grupo para ver su detalle y exportarlo.</span>
           </div>
+
+          <div class="field">
+            <label>Periodo de nuevos congregantes</label>
+            <div class="inline-date-range">
+              <input id="dashboard-recent-from" type="date" value="${escapeHtml(state.filters.dashboard.recentFrom)}">
+              <input id="dashboard-recent-to" type="date" value="${escapeHtml(state.filters.dashboard.recentTo)}">
+            </div>
+            <span class="field-help">Usa este rango para el bloque de crecimiento reciente.</span>
+          </div>
         </div>
 
         <div class="summary-strip">
           <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : 'Sin temporada'}</span>
+          <span class="context-item"><strong>Sesion global:</strong> ${escapeHtml(sessionInsights?.sessionName || seasonSessions.find((session) => session.id === state.filters.dashboard.sessionId)?.name || "Sin sesion")}</span>
           <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : 'Cargando...')}</span>
         </div>
 
         <div class="actions-row dashboard-filter-actions">
+          <button class="btn btn-secondary" data-action="set-dashboard-period" data-days="30">Ultimo mes</button>
+          <button class="btn btn-ghost" data-action="set-dashboard-period" data-days="90">Ultimos 3 meses</button>
           <button class="btn btn-primary" data-action="load-dashboard-group-query" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Consultar grupo</button>
           <button class="btn btn-secondary" data-action="export-dashboard-group-detail" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Exportar grupo</button>
           <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? '' : 'disabled'}>Limpiar consulta</button>
@@ -811,7 +1638,7 @@ function renderDashboardView() {
 
           <div class="quick-actions dashboard-quick-actions">
             ${renderQuickLink('attendance', 'Captura manual', 'Entra directo a la lista del grupo activo')}
-            ${renderQuickLink('qr', 'QR y kiosko', 'Opera registro rapido para la sesion de hoy')}
+            ${renderQuickLink('attendance', 'QR y kiosko', 'Cambia de modalidad dentro de asistencias')}
             ${renderQuickLink('participants', 'Asignacion por grupo', 'Consulta o corrige participantes antes de capturar')}
           </div>
         </article>
@@ -928,6 +1755,110 @@ function renderDashboardView() {
           `}
         </article>
       </div>
+
+      <div class="view-grid columns-2">
+        <article class="detail-card dashboard-session-breakdown-card">
+          <div class="panel-head">
+            <div>
+              <h2>Corte global por sesion</h2>
+              <p>Diferencia congregantes y voluntarios para la sesion seleccionada y entra al detalle por grupo.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(sessionInsights?.sessionName || "Sin sesion")}</span>
+          </div>
+
+          ${sessionInsights ? `
+            <div class="summary-strip">
+              <span class="context-item"><strong>Participantes:</strong> ${escapeHtml(String(sessionInsights.totalParticipants || 0))}</span>
+              <span class="context-item"><strong>Presentes:</strong> ${escapeHtml(String(sessionInsights.totalPresent || 0))}</span>
+              <span class="context-item"><strong>Cobertura:</strong> ${escapeHtml(String(sessionInsights.attendanceRate || 0))}%</span>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Grupo</th>
+                    <th>Congregantes</th>
+                    <th>Voluntarios</th>
+                    <th>Presentes</th>
+                    <th>Cobertura</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sessionInsights.groups.length ? sessionInsights.groups.map((group) => `
+                    <tr>
+                      <td>
+                        <span class="row-title">${escapeHtml(group.groupName)}</span>
+                        <span class="row-meta">${escapeHtml(String(group.groupId))}</span>
+                      </td>
+                      <td>${escapeHtml(String(group.congregants || 0))}</td>
+                      <td>${escapeHtml(String(group.volunteers || 0))}</td>
+                      <td>${escapeHtml(String(group.present || 0))}/${escapeHtml(String(group.total || 0))}</td>
+                      <td>${escapeHtml(String(group.rate || 0))}%</td>
+                      <td>
+                        <button class="btn btn-secondary" data-action="open-dashboard-session-group" data-group-id="${escapeHtml(String(group.groupId))}">
+                          Ver grupo
+                        </button>
+                      </td>
+                    </tr>
+                  `).join("") : `
+                    <tr>
+                      <td colspan="6"><div class="empty-state">Aun no hay participantes cargados para la sesion seleccionada.</div></td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          ` : `
+            <div class="empty-state">Selecciona una temporada y una sesion para construir el corte global.</div>
+          `}
+        </article>
+
+        <article class="detail-card dashboard-recent-people-card">
+          <div class="panel-head">
+            <div>
+              <h2>Nuevos congregantes</h2>
+              <p>Seguimiento rapido de crecimiento reciente con periodo editable.</p>
+            </div>
+            <span class="pill ${recentCongregants.length ? "success" : "warning"}">${escapeHtml(String(recentCongregants.length))} en periodo</span>
+          </div>
+
+          <div class="summary-stack dashboard-summary-grid">
+            <div class="summary-box">
+              <span class="status-chip neutral">Periodo</span>
+              <strong>${escapeHtml(formatDate(state.filters.dashboard.recentFrom) || state.filters.dashboard.recentFrom || "-")}</strong>
+              <span>Hasta ${escapeHtml(formatDate(state.filters.dashboard.recentTo) || state.filters.dashboard.recentTo || "-")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip success">Con telefono</span>
+              <strong>${escapeHtml(String(recentCongregants.filter((row) => String(row.telefono || "").trim()).length))}</strong>
+              <span>Listos para contacto o bienvenida.</span>
+            </div>
+          </div>
+
+          <div class="results-list dashboard-recent-people-list">
+            ${recentCongregants.length ? recentCongregants.slice(0, 8).map((person) => `
+              <article class="result-card">
+                <div class="result-row">
+                  <div class="result-copy-stack">
+                    <span class="row-title">${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>
+                    <span class="row-meta">${escapeHtml(person.telefono || "Sin telefono")} | ${escapeHtml(person.estadoCivil || "Sin estado civil")}</span>
+                    <span class="row-meta">Nacimiento: ${escapeHtml(formatDate(person.fechaNacimiento) || "Sin fecha")} | Alta: ${escapeHtml(formatDate(person.fechaIngreso) || "Sin fecha")}</span>
+                  </div>
+                  <span class="pill dark">${escapeHtml(String(person.edad || "S/D"))}</span>
+                </div>
+              </article>
+            `).join("") : `
+              <div class="empty-state">No hay congregantes nuevos en el rango seleccionado.</div>
+            `}
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-secondary" data-action="navigate" data-view="congregants-new">Abrir consulta completa</button>
+          </div>
+        </article>
+      </div>
     </section>
   `;
 }
@@ -976,6 +1907,132 @@ function getDashboardSelectedGroupRow_() {
   const groupsRanking = state.dashboardExecutive?.groupsRanking || [];
   const selectedGroupId = state.filters.dashboard.groupId;
   return groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
+}
+
+function buildDashboardSessionInsights_({ seasonId, sessionId, sessionGroups, participants, attendances }) {
+  const session = getSessions(seasonId).find((item) => String(item.id) === String(sessionId)) || null;
+  const peopleById = new Map();
+  const groupsMap = new Map();
+  const attendanceMap = new Map();
+
+  state.peopleDirectory.forEach((person) => {
+    peopleById.set(String(person.id), person);
+  });
+
+  (sessionGroups || []).forEach((group) => {
+    groupsMap.set(String(group.groupId), {
+      groupId: String(group.groupId),
+      groupName: group.groupName || resolveGroupName_(group.groupId) || `Grupo ${group.groupId}`,
+      total: 0,
+      congregants: 0,
+      volunteers: 0,
+      present: 0,
+      rate: 0
+    });
+  });
+
+  (attendances || []).forEach((attendance) => {
+    if (String(attendance.attended || "").toUpperCase() === "SI") {
+      attendanceMap.set(`${attendance.groupId}::${attendance.personId}`, true);
+    }
+  });
+
+  (participants || []).forEach((participant) => {
+    const groupId = String(participant.groupId || "");
+    const personId = String(participant.personId || "");
+    const sourcePerson = peopleById.get(personId) || {};
+    const typeKey = getPersonTypeKey_(participant.type || sourcePerson.tipoPersona || "");
+    const group = groupsMap.get(groupId) || {
+      groupId,
+      groupName: resolveGroupName_(groupId) || `Grupo ${groupId}`,
+      total: 0,
+      congregants: 0,
+      volunteers: 0,
+      present: 0,
+      rate: 0
+    };
+
+    group.total += 1;
+
+    if (typeKey === "congregante") {
+      group.congregants += 1;
+    } else {
+      group.volunteers += 1;
+    }
+
+    if (attendanceMap.has(`${groupId}::${personId}`)) {
+      group.present += 1;
+    }
+
+    groupsMap.set(groupId, group);
+  });
+
+  const groups = Array.from(groupsMap.values())
+    .map((group) => ({
+      ...group,
+      rate: group.total ? Math.round((group.present / group.total) * 100) : 0
+    }))
+    .sort((left, right) => {
+      if (right.rate !== left.rate) {
+        return right.rate - left.rate;
+      }
+
+      if (right.present !== left.present) {
+        return right.present - left.present;
+      }
+
+      return normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es");
+    });
+
+  const totalParticipants = groups.reduce((sum, group) => sum + group.total, 0);
+  const totalPresent = groups.reduce((sum, group) => sum + group.present, 0);
+
+  return {
+    key: `${seasonId}::${sessionId}`,
+    seasonId,
+    sessionId,
+    sessionName: session?.name || sessionId,
+    groups,
+    totalParticipants,
+    totalPresent,
+    attendanceRate: totalParticipants ? Math.round((totalPresent / totalParticipants) * 100) : 0
+  };
+}
+
+function getRecentCongregants_(scope = "congregants") {
+  const filter = scope === "dashboard" ? state.filters.dashboard : state.filters.congregants;
+  const fromDate = parseDateToTimestamp_(filter.recentFrom, false);
+  const toDate = parseDateToTimestamp_(filter.recentTo, true);
+
+  return state.peopleDirectory
+    .filter((person) => {
+      const typeKey = getPersonTypeKey_(person.tipoPersona || "");
+      const status = String(person.estado || "").toUpperCase();
+      const joinedAt = parseDateToTimestamp_(person.fechaIngreso, true);
+
+      if (typeKey !== "congregante") {
+        return false;
+      }
+
+      if (status && status !== "ACTIVO") {
+        return false;
+      }
+
+      if (!joinedAt) {
+        return false;
+      }
+
+      if (fromDate && joinedAt < fromDate) {
+        return false;
+      }
+
+      if (toDate && joinedAt > toDate) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true));
 }
 
 function buildCsvText_(rows) {
@@ -1146,7 +2203,7 @@ function renderAssistantsView() {
           <div class="panel-head">
             <div>
               <h2>Alta individual</h2>
-              <p>Crea un asistente nuevo desde esta misma pantalla y dejalo listo para asignarlo a grupos.</p>
+              <p>Da de alta una persona nueva desde esta misma pantalla y dejala lista para asignarla a grupos.</p>
             </div>
           </div>
 
@@ -1203,7 +2260,7 @@ function renderAssistantsView() {
             </div>
 
             <div class="actions-row">
-              <button class="btn btn-primary" type="submit">Guardar asistente</button>
+              <button class="btn btn-primary" type="submit">Guardar congregante</button>
               <button class="btn btn-ghost" type="button" data-action="refresh-assistants">Actualizar padron</button>
             </div>
           </form>
@@ -1213,7 +2270,7 @@ function renderAssistantsView() {
           <div class="panel-head">
             <div>
               <h2>Importacion desde Excel</h2>
-              <p>Sube un archivo de asistentes, valida columnas y guarda registros nuevos o actualizaciones sin duplicar.</p>
+              <p>Sube un archivo del padron, valida columnas y guarda registros nuevos o actualizaciones sin duplicar.</p>
             </div>
             ${importSummary ? `<span class="pill dark">${escapeHtml(String(importSummary.validRows))} listos</span>` : ""}
           </div>
@@ -1308,7 +2365,7 @@ function renderAssistantsView() {
         <div class="panel-head">
           <div>
             <h2>Padron de personas</h2>
-            <p>Busca asistentes o voluntarios ya cargados y revisa rapidamente su informacion base.</p>
+            <p>Busca congregantes o voluntarios ya cargados y revisa rapidamente su informacion base.</p>
           </div>
           <button class="btn btn-secondary" data-action="refresh-assistants">Actualizar listado</button>
         </div>
@@ -2768,29 +3825,33 @@ function getActiveAttendanceSession_() {
   return state.activeSession && state.activeSession.found ? state.activeSession.session : null;
 }
 
-function renderNavButton(view, description) {
-  const isActive = state.currentView === view;
-  if (true) {
-    return `
-      <button class="nav-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
-        <span class="nav-copy">
-          <strong>${escapeHtml(VIEW_META[view].title)}</strong>
-          <small>${escapeHtml(description)}</small>
-        </span>
-        <span class="nav-state">${isActive ? "Actual" : "Abrir"}</span>
-      </button>
-    `;
+function renderNavButton(moduleId) {
+  const meta = MODULE_META[moduleId];
+  const targetView = getDefaultViewForModule_(moduleId);
+
+  if (!meta || !canAccessView_(targetView)) {
+    return "";
   }
+
+  const isActive = getCurrentModule_() === moduleId;
+
   return `
-    <button class="nav-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
-      <span>${escapeHtml(VIEW_META[view].title)}<small>${escapeHtml(description)}</small></span>
-      <span>${isActive ? "â—" : "â—‹"}</span>
+    <button class="nav-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${targetView}">
+      <span class="nav-copy">
+        <strong>${escapeHtml(meta.title)}</strong>
+        <small>${escapeHtml(meta.description)}</small>
+      </span>
+      <span class="nav-state">${isActive ? "Actual" : "Abrir"}</span>
     </button>
   `;
 }
 
-function renderMobileNavButton_(view, label, description) {
-  const isActive = state.currentView === view;
+function renderMobileNavButton_(moduleId, view, label, description) {
+  if (!canAccessView_(view)) {
+    return "";
+  }
+
+  const isActive = getCurrentModule_() === moduleId;
 
   return `
     <button class="mobile-tab-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
@@ -3062,6 +4123,33 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-dashboard-period") {
+      const range = getDefaultRecentRange_(Number(button.dataset.days || 30));
+      state.filters.dashboard.recentFrom = range.from;
+      state.filters.dashboard.recentTo = range.to;
+      renderApp();
+      return;
+    }
+
+    if (action === "set-congregants-period") {
+      const range = getDefaultRecentRange_(Number(button.dataset.days || 30));
+      state.filters.congregants.recentFrom = range.from;
+      state.filters.congregants.recentTo = range.to;
+      renderApp();
+      return;
+    }
+
+    if (action === "open-dashboard-session-group") {
+      state.filters.dashboard.groupId = button.dataset.groupId || "";
+      await loadDashboardLeaderDetail_({
+        force: true,
+        message: "Abriendo detalle del grupo..."
+      });
+      renderApp();
+      scrollToSection_("dashboard-leaders");
+      return;
+    }
+
     if (action === "refresh-app") {
       await bootstrapApplication();
       return;
@@ -3071,6 +4159,10 @@ async function handleClick(event) {
       await loadDashboardExecutive_({
         force: true,
         message: "Actualizando indicadores ejecutivos..."
+      });
+      await loadDashboardSessionInsights_({
+        force: true,
+        showLoading: false
       });
 
       if (state.filters.dashboard.groupId) {
@@ -3154,6 +4246,45 @@ async function handleClick(event) {
       await withLoading(async () => {
         await refreshPeopleSources_();
       }, "Actualizando padron...");
+      renderApp();
+      return;
+    }
+
+    if (action === "edit-group-catalog") {
+      state.ui.editingGroupId = String(button.dataset.groupId || "");
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "clear-catalog-group-form") {
+      state.ui.editingGroupId = "";
+      renderApp();
+      return;
+    }
+
+    if (action === "edit-ministry-catalog") {
+      state.ui.editingMinistryId = String(button.dataset.ministryId || "");
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "clear-catalog-ministry-form") {
+      state.ui.editingMinistryId = "";
+      renderApp();
+      return;
+    }
+
+    if (action === "edit-admin-user") {
+      state.ui.editingUserEmail = String(button.dataset.userEmail || "");
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "clear-admin-user-form") {
+      state.ui.editingUserEmail = "";
       renderApp();
       return;
     }
@@ -3407,7 +4538,8 @@ async function handleClick(event) {
     if (action === "open-qr-operator") {
       syncAttendanceContextIntoQr_();
       state.filters.qr.surface = "scanner";
-      state.currentView = "qr";
+      state.filters.attendance.mode = "qr";
+      state.currentView = "attendance";
       await loadQrSummary();
       renderApp();
       scrollViewportToTop_();
@@ -3417,8 +4549,31 @@ async function handleClick(event) {
     if (action === "open-qr-kiosk") {
       syncAttendanceContextIntoQr_();
       state.filters.qr.surface = "kiosk";
-      state.currentView = "qr";
+      state.filters.attendance.mode = "kiosk";
+      state.currentView = "attendance";
       await loadQrSummary();
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "set-attendance-mode") {
+      const nextMode = button.dataset.mode === "kiosk"
+        ? "kiosk"
+        : (button.dataset.mode === "qr" ? "qr" : "manual");
+
+      state.filters.attendance.mode = nextMode;
+
+      if (nextMode === "manual") {
+        state.currentView = "attendance";
+        await loadActiveSession();
+        await loadAttendanceData();
+      } else {
+        state.currentView = "attendance";
+        state.filters.qr.surface = nextMode === "kiosk" ? "kiosk" : "scanner";
+        await loadQrSummary();
+      }
+
       renderApp();
       scrollViewportToTop_();
       return;
@@ -3573,8 +4728,52 @@ async function handleSubmit(event) {
       return;
     }
 
+    if (form.id === "catalog-group-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+
+      await withLoading(async () => {
+        await apiPost("catalog.groups.save", payload);
+        await loadGroupsCatalog_();
+      }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
+
+      state.ui.editingGroupId = "";
+      showToast("Catalogo actualizado", "El grupo quedo guardado correctamente.", "success");
+      renderApp();
+      return;
+    }
+
+    if (form.id === "catalog-ministry-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+
+      await withLoading(async () => {
+        await apiPost("catalog.ministries.save", payload);
+        await loadMinistriesCatalog_();
+      }, payload.id ? "Actualizando ministerio..." : "Creando ministerio...");
+
+      state.ui.editingMinistryId = "";
+      showToast("Catalogo actualizado", "El ministerio quedo guardado correctamente.", "success");
+      renderApp();
+      return;
+    }
+
     if (form.id === "attendance-form") {
       await saveAttendanceCapture();
+      return;
+    }
+
+    if (form.id === "admin-user-form") {
+      const formData = new FormData(form);
+      const payload = Object.fromEntries(formData.entries());
+      payload.permissions = formData.getAll("permissions");
+
+      await withLoading(async () => {
+        await apiPost("users.save", payload);
+        await loadAdminUsers_();
+      }, payload.editingEmail ? "Actualizando usuario..." : "Creando usuario...");
+
+      state.ui.editingUserEmail = "";
+      showToast("Usuario guardado", "El perfil y sus accesos quedaron actualizados.", "success");
+      renderApp();
       return;
     }
 
@@ -3610,10 +4809,27 @@ async function handleChange(event) {
 
     if (target.id === "dashboard-season") {
       state.filters.dashboard.seasonId = target.value;
+      state.filters.dashboard.sessionId = "";
       state.dashboardLeaderDetail = null;
+      state.dashboardSessionInsights = null;
       await loadDashboardExecutive_({
         force: true,
         message: "Actualizando temporada ejecutiva..."
+      });
+      await loadDashboardSessionInsights_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "dashboard-session") {
+      state.filters.dashboard.sessionId = target.value;
+      state.dashboardSessionInsights = null;
+      await loadDashboardSessionInsights_({
+        force: true,
+        message: "Actualizando corte global..."
       });
       renderApp();
       return;
@@ -3622,6 +4838,30 @@ async function handleChange(event) {
     if (target.id === "dashboard-group") {
       state.filters.dashboard.groupId = target.value;
       state.dashboardLeaderDetail = null;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "dashboard-recent-from") {
+      state.filters.dashboard.recentFrom = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "dashboard-recent-to") {
+      state.filters.dashboard.recentTo = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "congregants-recent-from") {
+      state.filters.congregants.recentFrom = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "congregants-recent-to") {
+      state.filters.congregants.recentTo = target.value;
       renderApp();
       return;
     }
@@ -3764,6 +5004,24 @@ function handleInput(event) {
     return;
   }
 
+  if (target.id === "admin-user-search") {
+    state.filters.admin.userSearch = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
+  if (target.id === "admin-group-search") {
+    state.filters.admin.groupSearch = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
+  if (target.id === "admin-ministry-search") {
+    state.filters.admin.ministrySearch = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
   if (target.id === "qr-person-id") {
     state.filters.qr.personId = target.value;
   }
@@ -3800,7 +5058,11 @@ async function loadCurrentViewData() {
       await ensureDashboardViewData_();
       return;
     case "assistants":
+    case "congregants-new":
       await ensureAssistantsViewData_();
+      return;
+    case "catalogs":
+      await ensureCatalogsViewData_();
       return;
     case "seasons":
       await ensureSeasonViewData();
@@ -3809,11 +5071,19 @@ async function loadCurrentViewData() {
       await ensureParticipantsViewData_();
       return;
     case "attendance":
-      await loadActiveSession();
-      await loadAttendanceData();
+      if (resolveConnectionAttendanceMode_() === "manual") {
+        await loadActiveSession();
+        await loadAttendanceData();
+      } else {
+        await ensureQrViewData_();
+      }
       return;
     case "qr":
       await ensureQrViewData_();
+      return;
+    case "admin-settings":
+    case "admin-users":
+      await ensureAdminViewData_();
       return;
     default:
       await ensureSessionsForSeason(getLatestSeason()?.id || "");
@@ -3892,6 +5162,7 @@ async function loadLegacyBootstrapData_() {
 }
 
 function syncBootstrapFilters_() {
+  initializeDateFilters_();
   state.filters.dashboard.seasonId = ensureValidSeasonId(state.filters.dashboard.seasonId);
   if (!state.catalogs.groups.some((group) => String(group.id) === String(state.filters.dashboard.groupId))) {
     state.filters.dashboard.groupId = "";
@@ -3957,6 +5228,14 @@ async function loadActiveSession() {
   });
 }
 
+async function loadAdminUsers_() {
+  return runSharedLoad_("users", async () => {
+    state.adminUsers = await apiGet("users.list");
+    state.loaded.users = true;
+    return state.adminUsers;
+  });
+}
+
 async function refreshPeopleSources_() {
   await Promise.all([
     loadPeople(),
@@ -3967,8 +5246,27 @@ async function refreshPeopleSources_() {
 function syncDashboardFilterState_() {
   state.filters.dashboard.seasonId = ensureValidSeasonId(state.filters.dashboard.seasonId);
 
+  if (!state.filters.dashboard.recentFrom || !state.filters.dashboard.recentTo) {
+    initializeDateFilters_();
+  }
+
   if (!state.catalogs.groups.some((group) => String(group.id) === String(state.filters.dashboard.groupId))) {
     state.filters.dashboard.groupId = "";
+  }
+}
+
+async function ensureDashboardSessionFilterState_() {
+  syncDashboardFilterState_();
+
+  const seasonId = state.filters.dashboard.seasonId;
+  const sessions = await ensureSessionsForSeason(seasonId);
+  const activeSession = getActiveAttendanceSession_();
+  const activeMatchesSeason = activeSession && String(activeSession.seasonId) === String(seasonId);
+
+  if (!sessions.some((session) => String(session.id) === String(state.filters.dashboard.sessionId))) {
+    state.filters.dashboard.sessionId = activeMatchesSeason
+      ? activeSession.id
+      : (sessions[sessions.length - 1]?.id || sessions[0]?.id || "");
   }
 }
 
@@ -4034,6 +5332,12 @@ async function ensureAssistantsViewData_() {
   }
 }
 
+async function ensureCatalogsViewData_() {
+  await loadCatalogs({
+    includeMinistries: true
+  });
+}
+
 async function ensureParticipantsViewData_() {
   if (!state.loaded.people) {
     await loadPeople();
@@ -4047,12 +5351,23 @@ async function ensureDashboardViewData_() {
   await loadDashboardExecutive_({
     showLoading: false
   });
+  await loadPeopleDirectory();
+  await loadDashboardSessionInsights_({
+    showLoading: false
+  });
 
   if (state.filters.dashboard.groupId) {
     await loadDashboardLeaderDetail_({
       showLoading: false
     });
   }
+}
+
+async function ensureAdminViewData_() {
+  await loadCatalogs({
+    includeMinistries: true
+  });
+  await loadAdminUsers_();
 }
 
 async function ensureQrViewData_() {
@@ -4078,11 +5393,14 @@ function warmDashboardExecutiveInBackground_() {
 }
 
 function warmCommonDataInBackground_() {
-  if (!state.user || state.loaded.people || pendingResourceLoads.people) {
+  if (!state.user || (state.loaded.people && state.loaded.peopleDirectory)) {
     return;
   }
 
-  void loadPeople()
+  void Promise.all([
+    state.loaded.people || pendingResourceLoads.people ? Promise.resolve() : loadPeople(),
+    state.loaded.peopleDirectory || pendingResourceLoads.peopleDirectory ? Promise.resolve() : loadPeopleDirectory()
+  ])
     .then(() => {
       if (state.currentView === "dashboard") {
         renderApp();
@@ -4114,6 +5432,58 @@ async function ensureSeasonViewData() {
   if (seasonId && sessions.length) {
     await ensureSessionGroupsFor(seasonId, sessions[0].id);
   }
+}
+
+async function loadDashboardSessionInsights_(options = {}) {
+  await ensureDashboardSessionFilterState_();
+
+  const seasonId = state.filters.dashboard.seasonId;
+  const sessionId = state.filters.dashboard.sessionId;
+  const cacheKey = `${seasonId}::${sessionId}`;
+
+  if (!seasonId || !sessionId) {
+    state.dashboardSessionInsights = null;
+    return null;
+  }
+
+  if (!options.force && state.dashboardSessionInsights?.key === cacheKey) {
+    return state.dashboardSessionInsights;
+  }
+
+  const task = async () => {
+    if (!state.loaded.peopleDirectory) {
+      await loadPeopleDirectory();
+    }
+
+    const [sessionGroups, participants, attendances] = await Promise.all([
+      ensureSessionGroupsFor(seasonId, sessionId),
+      apiGet("participants.list", {
+        seasonId,
+        sessionId,
+        status: "ACTIVO"
+      }),
+      apiGet("attendances.list", {
+        seasonId,
+        sessionId
+      })
+    ]);
+
+    state.dashboardSessionInsights = buildDashboardSessionInsights_({
+      seasonId,
+      sessionId,
+      sessionGroups,
+      participants,
+      attendances
+    });
+
+    return state.dashboardSessionInsights;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Calculando sesion ejecutiva...");
 }
 
 async function ensureSessionGroupsFor(seasonId, sessionId) {
@@ -4228,9 +5598,9 @@ async function saveAssistant(rawPayload) {
   await withLoading(async () => {
     await apiPost("servers.save", payload);
     await refreshPeopleSources_();
-  }, "Guardando asistente...");
+  }, "Guardando congregante...");
 
-  showToast("Asistente guardado", "La persona ya forma parte del padron base del sistema.", "success");
+  showToast("Congregante guardado", "La persona ya forma parte del padron base del sistema.", "success");
 }
 
 async function processPeopleImportFile_(file) {
@@ -4709,7 +6079,7 @@ function stopQrScannerRuntime_(keepStatus = false) {
 }
 
 function scanQrFrame_() {
-  if (!state.qrScanner.enabled || state.currentView !== "qr") {
+  if (!state.qrScanner.enabled || (state.currentView !== "qr" && (state.currentView !== "attendance" || resolveConnectionAttendanceMode_() === "manual"))) {
     qrScannerRuntime.animationFrameId = 0;
     return;
   }
@@ -5248,7 +6618,7 @@ function sanitizeAssistantPayload_(payload) {
   };
 
   if (!clean.nombre || !clean.apellidos) {
-    throw new ApiError("Debes completar nombre y apellidos para guardar un asistente.", "VALIDATION_ERROR");
+    throw new ApiError("Debes completar nombre y apellidos para guardar un congregante.", "VALIDATION_ERROR");
   }
 
   return clean;
@@ -6266,6 +7636,76 @@ function formatDateForInput_(value) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function parseDateToTimestamp_(value, endOfDay = false) {
+  const date = coerceClientDate_(value);
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return 0;
+  }
+
+  if (endOfDay) {
+    date.setHours(23, 59, 59, 999);
+  } else {
+    date.setHours(0, 0, 0, 0);
+  }
+
+  return date.getTime();
+}
+
+function getDefaultRecentRange_(days) {
+  const totalDays = Math.max(Number(days || 30), 1);
+  const to = new Date();
+  const from = new Date();
+
+  from.setDate(from.getDate() - (totalDays - 1));
+
+  return {
+    from: formatDateForInput_(from),
+    to: formatDateForInput_(to)
+  };
+}
+
+function getFilteredAdminUsers_() {
+  const search = normalizeText(state.filters.admin.userSearch);
+
+  return state.adminUsers.filter((user) => {
+    const haystack = normalizeText([user.name, user.email, user.role, user.status].join(" "));
+    return !search || haystack.includes(search);
+  });
+}
+
+function getPermissionLabel_(permission) {
+  const labels = {
+    dashboard: "Dashboard Ejecutivo",
+    assistants: "Congregantes",
+    "congregants-new": "Nuevos congregantes",
+    catalogs: "Catalogos",
+    seasons: "Temporadas",
+    participants: "Asignacion",
+    attendance: "Asistencias",
+    "admin-settings": "Configuracion",
+    "admin-users": "Usuarios"
+  };
+
+  return labels[permission] || permission;
+}
+
+function getPermissionDescription_(permission) {
+  const descriptions = {
+    dashboard: "Indicadores, consultas y exportaciones para pastor y lideres.",
+    assistants: "Padron general, altas, importacion y credenciales QR.",
+    "congregants-new": "Consulta de congregantes nuevos por periodo.",
+    catalogs: "Catalogos de grupos y ministerios.",
+    seasons: "Temporadas, sesiones y estados operativos.",
+    participants: "Asignacion individual y masiva a grupos.",
+    attendance: "Captura manual, QR asistido y kiosko.",
+    "admin-settings": "URL de API y conexion del sistema.",
+    "admin-users": "Alta de usuarios, perfiles y permisos."
+  };
+
+  return descriptions[permission] || "Ficha operativa del sistema.";
+}
+
 function downloadFallbackTemplateCsv_(headers) {
   const csv = `${headers.join(",")}\n`;
   const blob = new Blob([csv], {
@@ -6478,6 +7918,8 @@ function resetRuntimeState() {
   };
   state.dashboardExecutive = null;
   state.dashboardLeaderDetail = null;
+  state.dashboardSessionInsights = null;
+  state.adminUsers = [];
   state.loaded = {
     bootstrap: false,
     groups: false,
@@ -6485,7 +7927,8 @@ function resetRuntimeState() {
     seasons: false,
     people: false,
     peopleDirectory: false,
-    activeSession: false
+    activeSession: false,
+    users: false
   };
   state.catalogs = {
     groups: [],
@@ -6516,12 +7959,29 @@ function resetRuntimeState() {
   };
   state.selectedBulkPeople = [];
   state.ui = {
-    mobileNavOpen: false
+    mobileNavOpen: false,
+    editingGroupId: "",
+    editingMinistryId: "",
+    editingUserEmail: ""
   };
   state.filters.dashboard = {
     seasonId: "",
-    groupId: ""
+    sessionId: "",
+    groupId: "",
+    recentFrom: "",
+    recentTo: ""
   };
+  state.filters.congregants = {
+    recentFrom: "",
+    recentTo: ""
+  };
+  state.filters.attendance.mode = "manual";
+  state.filters.admin = {
+    userSearch: "",
+    groupSearch: "",
+    ministrySearch: ""
+  };
+  initializeDateFilters_();
 
   Object.keys(pendingResourceLoads).forEach((key) => {
     pendingResourceLoads[key] = null;
