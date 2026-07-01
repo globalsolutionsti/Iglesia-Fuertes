@@ -145,6 +145,17 @@ const state = {
   dashboardLeaderDetail: null,
   dashboardSessionInsights: null,
   adminUsers: [],
+  adminUsersSupport: {
+    available: true,
+    message: ""
+  },
+  viewLoadToken: 0,
+  cacheKeys: {
+    participants: "",
+    attendance: "",
+    attendanceDetail: "",
+    qrSummary: ""
+  },
   loaded: {
     bootstrap: false,
     groups: false,
@@ -391,6 +402,54 @@ function renderModuleTabButton_(tab) {
       <small>${escapeHtml(tab.description || "")}</small>
     </button>
   `;
+}
+
+function isUnknownActionError_(error, actionName = "") {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+
+  const code = String(error.code || "").toUpperCase();
+  const message = String(error.message || "");
+
+  if (code === "UNKNOWN_ACTION") {
+    return !actionName || message.includes(actionName);
+  }
+
+  return message.includes("Unknown action:") && (!actionName || message.includes(actionName));
+}
+
+function buildBackendRouteMissingError_(actionName, label) {
+  return new ApiError(
+    `Tu backend publicado aun no incluye ${label || actionName}. Actualiza los archivos .gs y vuelve a desplegar la Web App.`,
+    "BACKEND_OUTDATED",
+    {
+      action: actionName
+    }
+  );
+}
+
+function loadViewDataInBackground_(view) {
+  const token = ++state.viewLoadToken;
+  const targetView = view || state.currentView;
+
+  void loadCurrentViewData({
+    showLoading: false
+  })
+    .then(() => {
+      if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView) {
+        return;
+      }
+
+      renderApp();
+    })
+    .catch((error) => {
+      if (token !== state.viewLoadToken || state.currentView !== targetView) {
+        return;
+      }
+
+      handleError(error);
+    });
 }
 
 function renderApp() {
@@ -1180,6 +1239,7 @@ function renderCatalogsView_() {
 function renderAdminSettingsView_() {
   const permissions = getUserPermissions_();
   const currentModule = getCurrentModule_();
+  const usersSupport = state.adminUsersSupport;
 
   return `
     <section class="view-grid">
@@ -1221,6 +1281,10 @@ function renderAdminSettingsView_() {
             <button class="btn btn-primary" data-action="save-api-url">Guardar URL</button>
             <button class="btn btn-secondary" data-action="test-api-connection">Probar conexion</button>
           </div>
+
+          ${!usersSupport.available ? `
+            <p class="footer-note">${escapeHtml(usersSupport.message)}</p>
+          ` : ""}
 
           ${state.connectionStatus ? `
             <p class="footer-note">${escapeHtml(state.connectionStatus.message || "")}</p>
@@ -1267,6 +1331,8 @@ function renderAdminUsersView_() {
   const editingUser = state.adminUsers.find((user) => String(user.email) === String(state.ui.editingUserEmail || "")) || null;
   const users = getFilteredAdminUsers_();
   const selectedPermissions = editingUser?.permissions?.length ? editingUser.permissions : ACCESSIBLE_VIEWS.slice();
+  const usersSupport = state.adminUsersSupport;
+  const usersAdminAvailable = usersSupport.available;
 
   return `
     <section class="view-grid">
@@ -1298,23 +1364,27 @@ function renderAdminUsersView_() {
             </div>
           </div>
 
+          ${!usersAdminAvailable ? `
+            <div class="empty-state">${escapeHtml(usersSupport.message)}</div>
+          ` : ""}
+
           <form id="admin-user-form">
             <input type="hidden" name="editingEmail" value="${escapeHtml(editingUser?.email || "")}">
             <div class="field-grid two">
               <div class="field">
                 <label for="admin-user-email">Correo</label>
-                <input id="admin-user-email" name="email" value="${escapeHtml(editingUser?.email || "")}" placeholder="usuario@iglesia.com" ${editingUser ? "readonly" : ""} required>
+                <input id="admin-user-email" name="email" value="${escapeHtml(editingUser?.email || "")}" placeholder="usuario@iglesia.com" ${editingUser ? "readonly" : ""} ${usersAdminAvailable ? "" : "disabled"} required>
               </div>
               <div class="field">
                 <label for="admin-user-name">Nombre</label>
-                <input id="admin-user-name" name="name" value="${escapeHtml(editingUser?.name || "")}" placeholder="Nombre del usuario" required>
+                <input id="admin-user-name" name="name" value="${escapeHtml(editingUser?.name || "")}" placeholder="Nombre del usuario" ${usersAdminAvailable ? "" : "disabled"} required>
               </div>
             </div>
 
             <div class="field-grid two">
               <div class="field">
                 <label for="admin-user-role">Perfil</label>
-                <select id="admin-user-role" name="role">
+                <select id="admin-user-role" name="role" ${usersAdminAvailable ? "" : "disabled"}>
                   ${renderOptions([
                     { value: "ADMIN", label: "ADMIN" },
                     { value: "PASTOR", label: "PASTOR" },
@@ -1325,7 +1395,7 @@ function renderAdminUsersView_() {
               </div>
               <div class="field">
                 <label for="admin-user-status">Estado</label>
-                <select id="admin-user-status" name="status">
+                <select id="admin-user-status" name="status" ${usersAdminAvailable ? "" : "disabled"}>
                   ${renderOptions([
                     { value: "ACTIVO", label: "ACTIVO" },
                     { value: "INACTIVO", label: "INACTIVO" }
@@ -1336,7 +1406,7 @@ function renderAdminUsersView_() {
 
             <div class="field">
               <label for="admin-user-password">${editingUser ? "Nueva contrasena" : "Contrasena"}</label>
-              <input id="admin-user-password" name="password" type="password" placeholder="${editingUser ? "Solo si deseas actualizarla" : "Contrasena inicial"}" ${editingUser ? "" : "required"}>
+              <input id="admin-user-password" name="password" type="password" placeholder="${editingUser ? "Solo si deseas actualizarla" : "Contrasena inicial"}" ${usersAdminAvailable ? "" : "disabled"} ${editingUser ? "" : "required"}>
             </div>
 
             <div class="field">
@@ -1344,7 +1414,7 @@ function renderAdminUsersView_() {
               <div class="permission-grid">
                 ${ACCESSIBLE_VIEWS.map((permission) => `
                   <label class="permission-card">
-                    <input type="checkbox" name="permissions" value="${escapeHtml(permission)}" ${selectedPermissions.includes(permission) ? "checked" : ""}>
+                    <input type="checkbox" name="permissions" value="${escapeHtml(permission)}" ${selectedPermissions.includes(permission) ? "checked" : ""} ${usersAdminAvailable ? "" : "disabled"}>
                     <span>
                       <strong>${escapeHtml(getPermissionLabel_(permission))}</strong>
                       <small>${escapeHtml(getPermissionDescription_(permission))}</small>
@@ -1355,8 +1425,8 @@ function renderAdminUsersView_() {
             </div>
 
             <div class="actions-row">
-              <button class="btn btn-primary" type="submit">${editingUser ? "Guardar cambios" : "Crear usuario"}</button>
-              <button class="btn btn-ghost" type="button" data-action="clear-admin-user-form" ${editingUser ? "" : "disabled"}>Limpiar</button>
+              <button class="btn btn-primary" type="submit" ${usersAdminAvailable ? "" : "disabled"}>${editingUser ? "Guardar cambios" : "Crear usuario"}</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-admin-user-form" ${editingUser && usersAdminAvailable ? "" : "disabled"}>Limpiar</button>
             </div>
           </form>
         </article>
@@ -1387,7 +1457,11 @@ function renderAdminUsersView_() {
                 </tr>
               </thead>
               <tbody>
-                ${users.length ? users.map((user) => `
+                ${!usersAdminAvailable ? `
+                  <tr>
+                    <td colspan="5"><div class="empty-state">${escapeHtml(usersSupport.message)}</div></td>
+                  </tr>
+                ` : users.length ? users.map((user) => `
                   <tr>
                     <td>
                       <span class="row-title">${escapeHtml(user.name || user.email)}</span>
@@ -4117,9 +4191,9 @@ async function handleClick(event) {
     if (action === "navigate") {
       state.currentView = button.dataset.view;
       state.ui.mobileNavOpen = false;
-      await loadCurrentViewData();
       renderApp();
       scrollViewportToTop_();
+      loadViewDataInBackground_(state.currentView);
       return;
     }
 
@@ -4449,7 +4523,9 @@ async function handleClick(event) {
           groupId: targetGroupId
         });
         delete state.filters.participants.moveTargets[participantId];
-        await loadParticipantsData();
+        await loadParticipantsData({
+          force: true
+        });
       }, "Moviendo participante...");
 
       showToast("Participante movido", "El cambio de grupo ya se reflejo en la lista.", "success");
@@ -4470,7 +4546,9 @@ async function handleClick(event) {
           participantId
         });
         delete state.filters.participants.moveTargets[participantId];
-        await loadParticipantsData();
+        await loadParticipantsData({
+          force: true
+        });
       }, "Dando de baja participante...");
 
       showToast("Participante dado de baja", "El registro quedo actualizado.", "success");
@@ -4502,7 +4580,9 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-attendance-detail") {
-      await loadAttendanceDetailOnly();
+      await loadAttendanceDetailOnly({
+        force: true
+      });
       renderApp();
       return;
     }
@@ -4638,7 +4718,9 @@ async function handleClick(event) {
 
     if (action === "set-qr-mode") {
       state.filters.qr.mode = button.dataset.mode || "active";
-      await loadQrSummary();
+      await loadQrSummary({
+        force: true
+      });
       renderApp();
       return;
     }
@@ -4646,14 +4728,18 @@ async function handleClick(event) {
     if (action === "refresh-active-session") {
       await withLoading(async () => {
         await loadActiveSession();
-        await loadQrSummary();
+        await loadQrSummary({
+          force: true
+        });
       }, "Consultando sesion activa...");
       renderApp();
       return;
     }
 
     if (action === "refresh-realtime") {
-      await loadQrSummary();
+      await loadQrSummary({
+        force: true
+      });
       renderApp();
       return;
     }
@@ -4767,7 +4853,16 @@ async function handleSubmit(event) {
       payload.permissions = formData.getAll("permissions");
 
       await withLoading(async () => {
-        await apiPost("users.save", payload);
+        try {
+          await apiPost("users.save", payload);
+        } catch (error) {
+          if (isUnknownActionError_(error, "users.save")) {
+            throw buildBackendRouteMissingError_("users.save", "la ruta users.save");
+          }
+
+          throw error;
+        }
+
         await loadAdminUsers_();
       }, payload.editingEmail ? "Actualizando usuario..." : "Creando usuario...");
 
@@ -5048,42 +5143,42 @@ async function bootstrapApplication(options = {}) {
   warmCommonDataInBackground_();
 }
 
-async function loadCurrentViewData() {
+async function loadCurrentViewData(options = {}) {
   if (!state.user) {
     return;
   }
 
   switch (state.currentView) {
     case "dashboard":
-      await ensureDashboardViewData_();
+      await ensureDashboardViewData_(options);
       return;
     case "assistants":
     case "congregants-new":
-      await ensureAssistantsViewData_();
+      await ensureAssistantsViewData_(options);
       return;
     case "catalogs":
-      await ensureCatalogsViewData_();
+      await ensureCatalogsViewData_(options);
       return;
     case "seasons":
-      await ensureSeasonViewData();
+      await ensureSeasonViewData(options);
       return;
     case "participants":
-      await ensureParticipantsViewData_();
+      await ensureParticipantsViewData_(options);
       return;
     case "attendance":
       if (resolveConnectionAttendanceMode_() === "manual") {
         await loadActiveSession();
-        await loadAttendanceData();
+        await loadAttendanceData(options);
       } else {
-        await ensureQrViewData_();
+        await ensureQrViewData_(options);
       }
       return;
     case "qr":
-      await ensureQrViewData_();
+      await ensureQrViewData_(options);
       return;
     case "admin-settings":
     case "admin-users":
-      await ensureAdminViewData_();
+      await ensureAdminViewData_(options);
       return;
     default:
       await ensureSessionsForSeason(getLatestSeason()?.id || "");
@@ -5228,11 +5323,34 @@ async function loadActiveSession() {
   });
 }
 
-async function loadAdminUsers_() {
+async function loadAdminUsers_(options = {}) {
   return runSharedLoad_("users", async () => {
-    state.adminUsers = await apiGet("users.list");
-    state.loaded.users = true;
-    return state.adminUsers;
+    try {
+      state.adminUsers = await apiGet("users.list");
+      state.adminUsersSupport = {
+        available: true,
+        message: ""
+      };
+      state.loaded.users = true;
+      return state.adminUsers;
+    } catch (error) {
+      if (!isUnknownActionError_(error, "users.list")) {
+        throw error;
+      }
+
+      state.adminUsers = [];
+      state.adminUsersSupport = {
+        available: false,
+        message: "La administracion de usuarios aun no esta publicada en tu backend actual. Actualiza los archivos .gs y vuelve a desplegar."
+      };
+      state.loaded.users = true;
+
+      if (options.silentUnsupported) {
+        return state.adminUsers;
+      }
+
+      throw buildBackendRouteMissingError_("users.list", "la ruta users.list");
+    }
   });
 }
 
@@ -5338,12 +5456,12 @@ async function ensureCatalogsViewData_() {
   });
 }
 
-async function ensureParticipantsViewData_() {
+async function ensureParticipantsViewData_(options = {}) {
   if (!state.loaded.people) {
     await loadPeople();
   }
 
-  await loadParticipantsData();
+  await loadParticipantsData(options);
 }
 
 async function ensureDashboardViewData_() {
@@ -5367,15 +5485,17 @@ async function ensureAdminViewData_() {
   await loadCatalogs({
     includeMinistries: true
   });
-  await loadAdminUsers_();
+  await loadAdminUsers_({
+    silentUnsupported: true
+  });
 }
 
-async function ensureQrViewData_() {
+async function ensureQrViewData_(options = {}) {
   if (!state.loaded.people) {
     await loadPeople();
   }
 
-  await loadQrSummary();
+  await loadQrSummary(options);
 }
 
 function warmDashboardExecutiveInBackground_() {
@@ -5551,18 +5671,25 @@ function ensureValidSeasonId(currentSeasonId) {
   return getLatestSeason()?.id || "";
 }
 
-async function loadParticipantsData() {
+async function loadParticipantsData(options = {}) {
   await syncFilterState("participants");
 
   const filter = state.filters.participants;
+  const requestKey = `${filter.seasonId}::${filter.sessionId}::${filter.groupId}`;
+
   if (!filter.seasonId || !filter.sessionId || !filter.groupId) {
     resetParticipantInteractionState_();
     state.participants = [];
     state.participantContext = null;
+    state.cacheKeys.participants = "";
     return;
   }
 
-  await withLoading(async () => {
+  if (!options.force && state.cacheKeys.participants === requestKey && state.participantContext) {
+    return;
+  }
+
+  const task = async () => {
     const [participants, context] = await Promise.all([
       apiGet("participants.list", {
         seasonId: filter.seasonId,
@@ -5579,7 +5706,15 @@ async function loadParticipantsData() {
     state.participants = participants;
     state.participantContext = context;
     state.filters.participants.moveTargets = {};
-  }, "Cargando participantes...");
+    state.cacheKeys.participants = requestKey;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, "Cargando participantes...");
 }
 
 async function saveAssistant(rawPayload) {
@@ -5770,19 +5905,26 @@ async function bulkAssignParticipants() {
   focusInputById_("participant-bulk-search");
 }
 
-async function loadAttendanceData() {
+async function loadAttendanceData(options = {}) {
   await syncFilterState("attendance");
 
   const filter = state.filters.attendance;
+  const requestKey = `${filter.seasonId}::${filter.sessionId}::${filter.groupId}`;
+
   if (!filter.seasonId || !filter.sessionId || !filter.groupId) {
     state.attendanceContext = null;
     state.attendanceDetail = null;
     state.attendanceForm = {};
     state.attendanceBaseline = {};
+    state.cacheKeys.attendance = "";
     return;
   }
 
-  await withLoading(async () => {
+  if (!options.force && state.cacheKeys.attendance === requestKey && state.attendanceContext) {
+    return;
+  }
+
+  const task = async () => {
     const context = await apiGet("attendances.captureContext", {
       seasonId: filter.seasonId,
       sessionId: filter.sessionId,
@@ -5799,7 +5941,15 @@ async function loadAttendanceData() {
       state.attendanceForm[participant.personId] = normalizedValue;
       state.attendanceBaseline[participant.personId] = normalizedValue;
     });
-  }, "Cargando lista de asistencia...");
+    state.cacheKeys.attendance = requestKey;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, "Cargando lista de asistencia...");
 }
 
 async function syncAttendanceFilterState_() {
@@ -5829,16 +5979,29 @@ async function syncAttendanceFilterState_() {
   }
 }
 
-async function loadAttendanceDetailOnly() {
+async function loadAttendanceDetailOnly(options = {}) {
   const filter = state.filters.attendance;
+  const requestKey = `${filter.seasonId}::${filter.groupId}`;
   ensureContextReady(filter, "detalle de asistencia");
 
-  await withLoading(async () => {
+  if (!options.force && state.cacheKeys.attendanceDetail === requestKey && state.attendanceDetail) {
+    return;
+  }
+
+  const task = async () => {
     state.attendanceDetail = await apiGet("attendances.groupDetail", {
       seasonId: filter.seasonId,
       groupId: filter.groupId
     });
-  }, "Actualizando detalle historico...");
+    state.cacheKeys.attendanceDetail = requestKey;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, "Actualizando detalle historico...");
 }
 
 async function saveAttendanceCapture() {
@@ -5872,7 +6035,9 @@ async function saveAttendanceCapture() {
       }
     );
 
-    await loadAttendanceData();
+    await loadAttendanceData({
+      force: true
+    });
   }, "Guardando asistencia...");
 
   showToast("Asistencia guardada", "La captura quedo registrada correctamente.", "success");
@@ -5885,6 +6050,13 @@ async function loadQrSummary(options = {}) {
   if (!context) {
     state.realtimeSummary = null;
     state.qrSessionActivity = [];
+    state.cacheKeys.qrSummary = "";
+    return;
+  }
+
+  const requestKey = `${context.seasonId}::${context.sessionId}`;
+
+  if (!options.force && state.cacheKeys.qrSummary === requestKey && state.realtimeSummary) {
     return;
   }
 
@@ -5902,6 +6074,7 @@ async function loadQrSummary(options = {}) {
 
     state.realtimeSummary = summary;
     state.qrSessionActivity = buildQrSessionActivity_(attendances);
+    state.cacheKeys.qrSummary = requestKey;
   };
 
   if (options.showLoading === false) {
@@ -5941,7 +6114,8 @@ async function registerQrAttendance(personId, options = {}) {
     state.filters.qr.personId = "";
     await loadActiveSession();
     await loadQrSummary({
-      showLoading: options.showLoading !== false
+      showLoading: options.showLoading !== false,
+      force: true
     });
   };
 
@@ -7920,6 +8094,17 @@ function resetRuntimeState() {
   state.dashboardLeaderDetail = null;
   state.dashboardSessionInsights = null;
   state.adminUsers = [];
+  state.adminUsersSupport = {
+    available: true,
+    message: ""
+  };
+  state.viewLoadToken = 0;
+  state.cacheKeys = {
+    participants: "",
+    attendance: "",
+    attendanceDetail: "",
+    qrSummary: ""
+  };
   state.loaded = {
     bootstrap: false,
     groups: false,
@@ -8121,9 +8306,13 @@ function hideLoading() {
 function handleError(error) {
   console.error(error);
 
-  const message = error instanceof ApiError
+  let message = error instanceof ApiError
     ? error.message
     : "Ocurrio un error inesperado";
+
+  if (isUnknownActionError_(error)) {
+    message = "La API publicada todavia no incluye esa accion. Actualiza los archivos .gs y vuelve a desplegar la Web App.";
+  }
 
   showToast("No se pudo completar la accion", message, "danger");
 }
