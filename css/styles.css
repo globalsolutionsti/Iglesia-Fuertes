@@ -981,6 +981,139 @@ div {
   scroll-margin-top: calc(var(--mobile-appbar-height) + 20px);
 }
 
+.module-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.module-tab-button {
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.module-tab-button strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.module-tab-button small {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.module-tab-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 15, 16, 0.22);
+}
+
+.module-tab-button.active {
+  background: var(--surface-dark);
+  color: var(--white);
+  border-color: var(--surface-dark);
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.12);
+}
+
+.module-tab-button.active small {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.inline-date-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.attendance-mode-switcher {
+  margin-bottom: 16px;
+}
+
+.mode-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mode-card {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(248, 248, 248, 0.92);
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.mode-card strong {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.mode-card span {
+  color: var(--text-soft);
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.mode-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 15, 16, 0.2);
+}
+
+.mode-card.active {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.14);
+}
+
+.mode-card.active span {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.permission-card {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(249, 249, 249, 0.92);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.permission-card input {
+  margin-top: 4px;
+}
+
+.permission-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.permission-card strong {
+  font-size: 14px;
+}
+
+.permission-card small {
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
 .hero-card,
 .panel-card,
 .summary-card,
@@ -2636,6 +2769,11 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .mode-card-grid,
+  .permission-grid {
+    grid-template-columns: 1fr;
+  }
+
   .panel-head,
   .actions-row,
   .toolbar-actions,
@@ -2659,7 +2797,7 @@ tbody tr:hover {
 
   .mobile-tabbar-inner {
     width: 100%;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .mobile-tab-button {
@@ -2707,10 +2845,14 @@ tbody tr:hover {
 
   .app-shell.view-dashboard .topbar,
   .app-shell.view-assistants .topbar,
+  .app-shell.view-congregants-new .topbar,
+  .app-shell.view-catalogs .topbar,
   .app-shell.view-seasons .topbar,
   .app-shell.view-participants .topbar,
   .app-shell.view-attendance .topbar,
-  .app-shell.view-qr .topbar {
+  .app-shell.view-qr .topbar,
+  .app-shell.view-admin-settings .topbar,
+  .app-shell.view-admin-users .topbar {
     display: none;
   }
 
@@ -2799,6 +2941,15 @@ tbody tr:hover {
   .directory-filter-grid,
   .bulk-impact-grid {
     grid-template-columns: 1fr;
+  }
+
+  .module-tabs,
+  .inline-date-range {
+    grid-template-columns: 1fr;
+  }
+
+  .module-tabs {
+    display: grid;
   }
 
   .stats-grid,
