@@ -1256,6 +1256,69 @@ div {
   -webkit-overflow-scrolling: touch;
 }
 
+.season-matrix-wrap {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 244, 244, 0.98) 100%);
+}
+
+.season-matrix-table {
+  min-width: 980px;
+  table-layout: fixed;
+}
+
+.season-matrix-table th:first-child,
+.season-matrix-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 220px;
+  background: var(--white);
+}
+
+.season-matrix-table thead th:first-child {
+  z-index: 4;
+  background: #fafafa;
+}
+
+.season-matrix-group-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.season-matrix-group-button:focus-visible {
+  outline: 2px solid var(--surface-dark);
+  outline-offset: 5px;
+  border-radius: 16px;
+}
+
+.season-matrix-cell {
+  min-width: 106px;
+  padding: 12px 10px;
+  border-radius: 16px;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  background: linear-gradient(180deg, rgba(248, 248, 248, 0.98) 0%, rgba(239, 239, 239, 1) 100%);
+}
+
+.season-matrix-cell strong {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--surface-dark);
+  line-height: 1;
+}
+
+.season-matrix-cell span {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-soft);
+  letter-spacing: 0.02em;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -3111,6 +3174,12 @@ tbody tr:hover {
     background: transparent;
   }
 
+  .season-matrix-wrap {
+    overflow: auto;
+    border: 1px solid var(--line);
+    background: var(--white);
+  }
+
   table,
   table thead,
   table tbody,
@@ -3125,13 +3194,50 @@ tbody tr:hover {
     background: transparent;
   }
 
+  .season-matrix-wrap .season-matrix-table {
+    display: table;
+    min-width: 860px;
+    background: var(--white);
+  }
+
+  .season-matrix-wrap .season-matrix-table thead {
+    display: table-header-group;
+  }
+
+  .season-matrix-wrap .season-matrix-table tbody {
+    display: table-row-group;
+  }
+
+  .season-matrix-wrap .season-matrix-table tr {
+    display: table-row;
+  }
+
+  .season-matrix-wrap .season-matrix-table th,
+  .season-matrix-wrap .season-matrix-table td {
+    display: table-cell;
+    width: auto;
+    padding: 12px 10px;
+  }
+
+  .season-matrix-wrap .season-matrix-table thead th {
+    display: table-cell;
+  }
+
   table thead {
     display: none;
+  }
+
+  .season-matrix-wrap .season-matrix-table thead {
+    display: table-header-group;
   }
 
   table tbody {
     display: grid;
     gap: 12px;
+  }
+
+  .season-matrix-wrap .season-matrix-table tbody {
+    display: table-row-group;
   }
 
   table tbody tr {
@@ -3148,10 +3254,29 @@ tbody tr:hover {
     background: var(--surface-strong);
   }
 
+  .season-matrix-wrap .season-matrix-table tbody tr {
+    display: table-row;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .season-matrix-wrap .season-matrix-table tbody tr:hover {
+    background: transparent;
+  }
+
   td {
     padding: 0;
     border-bottom: 0;
     min-width: 0;
+  }
+
+  .season-matrix-wrap .season-matrix-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--line);
+    min-width: auto;
   }
 
   td[data-label]::before {
@@ -3171,6 +3296,11 @@ tbody tr:hover {
 
   td[colspan]::before {
     display: none;
+  }
+
+  .season-matrix-wrap .season-matrix-table td[data-label]::before {
+    display: none;
+    content: none;
   }
 
   .table-wrap .actions-row {
