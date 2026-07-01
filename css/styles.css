@@ -1444,6 +1444,11 @@ tbody tr:hover {
   align-items: end;
 }
 
+.dashboard-toolbar-season-grid {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+}
+
 .dashboard-filter-actions {
   margin-top: 18px;
 }
@@ -1503,6 +1508,10 @@ tbody tr:hover {
 
 .dashboard-leader-list .result-card {
   background: rgba(255, 255, 255, 0.88);
+}
+
+.dashboard-recent-person-status {
+  justify-items: end;
 }
 
 .empty-state {
