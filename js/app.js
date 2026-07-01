@@ -1,4 +1,4 @@
-import { APP_CONFIG } from "./config.js";
+﻿import { APP_CONFIG } from "./config.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import {
   clearStoredUser,
@@ -41,7 +41,7 @@ const VIEW_META = {
 };
 
 const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
-const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Líder"];
+const PERSON_TYPE_OPTIONS = ["Congregante", "Servidor", "Coordinador", "Lider"];
 const CREDENTIAL_PREVIEW_LIMIT = 8;
 PERSON_TYPE_OPTIONS.splice(0, PERSON_TYPE_OPTIONS.length, "Congregante", "Servidor", "Coordinador", "L\u00edder");
 const MOBILE_NAV_ITEMS = [
@@ -323,7 +323,7 @@ function renderLoginView() {
           <div class="brand-lockup">
             <span class="eyebrow">Sistema Version 2</span>
             <img class="brand-logo" src="assets/logo-fuertes.png" alt="Fuertes">
-            <h1 class="login-title">Gestion moderna para congregantes y servidores</h1>
+<h1 class="login-title">Gestion moderna para congregantes y voluntarios</h1>
             <p class="login-copy">
               Esta nueva base del sistema se conecta a tu API V2 de Apps Script y deja listo el camino para
               login, dashboard, temporadas, grupos, asistencias y flujo de QR o kiosko con una experiencia
@@ -437,7 +437,7 @@ function renderLoginView() {
           <span class="eyebrow">Siguiente etapa</span>
           <p>
             Cuando esta base te guste visualmente, el siguiente paso natural es conectar camara QR en navegador,
-            formularios mas avanzados de servidores y reportes historicos.
+              formularios mas avanzados de voluntarios y reportes historicos.
           </p>
         </div>
       </aside>
@@ -537,29 +537,65 @@ function renderModuleMobileAction_(action) {
   `;
 }
 
-function renderDashboardMobileHero_(latestSeason, latestSeasonSessionsCount, activeSession, apiDescriptor) {
+function renderDashboardMobileShortcut_(shortcut) {
+  const actionName = shortcut.action || (shortcut.view ? "navigate" : "scroll-to-section");
+  const sectionIdAttribute = shortcut.sectionId ? ` data-section-id="${escapeHtml(shortcut.sectionId)}"` : "";
+  const viewAttribute = shortcut.view ? ` data-view="${escapeHtml(shortcut.view)}"` : "";
+
+  return `
+    <button
+      class="dashboard-mobile-shortcut"
+      data-action="${escapeHtml(actionName)}"${sectionIdAttribute}${viewAttribute}
+    >
+      <strong>${escapeHtml(shortcut.label || "Abrir")}</strong>
+      <span>${escapeHtml(shortcut.copy || "")}</span>
+    </button>
+  `;
+}
+
+function renderDashboardMobileHero_(options) {
+  const {
+    seasonName = "Sin temporada",
+    sessionsCount = 0,
+    activeSessionName = "Sin sesion",
+    groupsPending = 0,
+    attendanceRate = 0,
+    activeSessionOpen = false
+  } = options || {};
+  const shortcuts = [
+    { label: "Consultar grupos", copy: "Ver detalle y exportar", sectionId: "dashboard-toolbar" },
+    { label: "Asistentes", copy: "Padron y credenciales", view: "assistants" },
+    { label: "Temporadas", copy: "Abrir o revisar sesiones", view: "seasons" },
+    { label: "Participantes", copy: "Asignacion por grupo", view: "participants" },
+    { label: "Asistencia", copy: "Captura manual", view: "attendance" },
+    { label: "QR y kiosko", copy: "Escaneo rapido", view: "qr" }
+  ];
+
   return `
     <article class="dashboard-mobile-hero">
       <div class="dashboard-mobile-hero-head">
         <div>
           <span class="eyebrow">Centro de mando</span>
-          <h2>Operacion de hoy</h2>
-          <p>Todo lo esencial del sistema en una sola vista movil, listo para decidir el siguiente paso.</p>
+          <h2>Dashboard movil</h2>
+          <p>Consulta grupos, exporta cortes y entra al modulo que necesites.</p>
         </div>
-        <span class="pill ${activeSession ? "success" : "warning"}">${activeSession ? "Sesion ABIERTA" : "Sin sesion abierta"}</span>
+        <span class="pill ${activeSessionOpen ? "success" : "warning"}">${activeSessionOpen ? "Sesion abierta" : "Sin sesion"}</span>
       </div>
 
       <div class="dashboard-mobile-chip-grid">
-        <span class="context-item"><strong>Temporada:</strong> ${latestSeason ? escapeHtml(latestSeason.name) : "Sin datos"}</span>
-        <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(latestSeasonSessionsCount || 0))}</span>
-        <span class="context-item"><strong>API:</strong> ${escapeHtml(apiDescriptor)}</span>
-        <span class="context-item"><strong>Estado:</strong> ${activeSession ? escapeHtml(activeSession.name) : "Pendiente"}</span>
+        <span class="context-item"><strong>Temporada:</strong> ${escapeHtml(seasonName)}</span>
+        <span class="context-item"><strong>Sesion:</strong> ${escapeHtml(activeSessionName || "Sin sesion")}</span>
+        <span class="context-item"><strong>Pendientes:</strong> ${escapeHtml(String(groupsPending || 0))}</span>
+        <span class="context-item"><strong>Cobertura:</strong> ${escapeHtml(String(attendanceRate || 0))}%</span>
       </div>
 
-      <div class="actions-row dashboard-mobile-cta">
-        <button class="btn btn-primary" data-action="navigate" data-view="attendance">Abrir lista</button>
-        <button class="btn btn-secondary" data-action="navigate" data-view="qr">Abrir QR</button>
-        <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
+      <div class="dashboard-mobile-shortcuts">
+        ${shortcuts.map((shortcut) => renderDashboardMobileShortcut_(shortcut)).join("")}
+      </div>
+
+      <div class="dashboard-mobile-actions">
+        <button class="btn btn-primary" data-action="export-dashboard-ranking">Exportar resumen</button>
+        <button class="btn btn-secondary" data-action="navigate" data-view="attendance">Pasar lista</button>
       </div>
     </article>
   `;
@@ -594,7 +630,6 @@ function renderDashboardView() {
     sessionsCount: latestSeason.sessionsCount || getSessions(latestSeason.id).length
   } : null);
   const activeSession = executive?.activeSession || (state.activeSession && state.activeSession.found ? state.activeSession.session : null);
-  const apiDescriptor = describeApiUrl(state.apiUrl);
   const peopleCount = getDashboardPeopleCount_();
   const totals = executive?.totals || {};
   const pastor = executive?.pastorIndicators || {};
@@ -616,52 +651,62 @@ function renderDashboardView() {
   const leaderSummary = buildDashboardLeaderSummary_(selectedGroupRow, state.dashboardLeaderDetail);
   const mobileSeasonSessionsCount = focusSeason
     ? Number(focusSeason.sessionsCount || getSessions(focusSeason.id).length || 0)
-    : Number(latestSeason?.sessionsCount || getSessions(latestSeason?.id || "").length || 0);
+    : Number(latestSeason?.sessionsCount || getSessions(latestSeason?.id || '').length || 0);
   const seasonStatsLabel = focusSeason
     ? `${focusSeason.name} | ${focusSeason.sessionsCount || 0} sesiones`
-    : "Selecciona una temporada para ver el resumen ejecutivo";
+    : 'Selecciona una temporada para ver el resumen ejecutivo';
   const dashboardGroupOptions = renderOptions(
     state.catalogs.groups.map((group) => ({
       value: String(group.id),
       label: `${group.name} (${group.id})`
     })),
     selectedGroupId,
-    "Selecciona grupo"
+    'Selecciona grupo'
   );
 
   return `
     <section class="view-grid">
-      ${renderDashboardMobileHero_(focusSeason || latestSeason, mobileSeasonSessionsCount, activeSession, apiDescriptor)}
+      ${renderDashboardMobileHero_({
+        seasonName: focusSeason ? focusSeason.name : (latestSeason ? latestSeason.name : 'Sin temporada'),
+        sessionsCount: mobileSeasonSessionsCount,
+        activeSessionName: activeSession ? activeSession.name : 'Sin sesion',
+        groupsPending: today.groupsPending || 0,
+        attendanceRate: today.attendanceRate || seasonal.attendanceRate || 0,
+        activeSessionOpen: Boolean(activeSession)
+      })}
 
-      <article class="panel-card dashboard-toolbar-card">
+      <article class="panel-card dashboard-toolbar-card module-section-anchor" id="dashboard-toolbar">
         <div class="panel-head">
           <div>
             <h2>Dashboard ejecutivo</h2>
-            <p>Indicadores consolidados para pastor y consultas puntuales para líderes sobre una temporada específica.</p>
+            <p>Consulta temporada, revisa grupos y exporta cortes para pastor y lideres.</p>
           </div>
-          <button class="btn btn-secondary" data-action="refresh-dashboard-executive">Actualizar indicadores</button>
+          <div class="dashboard-toolbar-actions">
+            <button class="btn btn-secondary" data-action="refresh-dashboard-executive">Actualizar</button>
+            <button class="btn btn-primary" data-action="export-dashboard-ranking" ${groupsRanking.length ? '' : 'disabled'}>Exportar ranking</button>
+          </div>
         </div>
 
         <div class="field-grid two dashboard-filter-grid">
-          ${renderSeasonSelect("dashboard-season", state.filters.dashboard.seasonId)}
+          ${renderSeasonSelect('dashboard-season', state.filters.dashboard.seasonId)}
           <div class="field">
-            <label for="dashboard-group">Consulta para líderes</label>
+            <label for="dashboard-group">Consulta para lideres</label>
             <select id="dashboard-group">
               ${dashboardGroupOptions}
             </select>
-            <span class="field-help">Selecciona un grupo y luego consulta su panorama acumulado.</span>
+            <span class="field-help">Elige un grupo para ver su detalle y exportarlo.</span>
           </div>
         </div>
 
         <div class="summary-strip">
-          <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : "Sin temporada"}</span>
-          <span class="context-item"><strong>API base:</strong> ${escapeHtml(apiDescriptor)}</span>
-          <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : "Cargando...")}</span>
+          <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : 'Sin temporada'}</span>
+          <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : 'Cargando...')}</span>
         </div>
 
         <div class="actions-row dashboard-filter-actions">
-          <button class="btn btn-primary" data-action="load-dashboard-group-query" ${state.filters.dashboard.groupId ? "" : "disabled"}>Consultar grupo</button>
-          <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? "" : "disabled"}>Limpiar consulta</button>
+          <button class="btn btn-primary" data-action="load-dashboard-group-query" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Consultar grupo</button>
+          <button class="btn btn-secondary" data-action="export-dashboard-group-detail" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Exportar grupo</button>
+          <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? '' : 'disabled'}>Limpiar consulta</button>
         </div>
       </article>
 
@@ -685,11 +730,11 @@ function renderDashboardView() {
         </article>
 
         <article class="stat-card">
-          <span class="status-chip ${today.found ? (today.groupsPending ? "warning" : "success") : "warning"}">
-            ${today.found ? "Pendientes hoy" : "Sesion no detectada"}
+          <span class="status-chip ${today.found ? (today.groupsPending ? 'warning' : 'success') : 'warning'}">
+            ${today.found ? 'Pendientes hoy' : 'Sesion no detectada'}
           </span>
           <strong>${escapeHtml(String(today.groupsPending || 0))}</strong>
-          <span>${today.found ? `${today.groupsCaptured || 0} de ${today.totalGroups || 0} grupos ya capturaron` : "Abre una sesion para usar control operativo"}</span>
+          <span>${today.found ? `${today.groupsCaptured || 0} de ${today.totalGroups || 0} grupos ya capturaron` : 'Abre una sesion para usar control operativo'}</span>
         </article>
       </div>
 
@@ -698,7 +743,7 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Indicadores para Pastor</h2>
-              <p>Panorama resumido de crecimiento, cobertura y avance de la temporada seleccionada.</p>
+              <p>Vista rapida de crecimiento, cobertura y avance.</p>
             </div>
             ${focusSeason ? renderPill(focusSeason.status) : `<span class="pill warning">Sin temporada</span>`}
           </div>
@@ -707,7 +752,7 @@ function renderDashboardView() {
             <div class="summary-box">
               <span class="status-chip neutral">Nuevos este mes</span>
               <strong>${escapeHtml(String(pastor.newPeopleThisMonth || 0))}</strong>
-              <span>Registros activos con fecha de ingreso dentro del mes actual.</span>
+              <span>Altas activas durante el mes actual.</span>
             </div>
             <div class="summary-box">
               <span class="status-chip dark">Progreso de captura</span>
@@ -741,9 +786,9 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Operacion del dia</h2>
-              <p>Control rapido para saber si la sesion actual ya avanzo o si aun faltan grupos por capturar.</p>
+              <p>Revisa en segundos si hoy ya capturaste o si aun hay pendientes.</p>
             </div>
-            ${today.found ? `<span class="pill ${today.groupsPending ? "warning" : "success"}">${today.session ? escapeHtml(today.session.name) : "Sesion activa"}</span>` : `<span class="pill warning">Sin sesion</span>`}
+            ${today.found ? `<span class="pill ${today.groupsPending ? 'warning' : 'success'}">${today.session ? escapeHtml(today.session.name) : 'Sesion activa'}</span>` : `<span class="pill warning">Sin sesion</span>`}
           </div>
 
           <div class="summary-stack dashboard-summary-grid">
@@ -760,23 +805,23 @@ function renderDashboardView() {
             <div class="summary-box">
               <span class="status-chip warning">Grupos pendientes</span>
               <strong>${escapeHtml(String(today.groupsPending || 0))}</strong>
-              <span>${today.pendingGroupNames && today.pendingGroupNames.length ? escapeHtml(today.pendingGroupNames.join(", ")) : "Sin pendientes visibles"}</span>
+              <span>${today.pendingGroupNames && today.pendingGroupNames.length ? escapeHtml(today.pendingGroupNames.join(', ')) : 'Sin pendientes visibles'}</span>
             </div>
           </div>
 
           <div class="quick-actions dashboard-quick-actions">
-            ${renderQuickLink("attendance", "Captura manual", "Entra directo a la lista del grupo activo")}
-            ${renderQuickLink("qr", "QR y kiosko", "Opera registro rapido para la sesion de hoy")}
-            ${renderQuickLink("participants", "Asignacion por grupo", "Consulta o corrige participantes antes de capturar")}
+            ${renderQuickLink('attendance', 'Captura manual', 'Entra directo a la lista del grupo activo')}
+            ${renderQuickLink('qr', 'QR y kiosko', 'Opera registro rapido para la sesion de hoy')}
+            ${renderQuickLink('participants', 'Asignacion por grupo', 'Consulta o corrige participantes antes de capturar')}
           </div>
         </article>
       </div>
 
-      <article class="detail-card dashboard-ranking-card">
+      <article class="detail-card dashboard-ranking-card module-section-anchor" id="dashboard-ranking">
         <div class="panel-head">
           <div>
             <h2>Ranking de grupos por temporada</h2>
-            <p>Comparativo rapido para identificar constancia, cobertura y grupos que necesitan seguimiento.</p>
+            <p>Comparativo rapido para detectar constancia y alertas.</p>
           </div>
         </div>
 
@@ -803,7 +848,7 @@ function renderDashboardView() {
                   <td>${escapeHtml(String(group.sessionsCaptured || 0))}/${escapeHtml(String(group.totalSessions || 0))}</td>
                   <td>${renderPill(group.status)}</td>
                 </tr>
-              `).join("") : `
+              `).join('') : `
                 <tr>
                   <td colspan="5">
                     <div class="empty-state">Todavia no hay actividad suficiente para construir el ranking ejecutivo.</div>
@@ -815,12 +860,12 @@ function renderDashboardView() {
         </div>
       </article>
 
-      <div class="view-grid columns-2 dashboard-leader-grid">
+      <div class="view-grid columns-2 dashboard-leader-grid module-section-anchor" id="dashboard-leaders">
         <article class="panel-card dashboard-leader-query-card">
           <div class="panel-head">
             <div>
-              <h2>Consulta para líderes</h2>
-              <p>Selecciona un grupo para revisar su comportamiento acumulado dentro de la temporada elegida.</p>
+              <h2>Consulta para lideres</h2>
+              <p>Selecciona un grupo para revisar su avance y exportarlo.</p>
             </div>
             ${selectedGroupRow ? renderPill(selectedGroupRow.status) : `<span class="pill dark">Sin grupo</span>`}
           </div>
@@ -849,7 +894,7 @@ function renderDashboardView() {
               </div>
             </div>
           ` : `
-            <div class="empty-state">Elige un grupo en la parte superior para abrir la consulta de líder.</div>
+            <div class="empty-state">Elige un grupo arriba para abrir la consulta.</div>
           `}
         </article>
 
@@ -857,7 +902,7 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Personas destacadas del grupo</h2>
-              <p>Ranking simple para que el líder vea constancia y seguimiento dentro de su grupo.</p>
+              <p>Top de constancia dentro del grupo consultado.</p>
             </div>
           </div>
 
@@ -874,12 +919,12 @@ function renderDashboardView() {
                     <span class="pill dark">${escapeHtml(String(person.attendanceRate))}%</span>
                   </div>
                 </article>
-              `).join("") : `
-                <div class="empty-state">El grupo seleccionado todavía no tiene historial suficiente para mostrar personas destacadas.</div>
+              `).join('') : `
+                <div class="empty-state">El grupo seleccionado todavia no tiene historial suficiente.</div>
               `}
             </div>
           ` : `
-            <div class="empty-state">Cuando consultes un grupo, aqui veras a las personas con mayor constancia y el estado general del equipo.</div>
+            <div class="empty-state">Cuando consultes un grupo veras su top de constancia y estado general.</div>
           `}
         </article>
       </div>
@@ -927,6 +972,106 @@ function buildDashboardLeaderSummary_(groupAggregate, detail) {
   };
 }
 
+function getDashboardSelectedGroupRow_() {
+  const groupsRanking = state.dashboardExecutive?.groupsRanking || [];
+  const selectedGroupId = state.filters.dashboard.groupId;
+  return groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
+}
+
+function buildCsvText_(rows) {
+  return rows.map((row) => row.map(toCsvValue_).join(",")).join("\n");
+}
+
+function downloadCsvTextFile_(csvText, fileName) {
+  const blob = new Blob(["\ufeff", csvText], {
+    type: "text/csv;charset=utf-8"
+  });
+  downloadBlob_(blob, fileName);
+}
+
+function buildDashboardExportFileName_(prefix, label) {
+  const safeLabel = label ? `_${sanitizeFileNamePart_(label)}` : "";
+  return `${prefix}_${formatTimestampToken_()}${safeLabel}.csv`;
+}
+
+function buildDashboardRankingCsv_() {
+  const executive = state.dashboardExecutive;
+  const groupsRanking = executive?.groupsRanking || [];
+  const seasonName = executive?.seasonFocus?.name || "Sin temporada";
+  const rows = [[
+    "TEMPORADA",
+    "GRUPO_ID",
+    "GRUPO",
+    "PERSONAS",
+    "ASIGNACIONES",
+    "ASISTENCIAS_SI",
+    "REGISTROS_ASISTENCIA",
+    "PORCENTAJE_ASISTENCIA",
+    "SESIONES_CAPTURADAS",
+    "TOTAL_SESIONES",
+    "PROGRESO_CAPTURA",
+    "ESTADO"
+  ]];
+
+  groupsRanking.forEach((group) => {
+    rows.push([
+      seasonName,
+      group.groupId || "",
+      group.groupName || "",
+      group.uniquePeople || 0,
+      group.participantAssignments || 0,
+      group.attendanceYes || 0,
+      group.attendanceRecords || 0,
+      `${group.attendanceRate || 0}%`,
+      group.sessionsCaptured || 0,
+      group.totalSessions || 0,
+      `${group.captureProgress || 0}%`,
+      group.status || ""
+    ]);
+  });
+
+  return buildCsvText_(rows);
+}
+
+function buildDashboardGroupDetailCsv_() {
+  const executive = state.dashboardExecutive;
+  const detail = state.dashboardLeaderDetail;
+  const selectedGroupRow = getDashboardSelectedGroupRow_();
+  const sessions = Array.isArray(detail?.sessions) ? detail.sessions : [];
+  const seasonName = executive?.seasonFocus?.name || resolveSeasonName_(detail?.seasonId) || "Sin temporada";
+  const groupId = selectedGroupRow?.groupId || detail?.groupId || state.filters.dashboard.groupId || "";
+  const groupName = selectedGroupRow?.groupName || resolveGroupName_(groupId) || `Grupo ${groupId}`;
+  const rows = [[
+    "TEMPORADA",
+    "GRUPO_ID",
+    "GRUPO",
+    "PERSONA_ID",
+    "NOMBRE",
+    "TOTAL_SI",
+    "PORCENTAJE_ASISTENCIA",
+    ...sessions.map((session) => session.name || session.id || "Sesion")
+  ]];
+
+  (detail?.people || []).forEach((person) => {
+    const attendanceRate = sessions.length
+      ? Math.round((Number(person.totalPresent || 0) / sessions.length) * 100)
+      : 0;
+
+    rows.push([
+      seasonName,
+      groupId,
+      groupName,
+      person.personId || "",
+      person.name || "",
+      person.totalPresent || 0,
+      `${attendanceRate}%`,
+      ...sessions.map((session) => person.attendances?.[session.name] || "")
+    ]);
+  });
+
+  return buildCsvText_(rows);
+}
+
 function renderAssistantsView() {
   const filter = state.filters.assistants;
   const summary = buildPeopleDirectorySummary_();
@@ -950,15 +1095,15 @@ function renderAssistantsView() {
       ${renderModuleMobileHero_({
         tone: "assistants",
         eyebrow: "Padron y QR",
-        title: "Elige si hoy vas a registrar, importar o entregar credenciales",
-        copy: "Primero entra por la tarea principal del momento y despues baja al detalle del padron.",
+        title: "Alta, importacion y credenciales",
+        copy: "Entra directo a la tarea del momento.",
         badge: {
           label: `${summary.active} activos`,
           kind: "dark"
         },
         metrics: [
           { label: "Padron", value: String(summary.total) },
-          { label: "Servidores", value: String(summary.servers) },
+          { label: "Voluntarios", value: String(summary.servers) },
           { label: "Filtrados", value: String(rows.length) },
           { label: "Importacion", value: importSummary ? `${importSummary.validRows} listas` : "Sin archivo" }
         ],
@@ -983,15 +1128,15 @@ function renderAssistantsView() {
         </article>
 
         <article class="stat-card">
-          <span class="status-chip neutral">Servidores</span>
+          <span class="status-chip neutral">Voluntarios</span>
           <strong>${escapeHtml(String(summary.servers))}</strong>
-          <span>Registros con rol de servicio</span>
+          <span>Registros con rol activo de servicio</span>
         </article>
 
         <article class="stat-card">
           <span class="status-chip neutral">Liderazgo</span>
           <strong>${escapeHtml(String(summary.leadership))}</strong>
-          <span>Coordinadores y líderes cargados</span>
+          <span>Coordinadores y lideres cargados</span>
         </article>
       </div>
 
@@ -1042,7 +1187,7 @@ function renderAssistantsView() {
                 <label for="assistant-tipo">Tipo de persona</label>
                 <select id="assistant-tipo" name="tipoPersona">
                   ${PERSON_TYPE_OPTIONS.map((type) => `
-                    <option value="${escapeHtml(type)}" ${type === "Congregante" ? "selected" : ""}>${escapeHtml(type)}</option>
+                    <option value="${escapeHtml(type)}" ${type === "Congregante" ? "selected" : ""}>${escapeHtml(getPersonTypeDisplayLabel_(type))}</option>
                   `).join("")}
                 </select>
               </div>
@@ -1077,7 +1222,7 @@ function renderAssistantsView() {
             <p>
               Usa <code>.xlsx</code>, <code>.xls</code> o <code>.csv</code>. La plantilla recomendada contiene:
               <code>NOMBRE</code>, <code>APELLIDOS</code>, <code>TELEFONO</code>, <code>EMAIL</code>, <code>GRUPO</code>, <code>FECHA</code>, <code>TIPO_PERSONA</code>.
-              Tipos validos: <code>Congregante</code>, <code>Servidor</code>, <code>Coordinador</code> y <code>Líder</code>.
+              Tipos validos: <code>Congregante</code>, <code>Voluntario</code>, <code>Coordinador</code> y <code>Lider</code>.
             </p>
             <div class="actions-row">
               <button class="btn btn-secondary" type="button" data-action="download-people-template">Descargar plantilla</button>
@@ -1162,7 +1307,7 @@ function renderAssistantsView() {
         <div class="panel-head">
           <div>
             <h2>Padron de personas</h2>
-            <p>Busca asistentes o servidores ya cargados y revisa rapidamente su informacion base.</p>
+            <p>Busca asistentes o voluntarios ya cargados y revisa rapidamente su informacion base.</p>
           </div>
           <button class="btn btn-secondary" data-action="refresh-assistants">Actualizar listado</button>
         </div>
@@ -1191,7 +1336,7 @@ function renderAssistantsView() {
                 { value: "ALL", label: "Todos los tipos" },
                 ...PERSON_TYPE_OPTIONS.map((type) => ({
                   value: type,
-                  label: type
+                  label: getPersonTypeDisplayLabel_(type)
                 }))
               ], filter.type, "Filtrar tipo")}
             </select>
@@ -1254,7 +1399,7 @@ function renderAssistantsView() {
         <div class="summary-strip">
           <span class="context-item"><strong>Activos:</strong> ${escapeHtml(String(summary.active))}</span>
           <span class="context-item"><strong>Coordinadores:</strong> ${escapeHtml(String(summary.coordinators))}</span>
-          <span class="context-item"><strong>Líderes:</strong> ${escapeHtml(String(summary.leaders))}</span>
+          <span class="context-item"><strong>Lideres:</strong> ${escapeHtml(String(summary.leaders))}</span>
           <span class="context-item"><strong>Credenciales filtradas:</strong> ${escapeHtml(String(rows.length))}</span>
           <span class="context-item"><strong>Vista previa:</strong> ${escapeHtml(String(credentialPreviewRows.length))}</span>
         </div>
@@ -1294,8 +1439,8 @@ function renderSeasonsView() {
       ${renderModuleMobileHero_({
         tone: "seasons",
         eyebrow: "Ciclo operativo",
-        title: "Controla la temporada y la sesion correcta",
-        copy: "Primero revisa el estado actual y despues baja a crear o ajustar sesiones.",
+        title: "Temporadas y sesiones",
+        copy: "Crea, abre y revisa sesiones sin rodeos.",
         badge: {
           label: activeSession ? "Sesion ABIERTA hoy" : "Sin sesion hoy",
           kind: activeSession ? "success" : "warning"
@@ -1521,8 +1666,8 @@ function renderParticipantsView() {
       ${renderModuleMobileHero_({
         tone: "participants",
         eyebrow: "Grupo en operacion",
-        title: "Asigna participantes sin enredos",
-        copy: "Primero elige el contexto. Luego agrega una persona a esta sesion o arma un lote para toda la temporada.",
+        title: "Asignacion simple por grupo",
+        copy: "Carga el contexto y asigna individual o masivamente.",
         badge: {
           label: context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Selecciona grupo"),
           kind: context ? "dark" : "warning"
@@ -1547,7 +1692,7 @@ function renderParticipantsView() {
           <span>Activos en el grupo y sesion seleccionados</span>
         </article>
         <article class="stat-card">
-          <span>Servidores</span>
+          <span>Voluntarios</span>
           <strong>${escapeHtml(String(serverCount))}</strong>
           <span>Contados segun el tipo del participante</span>
         </article>
@@ -1848,7 +1993,7 @@ function renderParticipantsView() {
                       <span class="row-title">${escapeHtml(participant.name)}</span>
                       <span class="row-meta">${escapeHtml(participant.personId)} | ${escapeHtml(participant.id)}</span>
                     </td>
-                    <td>${escapeHtml(participant.type)}</td>
+                    <td>${renderPersonTypePill_(participant.type)}</td>
                     <td>${renderPill(participant.status)}</td>
                     <td>
                       <select
@@ -1932,7 +2077,7 @@ function renderAttendanceView() {
         tone: "attendance",
         eyebrow: "Captura del dia",
         title: "Asistencia lista para operar",
-        copy: "El sistema detecta la sesion activa del dia. Solo eliges el grupo y empiezas a marcar o editar la asistencia.",
+        copy: "Elige grupo y empieza a marcar o editar la lista.",
         badge: {
           label: activeSession ? draftLabel : "Sin sesion ABIERTA",
           kind: activeSession ? (summary.changed ? "warning" : (context && context.alreadyCaptured ? "dark" : "success")) : "warning"
@@ -2095,7 +2240,7 @@ function renderAttendanceView() {
                   <div class="attendance-row-main">
                     <div>
                       <span class="row-title">${escapeHtml(participant.name)}</span>
-                      <span class="row-meta">${escapeHtml(participant.personId)} | ${escapeHtml(participant.type || "")}</span>
+                      <span class="row-meta">${escapeHtml(participant.personId)} | ${escapeHtml(getPersonTypeDisplayLabel_(participant.type || ""))}</span>
                       <span class="row-meta">${state.attendanceForm[participant.personId] === "SI" ? "Marcado como asistente" : "Marcado como no asistente"}</span>
                     </div>
                   </div>
@@ -2256,7 +2401,7 @@ function renderQrView() {
   const surfaceTitle = isKioskSurface ? "Registro tipo aeropuerto" : "Escaneo QR asistido";
   const surfaceCopy = isKioskSurface
     ? "La camara queda lista para recibir un QR tras otro. Cuando el registro sea exitoso, la pantalla responde en verde y muestra los datos del asistente en tiempo real."
-    : "Ideal para un servidor en recepcion o control. La camara valida un QR a la vez y deja visible el ultimo registro junto con la actividad reciente de la sesion.";
+    : "Ideal para un voluntario en recepcion o control. La camara valida un QR a la vez y deja visible el ultimo registro junto con la actividad reciente de la sesion.";
   const surfacePlaceholder = isKioskSurface
     ? "Activa el kiosko para iniciar el escaneo continuo."
     : "Activa la camara para comenzar a escanear QRs de forma asistida.";
@@ -2264,6 +2409,28 @@ function renderQrView() {
 
   return `
     <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "qr",
+        eyebrow: "QR y kiosko",
+        title: "Escanea, busca o registra",
+        copy: "Opera kiosko, escaneo asistido o captura manual por QR ID.",
+        badge: {
+          label: state.qrScanner.enabled ? (isKioskSurface ? "Kiosko activo" : "Escaneo activo") : "Camara en espera",
+          kind: state.qrScanner.enabled ? "success" : "warning"
+        },
+        metrics: [
+          { label: "Sesion", value: activeSession ? activeSession.name : "Sin abrir" },
+          { label: "Modo", value: filter.mode === "manual" ? "Manual" : "Automatico" },
+          { label: "Superficie", value: isKioskSurface ? "Kiosko" : "Escaneo" },
+          { label: "Cobertura", value: summary ? `${summary.percentage || 0}%` : "Sin dato" }
+        ],
+        actions: [
+          { label: "Escanear", variant: "primary", sectionId: "qr-kiosk-stage" },
+          { label: "Manual", variant: "secondary", sectionId: "qr-manual-entry" },
+          { label: "Actividad", variant: "ghost", sectionId: "qr-activity" }
+        ]
+      })}
+
       <article class="kiosk-stage kiosk-surface-${escapeHtml(filter.surface)} kiosk-tone-${escapeHtml(kioskTone)}" id="qr-kiosk-stage">
         <div class="kiosk-stage-head">
           <div>
@@ -2437,7 +2604,7 @@ function renderQrView() {
       </div>
 
       <div class="view-grid columns-2">
-        <article class="scanner-card panel-card">
+        <article class="scanner-card panel-card module-section-anchor" id="qr-manual-entry">
           <div class="panel-head">
             <div>
               <h2>Registro manual por codigo</h2>
@@ -2470,7 +2637,7 @@ function renderQrView() {
           `}
         </article>
 
-        <article class="panel-card">
+        <article class="panel-card module-section-anchor" id="qr-activity">
           <div class="panel-head">
             <div>
               <h2>Actividad reciente de la sesion</h2>
@@ -2615,7 +2782,7 @@ function renderNavButton(view, description) {
   return `
     <button class="nav-button ${isActive ? "active" : ""}" data-action="navigate" data-view="${view}">
       <span>${escapeHtml(VIEW_META[view].title)}<small>${escapeHtml(description)}</small></span>
-      <span>${isActive ? "●" : "○"}</span>
+      <span>${isActive ? "â—" : "â—‹"}</span>
     </button>
   `;
 }
@@ -2646,7 +2813,7 @@ function renderQuickLink(view, title, copy) {
   return `
     <button class="quick-link" data-action="navigate" data-view="${view}">
       <span>${escapeHtml(title)}<small>${escapeHtml(copy)}</small></span>
-      <span>→</span>
+      <span>â†’</span>
     </button>
   `;
 }
@@ -2748,27 +2915,40 @@ function renderPill(value) {
   return `<span class="pill dark">${escapeHtml(value || "SIN DATO")}</span>`;
 }
 
+function getPersonTypeDisplayLabel_(value, options = {}) {
+  const canonicalValue = normalizePersonTypeValue_(value);
+  const normalizedKey = getPersonTypeKey_(canonicalValue);
+  let label = canonicalValue;
+
+  if (normalizedKey === "servidor") {
+    label = "Voluntario";
+  }
+
+  return options.uppercase ? label.toUpperCase() : label;
+}
+
 function renderPersonTypePill_(value) {
   const normalized = normalizePersonTypeValue_(value);
   const normalizedKey = getPersonTypeKey_(normalized);
+  const displayLabel = getPersonTypeDisplayLabel_(normalized);
 
   if (normalizedKey === "congregante") {
-    return `<span class="pill success">${escapeHtml(normalized)}</span>`;
+    return `<span class="pill success">${escapeHtml(displayLabel)}</span>`;
   }
 
   if (normalizedKey === "servidor") {
-    return `<span class="pill dark">${escapeHtml(normalized)}</span>`;
+    return `<span class="pill dark">${escapeHtml(displayLabel)}</span>`;
   }
 
   if (normalizedKey === "coordinador") {
-    return `<span class="pill warning">${escapeHtml(normalized)}</span>`;
+    return `<span class="pill warning">${escapeHtml(displayLabel)}</span>`;
   }
 
   if (normalizedKey === "lider") {
-    return `<span class="pill danger">${escapeHtml(normalized)}</span>`;
+    return `<span class="pill danger">${escapeHtml(displayLabel)}</span>`;
   }
 
-  return `<span class="pill">${escapeHtml(normalized || "SIN DATO")}</span>`;
+  return `<span class="pill">${escapeHtml(displayLabel || "SIN DATO")}</span>`;
 }
 
 function renderPersonImportOperationPill_(value) {
@@ -2788,7 +2968,6 @@ function renderPersonImportOperationPill_(value) {
 }
 
 function renderCredentialCard_(person) {
-  const canonicalType = normalizePersonTypeValue_(person.tipoPersona);
   const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
   const visibleId = person.id || "SIN QR ID";
   const visibleName = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
@@ -2812,7 +2991,6 @@ function renderCredentialCard_(person) {
 
       <div class="credential-identity">
         <strong>${escapeHtml(visibleName)}</strong>
-        <span class="credential-type-copy">${escapeHtml(canonicalType)}</span>
         <span class="credential-group-copy">${escapeHtml(`Grupo de conexion: ${groupName}`)}</span>
       </div>
 
@@ -2904,9 +3082,26 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "export-dashboard-ranking") {
+      const groupsRanking = state.dashboardExecutive?.groupsRanking || [];
+      const seasonLabel = state.dashboardExecutive?.seasonFocus?.name || "dashboard";
+
+      if (!groupsRanking.length) {
+        showToast("Sin datos", "Todavia no hay ranking suficiente para exportar.", "warning");
+        return;
+      }
+
+      downloadCsvTextFile_(
+        buildDashboardRankingCsv_(),
+        buildDashboardExportFileName_("DASHBOARD_RANKING", seasonLabel)
+      );
+      showToast("Exportacion lista", "Se descargo el ranking ejecutivo en CSV.", "success");
+      return;
+    }
+
     if (action === "load-dashboard-group-query") {
       if (!state.filters.dashboard.groupId) {
-        showToast("Selecciona un grupo", "Elige un grupo antes de abrir la consulta para líderes.", "warning");
+        showToast("Selecciona un grupo", "Elige un grupo antes de abrir la consulta para lideres.", "warning");
         return;
       }
 
@@ -2915,6 +3110,34 @@ async function handleClick(event) {
         message: "Consultando grupo..."
       });
       renderApp();
+      return;
+    }
+
+    if (action === "export-dashboard-group-detail") {
+      if (!state.filters.dashboard.groupId) {
+        showToast("Selecciona un grupo", "Elige un grupo antes de exportar el detalle.", "warning");
+        return;
+      }
+
+      if (!state.dashboardLeaderDetail) {
+        await loadDashboardLeaderDetail_({
+          force: true,
+          message: "Preparando exportacion del grupo..."
+        });
+      }
+
+      if (!state.dashboardLeaderDetail?.people?.length) {
+        showToast("Sin detalle", "Ese grupo todavia no tiene detalle suficiente para exportar.", "warning");
+        return;
+      }
+
+      const groupRow = getDashboardSelectedGroupRow_();
+      const groupLabel = groupRow?.groupName || `grupo_${state.filters.dashboard.groupId}`;
+      downloadCsvTextFile_(
+        buildDashboardGroupDetailCsv_(),
+        buildDashboardExportFileName_("DASHBOARD_GRUPO", groupLabel)
+      );
+      showToast("Exportacion lista", "Se descargo el detalle del grupo en CSV.", "success");
       return;
     }
 
@@ -5275,7 +5498,7 @@ function normalizePersonTypeValue_(value) {
     return "Congregante";
   }
 
-  if (normalized === "servidor") {
+  if (normalized === "servidor" || normalized === "voluntario") {
     return "Servidor";
   }
 
@@ -5284,7 +5507,7 @@ function normalizePersonTypeValue_(value) {
   }
 
   if (normalized === "lider") {
-    return "Líder";
+    return "Lider";
   }
 
   return rawValue || "Congregante";
@@ -5401,7 +5624,7 @@ async function shareCredentialPng_(person) {
     }
 
     downloadBlob_(blob, fileName);
-    showToast("Compartir no disponible", "Este navegador no permite compartir archivos directo. Se descargó el PNG para enviarlo manualmente por WhatsApp.", "warning");
+    showToast("Compartir no disponible", "Este navegador no permite compartir archivos directo. Se descargo el PNG para enviarlo manualmente por WhatsApp.", "warning");
   }, "Preparando credencial para compartir...");
 }
 
@@ -5445,7 +5668,7 @@ async function downloadCredentialBatchZip_(people, title) {
     downloadBlob_(zipBlob, buildCredentialBatchZipFileName_(rows.length));
   }, `Generando ${rows.length} credenciales para descarga masiva...`);
 
-  showToast("Lote descargado", `Se generó un ZIP con ${rows.length} credenciales PNG y un CSV de apoyo para WhatsApp.`, "success");
+  showToast("Lote descargado", `Se genero un ZIP con ${rows.length} credenciales PNG y un CSV de apoyo para WhatsApp.`, "success");
 }
 
 async function buildCredentialPngBlob_(person, options = {}) {
@@ -5456,7 +5679,6 @@ async function buildCredentialPngBlob_(person, options = {}) {
   const assets = await getCredentialRenderAssets_();
   const qrImage = await loadImageElement_(buildCredentialQrDataUrl_(person, 620));
   const name = (person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
-  const type = normalizePersonTypeValue_(person.tipoPersona).toUpperCase();
   const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
   const qrId = person.id || "SIN QR ID";
   const cardX = 52;
@@ -5532,19 +5754,14 @@ async function buildCredentialPngBlob_(person, options = {}) {
     cursorY += nameLineHeight;
   });
 
-  cursorY += 42;
-  context.fillStyle = "#2f2f2f";
-  context.font = "700 34px Manrope, Arial, sans-serif";
-  context.fillText(type, width / 2, cursorY);
-
   const groupBlock = fitCanvasTextBlock_(context, `Grupo de conexion: ${groupName}`, 760, {
     maxLines: 2,
-    maxFontSize: 27,
+    maxFontSize: 30,
     minFontSize: 22,
     fontWeight: 700
   });
   const groupLineHeight = Math.round(groupBlock.fontSize * 1.2);
-  cursorY += 78;
+  cursorY += 54;
   context.fillStyle = "#666666";
   context.font = `700 ${groupBlock.fontSize}px Manrope, Arial, sans-serif`;
   groupBlock.lines.forEach((line) => {
@@ -5723,7 +5940,7 @@ function buildCredentialManifestCsv_(people) {
       person.id || "",
       person.numero || "",
       person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "",
-      normalizePersonTypeValue_(person.tipoPersona),
+      getPersonTypeDisplayLabel_(person.tipoPersona),
       resolveGroupName_(person.grupo) || person.grupo || "",
       person.telefono || "",
       person.email || "",
@@ -5759,13 +5976,11 @@ function buildCredentialBatchHelpText_(total, title) {
 function buildCredentialShareText_(person) {
   const name = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Persona";
   const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
-  const type = normalizePersonTypeValue_(person.tipoPersona);
   const qrId = person.id || "Sin QR ID";
 
   return [
     `Credencial QR de ${name}`,
     `Grupo: ${groupName}`,
-    `Tipo: ${type}`,
     `QR ID: ${qrId}`,
     "Presentala al llegar al kiosko o en el registro de asistencia."
   ].join("\n");
@@ -5826,7 +6041,6 @@ function printCredentialCards_(people, title) {
   const cardsHtml = rows.map((person) => {
     const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
     const qrDataUrl = buildCredentialQrDataUrl_(person, 320);
-    const type = normalizePersonTypeValue_(person.tipoPersona);
     const name = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
     const id = person.id || person.numero || "SIN ID";
 
@@ -5840,7 +6054,6 @@ function printCredentialCards_(people, title) {
           <img class="print-credential-qr" src="${qrDataUrl}" alt="QR ${escapeHtml(id)}">
           <div class="print-credential-copy">
             <strong>${escapeHtml(name)}</strong>
-            <span class="print-credential-role">${escapeHtml(type)}</span>
             <span class="print-credential-group">${escapeHtml(`Grupo de conexion: ${groupName}`)}</span>
             <span class="print-credential-id">${escapeHtml(id)}</span>
           </div>
@@ -6532,3 +6745,4 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
