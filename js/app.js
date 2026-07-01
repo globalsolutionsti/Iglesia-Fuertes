@@ -153,6 +153,7 @@ const state = {
   viewLoadToken: 0,
   cacheKeys: {
     participants: "",
+    participantSeasonAssignments: "",
     attendance: "",
     attendanceDetail: "",
     qrSummary: "",
@@ -180,6 +181,7 @@ const state = {
   activeSession: null,
   participants: [],
   participantContext: null,
+  participantSeasonAssignments: {},
   attendanceContext: null,
   attendanceForm: {},
   attendanceBaseline: {},
@@ -205,7 +207,8 @@ const state = {
     mobileNavOpen: false,
     editingGroupId: "",
     editingMinistryId: "",
-    editingUserEmail: ""
+    editingUserEmail: "",
+    confirmation: null
   },
   filters: {
     dashboard: {
@@ -456,7 +459,10 @@ function loadViewDataInBackground_(view) {
 
 function renderApp() {
   if (!state.user) {
-    root.innerHTML = renderLoginView();
+    root.innerHTML = `
+      ${renderLoginView()}
+      ${renderSystemConfirmationDialog_()}
+    `;
     schedulePostRenderSync_();
     return;
   }
@@ -535,9 +541,84 @@ function renderApp() {
 
       ${renderMobileTabBar_()}
     </div>
+
+    ${renderSystemConfirmationDialog_()}
   `;
 
   schedulePostRenderSync_();
+}
+
+function renderSystemConfirmationDialog_() {
+  const confirmation = state.ui.confirmation;
+
+  if (!confirmation) {
+    return "";
+  }
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card" role="dialog" aria-modal="true" aria-labelledby="system-modal-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="system-modal-title">${escapeHtml(confirmation.title || "Confirmar accion")}</h2>
+            <p>${escapeHtml(confirmation.copy || "Revisa los detalles antes de continuar.")}</p>
+          </div>
+          <span class="pill ${escapeHtml(confirmation.tone === "danger" ? "warning" : "dark")}">${escapeHtml(confirmation.badge || "Confirmacion")}</span>
+        </div>
+
+        ${confirmation.notes && confirmation.notes.length ? `
+          <div class="system-modal-notes">
+            ${confirmation.notes.map((note) => `<span class="context-item">${escapeHtml(note)}</span>`).join("")}
+          </div>
+        ` : ""}
+
+        <div class="actions-row">
+          <button class="btn btn-ghost" data-action="cancel-system-confirmation">${escapeHtml(confirmation.cancelLabel || "Cancelar")}</button>
+          <button class="btn ${confirmation.tone === "danger" ? "btn-danger" : "btn-primary"}" data-action="confirm-system-action">${escapeHtml(confirmation.confirmLabel || "Confirmar")}</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function openSystemConfirmation_(config) {
+  state.ui.confirmation = {
+    kind: config.kind || "",
+    title: config.title || "Confirmar accion",
+    copy: config.copy || "",
+    badge: config.badge || "Confirmacion",
+    confirmLabel: config.confirmLabel || "Confirmar",
+    cancelLabel: config.cancelLabel || "Cancelar",
+    tone: config.tone || "primary",
+    notes: Array.isArray(config.notes) ? config.notes : [],
+    payload: config.payload || {}
+  };
+  renderApp();
+}
+
+function closeSystemConfirmation_() {
+  state.ui.confirmation = null;
+  renderApp();
+}
+
+async function confirmSystemAction_() {
+  const confirmation = state.ui.confirmation;
+
+  if (!confirmation) {
+    return;
+  }
+
+  state.ui.confirmation = null;
+  renderApp();
+
+  if (confirmation.kind === "bulk-assign") {
+    await executeBulkAssign_();
+    return;
+  }
+
+  if (confirmation.kind === "deactivate-participant") {
+    await executeDeactivateParticipant_(confirmation.payload.participantId);
+  }
 }
 
 function schedulePostRenderSync_() {
@@ -2876,14 +2957,19 @@ function renderParticipantsView() {
   const hasBulkSearch = Boolean(normalizeText(filter.bulkSearch));
   const bulkMatches = hasBulkSearch ? filterPeople(state.people, filter.bulkSearch) : [];
   const bulkResults = bulkMatches.slice(0, 10);
+  const getPersonAssignmentState = (person) => getParticipantSeasonAssignmentState_(person.id, filter.groupId, participantPersonIds);
   const queuedVisibleBulkCount = bulkResults.filter((person) => selectedBulkSet.has(String(person.id))).length;
   const assignedVisibleBulkCount = bulkResults.filter((person) => participantPersonIds.has(String(person.id))).length;
   const selectedAlreadyAssignedCount = selectedPeople.filter((person) => participantPersonIds.has(String(person.id))).length;
-  const selectedNewCount = Math.max(selectedPeople.length - selectedAlreadyAssignedCount, 0);
+  const selectedBlockedCount = selectedPeople.filter((person) => getPersonAssignmentState(person).blockedByOtherGroup).length;
+  const selectedNewCount = selectedPeople.filter((person) => {
+    const assignmentState = getPersonAssignmentState(person);
+    return !assignmentState.currentSessionAssigned && !assignmentState.blockedByOtherGroup;
+  }).length;
   const hiddenBulkCount = Math.max(bulkMatches.length - bulkResults.length, 0);
   const serverCount = state.participants.filter((participant) => normalizeText(participant.type) === "servidor").length;
   const moveGroups = groups;
-  const canBulkAssign = Boolean(filter.seasonId && filter.sessionId && filter.groupId && sessions.length && selectedPeople.length);
+  const canBulkAssign = Boolean(filter.seasonId && filter.sessionId && filter.groupId && sessions.length && selectedPeople.length && !selectedBlockedCount);
   const selectedGroupName = context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Sin grupo");
   const bulkAssignLabel = selectedPeople.length
     ? `Asignar ${selectedPeople.length} persona${selectedPeople.length === 1 ? "" : "s"} a ${sessions.length} sesion${sessions.length === 1 ? "" : "es"}`
@@ -2994,30 +3080,42 @@ function renderParticipantsView() {
                 <strong>Empieza escribiendo un nombre</strong>
                 <span>Busca por nombre, QR ID, numero interno o correo para agregar rapido a la sesion actual.</span>
               </div>
-            ` : peopleSearchResults.length ? peopleSearchResults.map((person) => `
-              <article class="result-card participant-picker-card ${participantPersonIds.has(String(person.id)) ? "result-card-muted" : ""}">
-                <div class="result-row">
-                  <div class="result-copy-stack">
-                    <div class="result-title-row">
-                      <span class="row-title">${escapeHtml(person.name)}</span>
-                      ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : ""}
+            ` : peopleSearchResults.length ? peopleSearchResults.map((person) => {
+              const assignmentState = getPersonAssignmentState(person);
+              const disabled = assignmentState.currentSessionAssigned || assignmentState.blockedByOtherGroup;
+              const seasonAssignmentLabel = assignmentState.blockedByOtherGroup
+                ? `Ya pertenece a ${assignmentState.seasonAssignment?.groupNames?.join(" / ") || assignmentState.seasonAssignment?.groupName || "otro grupo"} en esta temporada.`
+                : (assignmentState.assignedToCurrentGroupOnly && !assignmentState.currentSessionAssigned
+                  ? "Ya pertenece a este grupo en otras sesiones; aqui puedes completar la sesion actual."
+                  : "");
+
+              return `
+                <article class="result-card participant-picker-card ${disabled ? "result-card-muted" : ""}">
+                  <div class="result-row">
+                    <div class="result-copy-stack">
+                      <div class="result-title-row">
+                        <span class="row-title">${escapeHtml(person.name)}</span>
+                        ${assignmentState.currentSessionAssigned ? `<span class="pill success">Ya en esta sesion</span>` : ""}
+                        ${assignmentState.blockedByOtherGroup ? `<span class="pill warning">Ya en otro grupo</span>` : ""}
+                      </div>
+                      <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")} | ${escapeHtml(person.type || "")}</span>
+                      ${assignmentState.currentSessionAssigned ? `<span class="row-meta">Esta persona ya forma parte del grupo actual.</span>` : ""}
+                      ${seasonAssignmentLabel ? `<span class="row-meta">${escapeHtml(seasonAssignmentLabel)}</span>` : ""}
                     </div>
-                    <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")} | ${escapeHtml(person.type || "")}</span>
-                    ${participantPersonIds.has(String(person.id)) ? `<span class="row-meta">Esta persona ya forma parte del grupo actual.</span>` : ""}
+                    <div class="participant-action-stack">
+                      <button
+                        class="btn btn-primary"
+                        data-action="add-person"
+                        data-person-id="${escapeHtml(person.id)}"
+                        ${disabled ? "disabled" : ""}
+                      >
+                        ${assignmentState.currentSessionAssigned ? "Asignado" : assignmentState.blockedByOtherGroup ? "Bloqueado" : "Agregar a esta sesion"}
+                      </button>
+                    </div>
                   </div>
-                  <div class="participant-action-stack">
-                    <button
-                      class="btn btn-primary"
-                      data-action="add-person"
-                      data-person-id="${escapeHtml(person.id)}"
-                      ${participantPersonIds.has(String(person.id)) ? "disabled" : ""}
-                    >
-                      ${participantPersonIds.has(String(person.id)) ? "Asignado" : "Agregar a esta sesion"}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            `).join("") : `
+                </article>
+              `;
+            }).join("") : `
               <div class="empty-state participant-picker-empty">
                 <strong>Sin coincidencias</strong>
                 <span>No encontramos personas con esa busqueda. Prueba otro nombre, QR ID, numero interno o correo.</span>
@@ -3088,35 +3186,42 @@ function renderParticipantsView() {
                     <strong>Busca y agrega al lote</strong>
                     <span>Escribe un nombre, QR ID o numero interno. Ve sumando personas una por una hasta completar tu bloque.</span>
                   </div>
-                ` : bulkResults.length ? bulkResults.map((person) => `
-                  <article class="result-card participant-picker-card ${participantPersonIds.has(String(person.id)) ? "result-card-muted" : ""}">
-                    <div class="result-row">
-                      <div class="result-copy-stack">
-                        <div class="result-title-row">
-                          <span class="row-title">${escapeHtml(person.name)}</span>
-                          ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : ""}
-                          ${selectedBulkSet.has(String(person.id)) ? `<span class="pill dark">En lote</span>` : ""}
+                ` : bulkResults.length ? bulkResults.map((person) => {
+                  const assignmentState = getPersonAssignmentState(person);
+                  const disabled = selectedBulkSet.has(String(person.id)) || assignmentState.blockedByOtherGroup;
+                  const helperCopy = assignmentState.blockedByOtherGroup
+                    ? `Ya pertenece a ${assignmentState.seasonAssignment?.groupNames?.join(" / ") || assignmentState.seasonAssignment?.groupName || "otro grupo"} en esta temporada.`
+                    : (participantPersonIds.has(String(person.id))
+                      ? "Puedes incluirlo si quieres completar las sesiones restantes de la temporada."
+                      : "Listo para agregarse a todas las sesiones del ciclo.");
+
+                  return `
+                    <article class="result-card participant-picker-card ${disabled ? "result-card-muted" : ""}">
+                      <div class="result-row">
+                        <div class="result-copy-stack">
+                          <div class="result-title-row">
+                            <span class="row-title">${escapeHtml(person.name)}</span>
+                            ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : ""}
+                            ${selectedBulkSet.has(String(person.id)) ? `<span class="pill dark">En lote</span>` : ""}
+                            ${assignmentState.blockedByOtherGroup ? `<span class="pill warning">Otro grupo</span>` : ""}
+                          </div>
+                          <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")} | ${escapeHtml(person.type || "")}</span>
+                          <span class="row-meta">${escapeHtml(helperCopy)}</span>
                         </div>
-                        <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")} | ${escapeHtml(person.type || "")}</span>
-                        <span class="row-meta">
-                          ${participantPersonIds.has(String(person.id))
-                            ? "Puedes incluirlo si quieres completar las sesiones restantes de la temporada."
-                            : "Listo para agregarse a todas las sesiones del ciclo."}
-                        </span>
+                        <div class="participant-action-stack">
+                          <button
+                            class="btn ${selectedBulkSet.has(String(person.id)) || assignmentState.blockedByOtherGroup ? "btn-secondary" : "btn-primary"}"
+                            data-action="add-bulk-person"
+                            data-person-id="${escapeHtml(String(person.id))}"
+                            ${disabled ? "disabled" : ""}
+                          >
+                            ${selectedBulkSet.has(String(person.id)) ? "Ya en el lote" : assignmentState.blockedByOtherGroup ? "Bloqueado" : "Agregar al lote"}
+                          </button>
+                        </div>
                       </div>
-                      <div class="participant-action-stack">
-                        <button
-                          class="btn ${selectedBulkSet.has(String(person.id)) ? "btn-secondary" : "btn-primary"}"
-                          data-action="add-bulk-person"
-                          data-person-id="${escapeHtml(String(person.id))}"
-                          ${selectedBulkSet.has(String(person.id)) ? "disabled" : ""}
-                        >
-                          ${selectedBulkSet.has(String(person.id)) ? "Ya en el lote" : "Agregar al lote"}
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                `).join("") : `
+                    </article>
+                  `;
+                }).join("") : `
                   <div class="empty-state participant-picker-empty">
                     <strong>Sin coincidencias</strong>
                     <span>No encontramos personas con esa busqueda. Ajusta el texto y sigue armando el lote.</span>
@@ -3136,21 +3241,28 @@ function renderParticipantsView() {
               <div class="bulk-selected-tray">
                 <div class="bulk-selected-head">
                   <strong>Lote actual</strong>
-                  <span class="row-meta">${escapeHtml(String(selectedAlreadyAssignedCount))} ya estaban en esta sesion y ${escapeHtml(String(selectedNewCount))} se agregaran aqui por primera vez.</span>
+                  <span class="row-meta">${escapeHtml(String(selectedAlreadyAssignedCount))} ya estaban en esta sesion, ${escapeHtml(String(selectedNewCount))} se agregaran aqui por primera vez y ${escapeHtml(String(selectedBlockedCount))} requieren correccion.</span>
                 </div>
 
                 ${selectedPeople.length ? `
                   <div class="results-list bulk-queue-list">
-                    ${selectedPeople.map((person) => `
-                      <article class="result-card bulk-queue-card ${participantPersonIds.has(String(person.id)) ? "result-card-muted" : ""}">
+                    ${selectedPeople.map((person) => {
+                      const assignmentState = getPersonAssignmentState(person);
+                      const blockedCopy = assignmentState.blockedByOtherGroup
+                        ? `Conflicto: ya pertenece a ${assignmentState.seasonAssignment?.groupNames?.join(" / ") || assignmentState.seasonAssignment?.groupName || "otro grupo"} en esta temporada.`
+                        : `Se tomara en cuenta para las ${String(sessions.length)} sesiones de la temporada.`;
+
+                      return `
+                      <article class="result-card bulk-queue-card ${participantPersonIds.has(String(person.id)) || assignmentState.blockedByOtherGroup ? "result-card-muted" : ""}">
                         <div class="result-row">
                           <div class="result-copy-stack">
                             <div class="result-title-row">
                               <span class="row-title">${escapeHtml(person.name)}</span>
                               ${participantPersonIds.has(String(person.id)) ? `<span class="pill success">Ya en esta sesion</span>` : `<span class="pill dark">Nuevo en esta sesion</span>`}
+                              ${assignmentState.blockedByOtherGroup ? `<span class="pill warning">Otro grupo</span>` : ""}
                             </div>
                             <span class="row-meta">${escapeHtml(person.id)} | ${escapeHtml(person.numero || "")} | ${escapeHtml(person.type || "")}</span>
-                            <span class="row-meta">Se tomara en cuenta para las ${escapeHtml(String(sessions.length))} sesiones de la temporada.</span>
+                            <span class="row-meta">${escapeHtml(blockedCopy)}</span>
                           </div>
                           <div class="participant-action-stack">
                             <button
@@ -3163,7 +3275,7 @@ function renderParticipantsView() {
                           </div>
                         </div>
                       </article>
-                    `).join("")}
+                    `;}).join("")}
                   </div>
                 ` : `
                   <div class="bulk-empty-selection">
@@ -3174,12 +3286,14 @@ function renderParticipantsView() {
               </div>
 
               <div class="bulk-footer-actions">
-                <div class="bulk-footer-copy">
-                  <strong>${escapeHtml(bulkAssignLabel)}</strong>
-                  <span class="row-meta">
-                    ${canBulkAssign
-                      ? `El sistema revisara las ${escapeHtml(String(sessions.length))} sesiones de la temporada y evitara duplicados donde ya existan participantes.`
-                      : "Necesitas contexto valido y al menos una persona en el lote para ejecutar la asignacion."}
+              <div class="bulk-footer-copy">
+                <strong>${escapeHtml(bulkAssignLabel)}</strong>
+                <span class="row-meta">
+                    ${selectedBlockedCount
+                      ? "Hay personas en conflicto con otro grupo de la temporada. Quitalas del lote antes de continuar."
+                      : (canBulkAssign
+                        ? `El sistema revisara las ${escapeHtml(String(sessions.length))} sesiones de la temporada y evitara duplicados donde ya existan participantes.`
+                        : "Necesitas contexto valido y al menos una persona en el lote para ejecutar la asignacion.")}
                   </span>
                 </div>
 
@@ -4262,6 +4376,16 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "cancel-system-confirmation") {
+      closeSystemConfirmation_();
+      return;
+    }
+
+    if (action === "confirm-system-action") {
+      await confirmSystemAction_();
+      return;
+    }
+
     if (action === "save-api-url") {
       const value = document.getElementById("api-url-input")?.value?.trim();
       ensureApiUrl(value);
@@ -4578,7 +4702,15 @@ async function handleClick(event) {
     }
 
     if (action === "add-bulk-person") {
-      toggleBulkSelection(String(button.dataset.personId || ""), true);
+      const personId = String(button.dataset.personId || "");
+      const assignmentState = getParticipantSeasonAssignmentState_(personId, state.filters.participants.groupId, getParticipantPersonIdSet_());
+
+      if (assignmentState.blockedByOtherGroup) {
+        showToast("Asignacion no permitida", buildParticipantConflictToastCopy_(assignmentState.seasonAssignment), "warning");
+        return;
+      }
+
+      toggleBulkSelection(personId, true);
       renderApp();
       focusInputById_("participant-bulk-search");
       return;
@@ -4620,36 +4752,36 @@ async function handleClick(event) {
         delete state.filters.participants.moveTargets[participantId];
         invalidateDashboardSeasonMatrix_();
         await loadParticipantsData({
-          force: true
+          force: true,
+          showLoading: false
         });
       }, "Moviendo participante...");
 
-      showToast("Participante movido", "El cambio de grupo ya se reflejo en la lista.", "success");
+      showToast("Participante movido", "El cambio de grupo ya se reflejo en toda la temporada.", "success");
       renderApp();
       return;
     }
 
     if (action === "deactivate-participant") {
       const participantId = button.dataset.participantId;
-      const confirmed = window.confirm("Esta accion dara de baja al participante del grupo actual. Deseas continuar?");
+      const participant = state.participants.find((item) => String(item.id) === String(participantId));
 
-      if (!confirmed) {
-        return;
-      }
-
-      await withLoading(async () => {
-        await apiPost("participants.deactivate", {
+      openSystemConfirmation_({
+        kind: "deactivate-participant",
+        title: "Confirmar baja del participante",
+        copy: `Daras de baja a ${participant?.name || "este participante"} en todas las sesiones activas de la temporada.`,
+        badge: "Toda la temporada",
+        confirmLabel: "Dar de baja",
+        tone: "danger",
+        notes: [
+          participant?.name || "Participante seleccionado",
+          resolveSeasonName_(state.filters.participants.seasonId) || state.filters.participants.seasonId,
+          resolveGroupName_(state.filters.participants.groupId) || state.filters.participants.groupId
+        ],
+        payload: {
           participantId
-        });
-        delete state.filters.participants.moveTargets[participantId];
-        invalidateDashboardSeasonMatrix_();
-        await loadParticipantsData({
-          force: true
-        });
-      }, "Dando de baja participante...");
-
-      showToast("Participante dado de baja", "El registro quedo actualizado.", "success");
-      renderApp();
+        }
+      });
       return;
     }
 
@@ -5064,25 +5196,33 @@ async function handleChange(event) {
       state.filters.participants.groupId = "";
       resetParticipantInteractionState_();
       await syncFilterState("participants");
-      await loadParticipantsData();
+      await loadParticipantsData({
+        force: true,
+        showLoading: false
+      });
       renderApp();
       return;
     }
 
     if (target.id === "participants-session") {
       state.filters.participants.sessionId = target.value;
-      state.filters.participants.groupId = "";
-      resetParticipantInteractionState_();
+      state.filters.participants.moveTargets = {};
       await syncFilterState("participants");
-      await loadParticipantsData();
+      await loadParticipantsData({
+        force: true,
+        showLoading: false
+      });
       renderApp();
       return;
     }
 
     if (target.id === "participants-group") {
       state.filters.participants.groupId = target.value;
-      resetParticipantInteractionState_();
-      await loadParticipantsData();
+      state.filters.participants.moveTargets = {};
+      await loadParticipantsData({
+        force: true,
+        showLoading: false
+      });
       renderApp();
       return;
     }
@@ -5813,6 +5953,38 @@ function ensureValidSeasonId(currentSeasonId) {
   return getLatestSeason()?.id || "";
 }
 
+async function loadParticipantSeasonAssignments_(options = {}) {
+  const seasonId = String(options.seasonId || state.filters.participants.seasonId || "");
+  const cacheKey = seasonId;
+
+  if (!seasonId) {
+    state.participantSeasonAssignments = {};
+    state.cacheKeys.participantSeasonAssignments = "";
+    return;
+  }
+
+  if (!options.force && state.cacheKeys.participantSeasonAssignments === cacheKey) {
+    return;
+  }
+
+  const task = async () => {
+    const records = await apiGet("participants.list", {
+      seasonId,
+      status: "ACTIVO"
+    });
+
+    state.participantSeasonAssignments = buildParticipantSeasonAssignmentsIndex_(records);
+    state.cacheKeys.participantSeasonAssignments = cacheKey;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, options.message || "Preparando asignaciones de temporada...");
+}
+
 async function loadParticipantsData(options = {}) {
   await syncFilterState("participants");
 
@@ -5823,11 +5995,18 @@ async function loadParticipantsData(options = {}) {
     resetParticipantInteractionState_();
     state.participants = [];
     state.participantContext = null;
+    state.participantSeasonAssignments = {};
     state.cacheKeys.participants = "";
+    state.cacheKeys.participantSeasonAssignments = "";
     return;
   }
 
-  if (!options.force && state.cacheKeys.participants === requestKey && state.participantContext) {
+  if (
+    !options.force &&
+    state.cacheKeys.participants === requestKey &&
+    state.participantContext &&
+    state.cacheKeys.participantSeasonAssignments === String(filter.seasonId || "")
+  ) {
     return;
   }
 
@@ -5844,6 +6023,12 @@ async function loadParticipantsData(options = {}) {
         groupId: filter.groupId
       })
     ]);
+
+    await loadParticipantSeasonAssignments_({
+      force: options.force,
+      seasonId: filter.seasonId,
+      showLoading: false
+    });
 
     state.participants = participants;
     state.participantContext = context;
@@ -5993,18 +6178,42 @@ function clearPeopleImportState_() {
 async function addParticipant(personId) {
   const filter = state.filters.participants;
   let createdParticipant = null;
+  const assignmentState = getParticipantSeasonAssignmentState_(personId, filter.groupId, getParticipantPersonIdSet_());
   ensureContextReady(filter, "participantes");
 
-  await withLoading(async () => {
-    createdParticipant = await apiPost("participants.add", {
-      seasonId: filter.seasonId,
-      sessionId: filter.sessionId,
-      groupId: filter.groupId,
-      personId
-    });
-  }, "Agregando participante...");
+  if (assignmentState.blockedByOtherGroup) {
+    showToast(
+      "Asignacion no permitida",
+      buildParticipantConflictToastCopy_(assignmentState.seasonAssignment),
+      "warning"
+    );
+    return;
+  }
+
+  try {
+    await withLoading(async () => {
+      createdParticipant = await apiPost("participants.add", {
+        seasonId: filter.seasonId,
+        sessionId: filter.sessionId,
+        groupId: filter.groupId,
+        personId
+      });
+    }, "Agregando participante...");
+  } catch (error) {
+    if (isParticipantSeasonConflictError_(error)) {
+      showToast("Asignacion no permitida", buildParticipantConflictToastCopy_(error.details), "warning");
+      return;
+    }
+
+    throw error;
+  }
 
   invalidateDashboardSeasonMatrix_();
+  await loadParticipantSeasonAssignments_({
+    force: true,
+    seasonId: filter.seasonId,
+    showLoading: false
+  });
   mergeParticipantsIntoCurrentContext_([createdParticipant]);
   showToast("Participante agregado", "La persona ya fue agregada al grupo actual.", "success");
   renderApp();
@@ -6013,11 +6222,11 @@ async function addParticipant(personId) {
 
 async function bulkAssignParticipants() {
   const filter = state.filters.participants;
-  const selectedPeople = getSelectedBulkPeople_();
+  const diagnostics = getSelectedBulkPeopleDiagnostics_();
+  const selectedPeople = diagnostics.selectedPeople;
   const seasonName = resolveSeasonName_(filter.seasonId) || filter.seasonId;
   const groupName = state.participantContext ? state.participantContext.group.name : (resolveGroupName_(filter.groupId) || filter.groupId);
   const sessionCount = getSessions(filter.seasonId).length;
-  let assignmentResult = null;
   ensureContextReady(filter, "asignacion masiva");
 
   if (!selectedPeople.length) {
@@ -6025,20 +6234,81 @@ async function bulkAssignParticipants() {
     return;
   }
 
-  if (!window.confirm(`Se asignaran ${selectedPeople.length} persona(s) al grupo ${groupName} durante ${sessionCount} sesion(es) de ${seasonName}. Deseas continuar?`)) {
+  if (diagnostics.blockedPeople.length) {
+    showToast(
+      "Hay conflictos en el lote",
+      buildParticipantConflictToastCopy_({
+        conflicts: diagnostics.blockedPeople.map((person) => {
+          const seasonAssignment = getParticipantSeasonAssignment_(person.id);
+          return {
+            personId: person.id,
+            personName: person.name,
+            existingGroupId: seasonAssignment?.groupId || "",
+            existingGroupName: seasonAssignment?.groupName || ""
+          };
+        })
+      }),
+      "warning"
+    );
     return;
   }
 
-  await withLoading(async () => {
-    assignmentResult = await apiPost("participants.bulkAssign", {
-      seasonId: filter.seasonId,
-      groupId: filter.groupId,
-      people: state.selectedBulkPeople.map((personId) => ({ personId }))
-    });
-    state.selectedBulkPeople = [];
-  }, "Asignando participantes...");
+  openSystemConfirmation_({
+    kind: "bulk-assign",
+    title: "Confirmar asignacion masiva",
+    copy: `Asignaras ${selectedPeople.length} persona(s) al grupo ${groupName} en las ${sessionCount} sesiones de ${seasonName}.`,
+    badge: "Toda la temporada",
+    confirmLabel: "Asignar ahora",
+    notes: [
+      `${selectedPeople.length} personas en el lote`,
+      `${sessionCount} sesiones del ciclo`,
+      `${groupName} como grupo unico en la temporada`
+    ]
+  });
+}
+
+async function executeBulkAssign_() {
+  const filter = state.filters.participants;
+  const diagnostics = getSelectedBulkPeopleDiagnostics_();
+  const selectedPeople = diagnostics.selectedPeople;
+  const sessionCount = getSessions(filter.seasonId).length;
+  let assignmentResult = null;
+
+  if (!selectedPeople.length) {
+    showToast("Sin seleccion", "El lote actual ya no tiene personas para asignar.", "warning");
+    return;
+  }
+
+  try {
+    await withLoading(async () => {
+      assignmentResult = await apiPost("participants.bulkAssign", {
+        seasonId: filter.seasonId,
+        groupId: filter.groupId,
+        people: state.selectedBulkPeople.map((personId) => ({ personId }))
+      });
+      state.selectedBulkPeople = [];
+    }, "Asignando participantes...");
+  } catch (error) {
+    if (isParticipantSeasonConflictError_(error)) {
+      await loadParticipantSeasonAssignments_({
+        force: true,
+        seasonId: filter.seasonId,
+        showLoading: false
+      });
+      showToast("Asignacion no permitida", buildParticipantConflictToastCopy_(error.details), "warning");
+      renderApp();
+      return;
+    }
+
+    throw error;
+  }
 
   invalidateDashboardSeasonMatrix_();
+  await loadParticipantSeasonAssignments_({
+    force: true,
+    seasonId: filter.seasonId,
+    showLoading: false
+  });
   mergeParticipantsIntoCurrentContext_((assignmentResult && assignmentResult.inserted) || []);
   showToast(
     "Asignacion completada",
@@ -6047,6 +6317,23 @@ async function bulkAssignParticipants() {
   );
   renderApp();
   focusInputById_("participant-bulk-search");
+}
+
+async function executeDeactivateParticipant_(participantId) {
+  await withLoading(async () => {
+    await apiPost("participants.deactivate", {
+      participantId
+    });
+    delete state.filters.participants.moveTargets[participantId];
+    invalidateDashboardSeasonMatrix_();
+    await loadParticipantsData({
+      force: true,
+      showLoading: false
+    });
+  }, "Dando de baja participante...");
+
+  showToast("Participante dado de baja", "La baja se reflejo en toda la temporada.", "success");
+  renderApp();
 }
 
 async function loadAttendanceData(options = {}) {
@@ -6634,12 +6921,123 @@ function getParticipantPersonIdSet_() {
   return new Set(state.participants.map((participant) => String(participant.personId)));
 }
 
+function buildParticipantSeasonAssignmentsIndex_(records) {
+  const index = {};
+
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    const personId = String(record.personId || "");
+    const groupId = String(record.groupId || "");
+
+    if (!personId) {
+      return;
+    }
+
+    if (!index[personId]) {
+      index[personId] = {
+        personId,
+        name: record.name || "",
+        groupIds: [],
+        groupNames: [],
+        sessionIds: []
+      };
+    }
+
+    if (groupId && !index[personId].groupIds.includes(groupId)) {
+      index[personId].groupIds.push(groupId);
+      index[personId].groupNames.push(resolveGroupName_(groupId) || groupId);
+    }
+
+    if (record.sessionId && !index[personId].sessionIds.includes(String(record.sessionId))) {
+      index[personId].sessionIds.push(String(record.sessionId));
+    }
+  });
+
+  Object.keys(index).forEach((personId) => {
+    const entry = index[personId];
+    entry.groupId = entry.groupIds[0] || "";
+    entry.groupName = entry.groupNames[0] || "";
+    entry.hasMultipleGroups = entry.groupIds.length > 1;
+  });
+
+  return index;
+}
+
+function getParticipantSeasonAssignment_(personId) {
+  return state.participantSeasonAssignments[String(personId)] || null;
+}
+
+function getParticipantSeasonAssignmentState_(personId, currentGroupId, currentSessionPersonIds) {
+  const normalizedPersonId = String(personId || "");
+  const normalizedGroupId = String(currentGroupId || "");
+  const currentSessionAssigned = currentSessionPersonIds.has(normalizedPersonId);
+  const seasonAssignment = getParticipantSeasonAssignment_(normalizedPersonId);
+  const seasonHasAssignment = Boolean(seasonAssignment && seasonAssignment.groupIds.length);
+  const assignedToCurrentGroupOnly = Boolean(
+    seasonAssignment &&
+    !seasonAssignment.hasMultipleGroups &&
+    seasonAssignment.groupIds.includes(normalizedGroupId)
+  );
+  const blockedByOtherGroup = Boolean(
+    seasonAssignment &&
+    (seasonAssignment.hasMultipleGroups || !assignedToCurrentGroupOnly)
+  );
+
+  return {
+    seasonAssignment,
+    currentSessionAssigned,
+    seasonHasAssignment,
+    assignedToCurrentGroupOnly,
+    blockedByOtherGroup
+  };
+}
+
 function getSelectedBulkPeople_() {
   const selectedMap = new Map(state.people.map((person) => [String(person.id), person]));
 
   return state.selectedBulkPeople
     .map((personId) => selectedMap.get(String(personId)) || null)
     .filter(Boolean);
+}
+
+function getSelectedBulkPeopleDiagnostics_() {
+  const selectedPeople = getSelectedBulkPeople_();
+  const currentGroupId = state.filters.participants.groupId;
+  const currentSessionPersonIds = getParticipantPersonIdSet_();
+  const blockedPeople = selectedPeople.filter((person) => (
+    getParticipantSeasonAssignmentState_(person.id, currentGroupId, currentSessionPersonIds).blockedByOtherGroup
+  ));
+  const eligiblePeople = selectedPeople.filter((person) => (
+    !getParticipantSeasonAssignmentState_(person.id, currentGroupId, currentSessionPersonIds).blockedByOtherGroup
+  ));
+
+  return {
+    selectedPeople,
+    blockedPeople,
+    eligiblePeople
+  };
+}
+
+function isParticipantSeasonConflictError_(error) {
+  return error instanceof ApiError && error.code === "PARTICIPANT_SEASON_GROUP_CONFLICT";
+}
+
+function buildParticipantConflictToastCopy_(details) {
+  if (!details) {
+    return "La persona ya pertenece a otro grupo de conexion dentro de esta temporada.";
+  }
+
+  if (Array.isArray(details.conflicts) && details.conflicts.length) {
+    const preview = details.conflicts
+      .slice(0, 3)
+      .map((conflict) => `${conflict.personName || conflict.personId} -> ${conflict.existingGroupName || conflict.existingGroupId}`)
+      .join(", ");
+    const remaining = details.conflicts.length > 3 ? ` y ${details.conflicts.length - 3} mas` : "";
+    return `Hay personas que ya pertenecen a otro grupo: ${preview}${remaining}.`;
+  }
+
+  const personName = details.personName || details.name || details.personId || "La persona seleccionada";
+  const groupName = details.existingGroupName || details.groupName || details.existingGroupId || details.groupId || "otro grupo";
+  return `${personName} ya pertenece a ${groupName} dentro de esta temporada.`;
 }
 
 function mergeParticipantsIntoCurrentContext_(records) {
@@ -8246,6 +8644,7 @@ function resetRuntimeState() {
   state.viewLoadToken = 0;
   state.cacheKeys = {
     participants: "",
+    participantSeasonAssignments: "",
     attendance: "",
     attendanceDetail: "",
     qrSummary: "",
@@ -8273,6 +8672,7 @@ function resetRuntimeState() {
   state.activeSession = null;
   state.participants = [];
   state.participantContext = null;
+  state.participantSeasonAssignments = {};
   state.attendanceContext = null;
   state.attendanceForm = {};
   state.attendanceBaseline = {};
@@ -8293,7 +8693,8 @@ function resetRuntimeState() {
     mobileNavOpen: false,
     editingGroupId: "",
     editingMinistryId: "",
-    editingUserEmail: ""
+    editingUserEmail: "",
+    confirmation: null
   };
   state.filters.dashboard = {
     seasonId: "",
@@ -8458,6 +8859,10 @@ function handleError(error) {
 
   if (isUnknownActionError_(error)) {
     message = "La API publicada todavia no incluye esa accion. Actualiza los archivos .gs y vuelve a desplegar la Web App.";
+  }
+
+  if (isParticipantSeasonConflictError_(error)) {
+    message = buildParticipantConflictToastCopy_(error.details);
   }
 
   showToast("No se pudo completar la accion", message, "danger");
