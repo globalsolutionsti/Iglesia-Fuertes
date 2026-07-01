@@ -1103,6 +1103,7 @@ function renderAssistantsView() {
         },
         metrics: [
           { label: "Padron", value: String(summary.total) },
+          { label: "Congregantes", value: String(summary.congregants) },
           { label: "Voluntarios", value: String(summary.servers) },
           { label: "Filtrados", value: String(rows.length) },
           { label: "Importacion", value: importSummary ? `${importSummary.validRows} listas` : "Sin archivo" }
@@ -1348,7 +1349,7 @@ function renderAssistantsView() {
             <table>
               <thead>
                 <tr>
-                  <th>Numero interno</th>
+                  <th>Numero congregante</th>
                   <th>Persona</th>
                   <th>Tipo</th>
                   <th>Grupo</th>
@@ -1362,7 +1363,8 @@ function renderAssistantsView() {
                     <td>${escapeHtml(person.numero || "-")}</td>
                     <td>
                       <span class="row-title">${escapeHtml(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "-")}</span>
-                      <span class="row-meta">QR ${escapeHtml(person.id || "-")} | Ingreso ${escapeHtml(formatDate(person.fechaIngreso) || "-")}</span>
+                      <span class="row-meta">No. ${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")}</span>
+                      <span class="row-meta">Ingreso ${escapeHtml(formatDate(person.fechaIngreso) || "-")}</span>
                     </td>
                     <td>${renderPersonTypePill_(person.tipoPersona)}</td>
                     <td>${escapeHtml(resolveGroupName_(person.grupo) || person.grupo || "-")}</td>
