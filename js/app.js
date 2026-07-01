@@ -1501,7 +1501,10 @@ function renderDashboardView() {
   const leaderSummary = buildDashboardLeaderSummary_(selectedGroupRow, state.dashboardLeaderDetail);
   const seasonMatrix = state.dashboardSeasonMatrix;
   const dashboardSeasonId = state.filters.dashboard.seasonId || focusSeason?.id || "";
-  const recentCongregants = getRecentCongregants_("dashboard");
+  const trackedRecentCongregants = getDashboardRecentCongregantsTracking_();
+  const recentInGroupCount = trackedRecentCongregants.filter((person) => person.inGroup).length;
+  const recentPendingCount = trackedRecentCongregants.length - recentInGroupCount;
+  const recentWithPhoneCount = trackedRecentCongregants.filter((person) => String(person.telefono || "").trim()).length;
   const mobileSeasonSessionsCount = focusSeason
     ? Number(focusSeason.sessionsCount || getSessions(focusSeason.id).length || 0)
     : Number(latestSeason?.sessionsCount || getSessions(latestSeason?.id || '').length || 0);
@@ -1540,38 +1543,14 @@ function renderDashboardView() {
           </div>
         </div>
 
-        <div class="field-grid two dashboard-filter-grid">
+        <div class="field-grid dashboard-toolbar-season-grid">
           ${renderSeasonSelect('dashboard-season', state.filters.dashboard.seasonId)}
-          <div class="field">
-            <label for="dashboard-group">Consulta para lideres</label>
-            <select id="dashboard-group">
-              ${dashboardGroupOptions}
-            </select>
-            <span class="field-help">Elige un grupo para ver su detalle y exportarlo.</span>
-          </div>
-
-          <div class="field">
-            <label>Periodo de nuevos congregantes</label>
-            <div class="inline-date-range">
-              <input id="dashboard-recent-from" type="date" value="${escapeHtml(state.filters.dashboard.recentFrom)}">
-              <input id="dashboard-recent-to" type="date" value="${escapeHtml(state.filters.dashboard.recentTo)}">
-            </div>
-            <span class="field-help">Usa este rango para el bloque de crecimiento reciente.</span>
-          </div>
         </div>
 
         <div class="summary-strip">
           <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : 'Sin temporada'}</span>
           <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(seasonMatrix?.sessions?.length || focusSeason?.sessionsCount || 0))}</span>
           <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : 'Cargando...')}</span>
-        </div>
-
-        <div class="actions-row dashboard-filter-actions">
-          <button class="btn btn-secondary" data-action="set-dashboard-period" data-days="30">Ultimo mes</button>
-          <button class="btn btn-ghost" data-action="set-dashboard-period" data-days="90">Ultimos 3 meses</button>
-          <button class="btn btn-primary" data-action="load-dashboard-group-query" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Consultar grupo</button>
-          <button class="btn btn-secondary" data-action="export-dashboard-group-detail" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Exportar grupo</button>
-          <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? '' : 'disabled'}>Limpiar consulta</button>
         </div>
       </article>
 
@@ -1788,9 +1767,25 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Consulta para lideres</h2>
-              <p>Selecciona un grupo para revisar su avance y exportarlo.</p>
+              <p>Consulta separada del tablero general para revisar un grupo puntual y exportar su detalle.</p>
             </div>
             ${selectedGroupRow ? renderPill(selectedGroupRow.status) : `<span class="pill dark">Sin grupo</span>`}
+          </div>
+
+          <div class="field-grid dashboard-toolbar-season-grid">
+            <div class="field">
+              <label for="dashboard-group">Grupo de conexion</label>
+              <select id="dashboard-group">
+                ${dashboardGroupOptions}
+              </select>
+              <span class="field-help">Elige un grupo para abrir su consulta detallada.</span>
+            </div>
+          </div>
+
+          <div class="actions-row dashboard-filter-actions">
+            <button class="btn btn-primary" data-action="load-dashboard-group-query" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Consultar grupo</button>
+            <button class="btn btn-secondary" data-action="export-dashboard-group-detail" ${state.filters.dashboard.groupId ? '' : 'disabled'}>Exportar grupo</button>
+            <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? '' : 'disabled'}>Limpiar consulta</button>
           </div>
 
           ${selectedGroupRow ? `
@@ -1857,9 +1852,26 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Nuevos congregantes</h2>
-              <p>Seguimiento rapido de crecimiento reciente con periodo editable.</p>
+              <p>Consulta pastoral independiente para revisar crecimiento reciente y seguimiento en grupos de conexion.</p>
             </div>
-            <span class="pill ${recentCongregants.length ? "success" : "warning"}">${escapeHtml(String(recentCongregants.length))} en periodo</span>
+            <span class="pill ${trackedRecentCongregants.length ? "success" : "warning"}">${escapeHtml(String(trackedRecentCongregants.length))} en periodo</span>
+          </div>
+
+          <div class="field-grid two">
+            <div class="field">
+              <label for="dashboard-recent-from">Desde</label>
+              <input id="dashboard-recent-from" type="date" value="${escapeHtml(state.filters.dashboard.recentFrom)}">
+            </div>
+            <div class="field">
+              <label for="dashboard-recent-to">Hasta</label>
+              <input id="dashboard-recent-to" type="date" value="${escapeHtml(state.filters.dashboard.recentTo)}">
+            </div>
+          </div>
+
+          <div class="actions-row dashboard-filter-actions">
+            <button class="btn btn-secondary" data-action="set-dashboard-period" data-days="30">Ultimo mes</button>
+            <button class="btn btn-ghost" data-action="set-dashboard-period" data-days="90">Ultimos 3 meses</button>
+            <button class="btn btn-secondary" data-action="navigate" data-view="congregants-new">Abrir consulta completa</button>
           </div>
 
           <div class="summary-stack dashboard-summary-grid">
@@ -1869,31 +1881,41 @@ function renderDashboardView() {
               <span>Hasta ${escapeHtml(formatDate(state.filters.dashboard.recentTo) || state.filters.dashboard.recentTo || "-")}</span>
             </div>
             <div class="summary-box">
+              <span class="status-chip success">Ya en grupo</span>
+              <strong>${escapeHtml(String(recentInGroupCount))}</strong>
+              <span>Congregantes recientes que ya forman parte de un grupo de conexion.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip warning">Pendientes</span>
+              <strong>${escapeHtml(String(recentPendingCount))}</strong>
+              <span>Personas recientes que aun no muestran grupo asignado.</span>
+            </div>
+            <div class="summary-box">
               <span class="status-chip success">Con telefono</span>
-              <strong>${escapeHtml(String(recentCongregants.filter((row) => String(row.telefono || "").trim()).length))}</strong>
+              <strong>${escapeHtml(String(recentWithPhoneCount))}</strong>
               <span>Listos para contacto o bienvenida.</span>
             </div>
           </div>
 
           <div class="results-list dashboard-recent-people-list">
-            ${recentCongregants.length ? recentCongregants.slice(0, 8).map((person) => `
+            ${trackedRecentCongregants.length ? trackedRecentCongregants.slice(0, 8).map((person) => `
               <article class="result-card">
                 <div class="result-row">
                   <div class="result-copy-stack">
                     <span class="row-title">${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>
                     <span class="row-meta">${escapeHtml(person.telefono || "Sin telefono")} | ${escapeHtml(person.estadoCivil || "Sin estado civil")}</span>
                     <span class="row-meta">Nacimiento: ${escapeHtml(formatDate(person.fechaNacimiento) || "Sin fecha")} | Alta: ${escapeHtml(formatDate(person.fechaIngreso) || "Sin fecha")}</span>
+                    <span class="row-meta">${escapeHtml(person.followUpLabel)}</span>
                   </div>
-                  <span class="pill dark">${escapeHtml(String(person.edad || "S/D"))}</span>
+                  <div class="result-copy-stack dashboard-recent-person-status">
+                    <span class="pill ${person.inGroup ? "success" : "warning"}">${person.inGroup ? "En grupo" : "Pendiente"}</span>
+                    <span class="pill dark">${escapeHtml(String(person.edad || "S/D"))}</span>
+                  </div>
                 </div>
               </article>
             `).join("") : `
               <div class="empty-state">No hay congregantes nuevos en el rango seleccionado.</div>
             `}
-          </div>
-
-          <div class="actions-row">
-            <button class="btn btn-secondary" data-action="navigate" data-view="congregants-new">Abrir consulta completa</button>
           </div>
         </article>
       </div>
@@ -2162,6 +2184,24 @@ function getRecentCongregants_(scope = "congregants") {
       return true;
     })
     .sort((left, right) => parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true));
+}
+
+function getDashboardRecentCongregantsTracking_() {
+  return getRecentCongregants_("dashboard").map((person) => {
+    const livePerson = state.people.find((item) => String(item.id || "") === String(person.id || "")) || null;
+    const rawGroupValue = String(livePerson?.groupId || person.grupo || "").trim();
+    const resolvedGroupName = resolveGroupName_(rawGroupValue) || rawGroupValue;
+    const inGroup = Boolean(resolvedGroupName);
+
+    return {
+      ...person,
+      inGroup,
+      groupName: resolvedGroupName || "",
+      followUpLabel: inGroup
+        ? `Grupo de conexion: ${resolvedGroupName}`
+        : "Sin grupo de conexion asignado todavia"
+    };
+  });
 }
 
 function buildCsvText_(rows) {
