@@ -853,6 +853,54 @@ div {
   flex: 1 1 180px;
 }
 
+.dashboard-mobile-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.dashboard-mobile-shortcut {
+  min-height: 88px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.dashboard-mobile-shortcut:hover {
+  transform: translateY(-1px);
+  border-color: rgba(0, 0, 0, 0.16);
+  background: #ffffff;
+}
+
+.dashboard-mobile-shortcut strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.dashboard-mobile-shortcut span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.dashboard-mobile-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.dashboard-mobile-actions .btn {
+  width: 100%;
+}
+
 .module-mobile-hero {
   display: none;
   padding: 24px;
@@ -886,6 +934,12 @@ div {
   background:
     radial-gradient(circle at top right, rgba(0, 0, 0, 0.05), transparent 24%),
     linear-gradient(180deg, #ffffff 0%, #efefef 100%);
+}
+
+.module-mobile-hero-qr {
+  background:
+    radial-gradient(circle at bottom right, rgba(0, 0, 0, 0.05), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f1f1f1 100%);
 }
 
 .module-mobile-hero-head {
@@ -1196,6 +1250,16 @@ tbody tr:hover {
 
 .dashboard-filter-actions {
   margin-top: 18px;
+}
+
+.dashboard-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dashboard-toolbar-actions .btn {
+  flex: 1 1 180px;
 }
 
 .dashboard-stats-grid .stat-card {
@@ -2641,7 +2705,12 @@ tbody tr:hover {
     order: 1;
   }
 
-  .app-shell.view-dashboard .topbar {
+  .app-shell.view-dashboard .topbar,
+  .app-shell.view-assistants .topbar,
+  .app-shell.view-seasons .topbar,
+  .app-shell.view-participants .topbar,
+  .app-shell.view-attendance .topbar,
+  .app-shell.view-qr .topbar {
     display: none;
   }
 
@@ -2651,6 +2720,17 @@ tbody tr:hover {
 
   .app-shell.view-dashboard .dashboard-activity-card .summary-strip {
     margin-bottom: 0;
+  }
+
+  .app-shell.view-dashboard .dashboard-toolbar-card .field-help,
+  .app-shell.view-dashboard .panel-head p,
+  .app-shell.view-dashboard .dashboard-summary-grid .summary-box > span:not(.status-chip) {
+    display: none;
+  }
+
+  .app-shell.view-dashboard .dashboard-toolbar-card .summary-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2728,6 +2808,11 @@ tbody tr:hover {
 
   .dashboard-stats-grid .stat-card {
     min-height: auto;
+  }
+
+  .dashboard-mobile-shortcuts,
+  .dashboard-mobile-actions {
+    grid-template-columns: 1fr;
   }
 
   .credential-grid {
