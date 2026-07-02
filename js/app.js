@@ -1553,7 +1553,7 @@ function renderAdminUsersView_() {
   `;
 }
 
-function renderDashboardView() {
+function renderDashboardViewLegacy_() {
   const executive = state.dashboardExecutive;
   const latestSeason = getLatestSeason();
   const focusSeason = executive?.seasonFocus || (latestSeason ? {
@@ -2914,6 +2914,375 @@ function buildDashboardExportFileName_(prefix, label) {
   return `${prefix}_${formatTimestampToken_()}${safeLabel}.csv`;
 }
 
+function renderDashboardView() {
+  const executive = state.dashboardExecutive;
+  const latestSeason = getLatestSeason();
+  const focusSeason = executive?.seasonFocus || (latestSeason ? {
+    id: latestSeason.id,
+    name: latestSeason.name,
+    status: latestSeason.status,
+    startDate: latestSeason.startDate,
+    sessionsCount: latestSeason.sessionsCount || getSessions(latestSeason.id).length
+  } : null);
+  const seasonMatrix = state.dashboardSeasonMatrix;
+  const sessionTotals = seasonMatrix?.sessionTotals || [];
+  const selectedGroupId = String(state.filters.dashboard.groupId || "");
+  const selectedGroupRow = getDashboardSelectedGroupRow_();
+  const selectedMatrixGroup = seasonMatrix?.groups?.find((group) => String(group.groupId) === selectedGroupId) || null;
+  const selectedDetail = state.dashboardLeaderDetail && String(state.dashboardLeaderDetail.groupId || "") === selectedGroupId
+    ? state.dashboardLeaderDetail
+    : null;
+  const leaderSummary = buildDashboardLeaderSummary_(selectedMatrixGroup || selectedGroupRow, selectedDetail);
+  const selectedGroupMeta = leaderSummary || selectedMatrixGroup || selectedGroupRow || null;
+  const overall = seasonMatrix?.overall || {
+    presentTotal: 0,
+    capturedBaseTotal: 0,
+    uniquePeople: 0,
+    groups: 0,
+    sessions: 0,
+    attendanceRate: 0
+  };
+  const sessionsCount = Number(seasonMatrix?.sessions?.length || focusSeason?.sessionsCount || 0);
+  const groupsCount = Number(seasonMatrix?.groups?.length || 0);
+  const capturedSessionsCount = sessionTotals.filter((session) => Number(session.capturedBaseTotal || 0) > 0 || Number(session.groupsCaptured || 0) > 0).length;
+  const dashboardGroupSource = seasonMatrix?.groups?.length
+    ? seasonMatrix.groups.map((group) => ({
+      id: String(group.groupId),
+      name: group.groupName
+    }))
+    : state.catalogs.groups;
+  const dashboardGroupOptions = renderOptions(
+    dashboardGroupSource.map((group) => ({
+      value: String(group.id),
+      label: `${group.name} (${group.id})`
+    })),
+    selectedGroupId,
+    "Selecciona grupo"
+  );
+  const hasSeasonData = Boolean(focusSeason);
+  const globalAttendanceLabel = overall.capturedBaseTotal
+    ? `${overall.presentTotal}/${overall.capturedBaseTotal}`
+    : "Sin captura";
+  const selectedTrend = selectedGroupMeta?.trend || leaderSummary?.trend || null;
+
+  return `
+    <section class="view-grid dashboard-executive-flow">
+      <article class="panel-card dashboard-toolbar-card dashboard-season-selector-card module-section-anchor" id="dashboard-season-selector">
+        <div class="panel-head">
+          <div>
+            <h2>Dashboard ejecutivo</h2>
+            <p>Selecciona la temporada y consulta la asistencia global, por sesion y por grupo en un solo flujo.</p>
+          </div>
+          <div class="dashboard-toolbar-actions">
+            <button class="btn btn-secondary" data-action="refresh-dashboard-executive">Actualizar</button>
+          </div>
+        </div>
+
+        <div class="field-grid dashboard-toolbar-season-grid">
+          ${renderSeasonSelect("dashboard-season", state.filters.dashboard.seasonId)}
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Temporada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : "Sin temporada"}</span>
+          <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(sessionsCount))}</span>
+          <span class="context-item"><strong>Grupos:</strong> ${escapeHtml(String(groupsCount))}</span>
+          <span class="context-item"><strong>Actualizado:</strong> ${escapeHtml(executive?.generatedAt ? formatDateTime_(executive.generatedAt) : "Pendiente")}</span>
+        </div>
+      </article>
+
+      ${!hasSeasonData ? `
+        <div class="empty-state">Selecciona o crea una temporada para comenzar la consulta ejecutiva.</div>
+      ` : `
+        <article class="detail-card dashboard-overview-card module-section-anchor" id="dashboard-overview">
+          <div class="panel-head">
+            <div>
+              <h2>Resumen global de la temporada</h2>
+              <p>Lectura general para saber rapidamente cuanta asistencia real ya se registro en la temporada.</p>
+            </div>
+            ${focusSeason ? renderPill(focusSeason.status) : `<span class="pill warning">Sin temporada</span>`}
+          </div>
+
+          <div class="stats-grid dashboard-stats-grid dashboard-overview-grid">
+            <article class="stat-card">
+              <span class="status-chip success">Asistencia global</span>
+              <strong>${escapeHtml(globalAttendanceLabel)}</strong>
+              <span>${escapeHtml(String(overall.attendanceRate || 0))}% sobre la base ya capturada.</span>
+            </article>
+
+            <article class="stat-card">
+              <span class="status-chip neutral">Sesiones capturadas</span>
+              <strong>${escapeHtml(`${capturedSessionsCount}/${sessionsCount}`)}</strong>
+              <span>${sessionsCount ? escapeHtml(`${Math.round((capturedSessionsCount / sessionsCount) * 100)}% de avance`) : "Sin sesiones"}</span>
+            </article>
+
+            <article class="stat-card">
+              <span class="status-chip dark">Grupos en temporada</span>
+              <strong>${escapeHtml(String(groupsCount))}</strong>
+              <span>Grupos incluidos en la consulta global de esta temporada.</span>
+            </article>
+
+            <article class="stat-card">
+              <span class="status-chip neutral">Participantes unicos</span>
+              <strong>${escapeHtml(String(overall.uniquePeople || 0))}</strong>
+              <span>Personas que forman parte de los grupos analizados.</span>
+            </article>
+          </div>
+        </article>
+
+        <article class="detail-card dashboard-session-overview-card module-section-anchor" id="dashboard-session-overview">
+          <div class="panel-head">
+            <div>
+              <h2>Asistencia por sesion</h2>
+              <p>Cada tarjeta resume el total de presentes y la cobertura de grupos capturados en esa sesion.</p>
+            </div>
+          </div>
+
+          ${sessionTotals.length ? `
+            <div class="dashboard-session-total-grid">
+              ${sessionTotals.map((session) => `
+                <article class="summary-box dashboard-session-total-card">
+                  <span class="status-chip ${session.groupsCaptured ? "success" : "warning"}">${escapeHtml(session.shortLabel || session.name)}</span>
+                  <strong>${session.capturedBaseTotal ? escapeHtml(`${session.presentTotal}/${session.capturedBaseTotal}`) : "Sin captura"}</strong>
+                  <span>${escapeHtml(String(session.attendanceRate || 0))}% asistencia</span>
+                  <small>${escapeHtml(formatDate(session.date))}</small>
+                  <small>${escapeHtml(`${session.groupsCaptured || 0}/${session.groupsConfigured || 0} grupos | ${session.assignedVolunteers || 0} V + ${session.assignedCongregants || 0} C`)}</small>
+                </article>
+              `).join("")}
+            </div>
+          ` : `
+            <div class="empty-state">Todavia no hay sesiones disponibles para esta temporada.</div>
+          `}
+        </article>
+
+        <article class="detail-card dashboard-season-matrix-card module-section-anchor" id="dashboard-season-matrix">
+          <div class="panel-head">
+            <div>
+              <h2>Asistencia por grupo y sesion</h2>
+              <p>Toca un grupo para abrir su detalle. Cada celda muestra presentes sobre base capturada y la composicion voluntarios + congregantes.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(String(groupsCount))} grupos</span>
+          </div>
+
+          ${seasonMatrix ? `
+            <div class="table-wrap season-matrix-wrap">
+              <table class="season-matrix-table">
+                <thead>
+                  <tr>
+                    <th>Grupo</th>
+                    ${seasonMatrix.sessions.map((session) => `
+                      <th>${escapeHtml(session.shortLabel || session.name)}</th>
+                    `).join("")}
+                    <th>Total grupo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${seasonMatrix.groups.length ? seasonMatrix.groups.map((group) => `
+                    <tr>
+                      <td>
+                        <button
+                          class="season-matrix-group-button"
+                          data-action="open-dashboard-session-group"
+                          data-group-id="${escapeHtml(String(group.groupId || ""))}"
+                          type="button"
+                        >
+                          <span class="row-title">${escapeHtml(group.groupName)}</span>
+                          <span class="row-meta">Grupo ${escapeHtml(String(group.groupId))} | ${escapeHtml(String(group.uniquePeople || 0))} personas</span>
+                        </button>
+                      </td>
+                      ${group.sessions.map((cell) => `
+                        <td>
+                          <div class="season-matrix-cell ${cell.captured ? "captured" : "pending"}">
+                            <strong>${cell.captured ? escapeHtml(`${cell.present || 0}/${cell.total || 0}`) : escapeHtml(cell.total ? `-/${cell.total}` : "0")}</strong>
+                            <span>${cell.captured ? escapeHtml(`${cell.rate || 0}% asistencia`) : (cell.total ? "Sin captura" : "Sin base")}</span>
+                            <small>${escapeHtml(`${cell.volunteers || 0} V + ${cell.congregants || 0} C`)}</small>
+                          </div>
+                        </td>
+                      `).join("")}
+                      <td>
+                        <div class="season-matrix-total-card">
+                          <strong>${group.capturedBaseTotal ? escapeHtml(`${group.presentTotal || 0}/${group.capturedBaseTotal || 0}`) : "Sin captura"}</strong>
+                          <span>${escapeHtml(String(group.attendanceRate || 0))}% | ${escapeHtml(String(group.capturedSessions || 0))}/${escapeHtml(String(group.totalSessions || 0))} sesiones</span>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join("") : `
+                    <tr>
+                      <td colspan="${Math.max((seasonMatrix.sessions.length || 0) + 2, 3)}">
+                        <div class="empty-state">Aun no hay participantes cargados en esta temporada.</div>
+                      </td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          ` : `
+            <div class="empty-state">Estamos preparando la matriz de grupos por sesion para esta temporada.</div>
+          `}
+        </article>
+
+        <article class="panel-card dashboard-group-focus-card module-section-anchor" id="dashboard-group-focus">
+          <div class="panel-head">
+            <div>
+              <h2>Detalle del grupo</h2>
+              <p>Selecciona un grupo desde la lista o tocando la matriz para revisar su comportamiento completo.</p>
+            </div>
+            ${selectedTrend ? renderDashboardTrendPill_(selectedTrend) : `<span class="pill dark">Sin grupo</span>`}
+          </div>
+
+          <div class="view-grid columns-2 dashboard-group-focus-grid">
+            <div class="dashboard-consult-hub-panel">
+              <div class="field">
+                <label for="dashboard-group">Grupo de conexion</label>
+                <select id="dashboard-group">
+                  ${dashboardGroupOptions}
+                </select>
+                <span class="field-help">Puedes elegir aqui un grupo o tocar directamente una fila dentro de la matriz.</span>
+              </div>
+
+              <div class="actions-row dashboard-filter-actions">
+                <button class="btn btn-secondary" data-action="export-dashboard-group-detail" ${selectedGroupMeta ? "" : "disabled"}>Exportar grupo</button>
+                <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${selectedGroupMeta ? "" : "disabled"}>Limpiar</button>
+              </div>
+
+              <div class="dashboard-consult-tip">
+                <strong>Ruta recomendada</strong>
+                <span>1. Revisa la temporada. 2. Detecta la sesion o grupo. 3. Abre el detalle para ver personas y asistencia individual.</span>
+              </div>
+            </div>
+
+            <div class="dashboard-consult-hub-panel">
+              ${selectedGroupMeta ? `
+                <div class="summary-stack dashboard-summary-grid">
+                  <div class="summary-box">
+                    <span class="status-chip neutral">Grupo</span>
+                    <strong>${escapeHtml(selectedGroupMeta.groupName || "Sin grupo")}</strong>
+                    <span>${escapeHtml(String(selectedGroupMeta.groupId || ""))}</span>
+                  </div>
+                  <div class="summary-box">
+                    <span class="status-chip success">Asistencia</span>
+                    <strong>${escapeHtml(`${leaderSummary?.presentTotal ?? selectedGroupMeta.presentTotal ?? 0}/${leaderSummary?.capturedBaseTotal ?? selectedGroupMeta.capturedBaseTotal ?? 0}`)}</strong>
+                    <span>${escapeHtml(String(leaderSummary?.attendanceRate ?? selectedGroupMeta.attendanceRate ?? 0))}% acumulado.</span>
+                  </div>
+                  <div class="summary-box">
+                    <span class="status-chip dark">Cobertura</span>
+                    <strong>${escapeHtml(`${leaderSummary?.capturedSessions ?? selectedGroupMeta.capturedSessions ?? 0}/${leaderSummary?.totalSessions ?? selectedGroupMeta.totalSessions ?? 0}`)}</strong>
+                    <span>${escapeHtml(String(leaderSummary?.captureProgress ?? selectedGroupMeta.captureProgress ?? 0))}% de sesiones con captura.</span>
+                  </div>
+                  <div class="summary-box">
+                    <span class="status-chip neutral">Participantes</span>
+                    <strong>${escapeHtml(String(leaderSummary?.uniquePeople ?? selectedGroupMeta.uniquePeople ?? 0))}</strong>
+                    <span>${escapeHtml(String(leaderSummary?.participantAssignments ?? selectedGroupMeta.participantAssignments ?? 0))} asignaciones acumuladas.</span>
+                  </div>
+                </div>
+              ` : `
+                <div class="empty-state">Selecciona un grupo para ver su resumen, tendencia y detalle de asistentes.</div>
+              `}
+            </div>
+          </div>
+        </article>
+
+        <article class="detail-card dashboard-group-trend-card module-section-anchor" id="dashboard-group-summary">
+          <div class="panel-head">
+            <div>
+              <h2>Tendencia del grupo</h2>
+              <p>Comportamiento de asistencia del grupo durante toda la temporada seleccionada.</p>
+            </div>
+            ${leaderSummary ? renderDashboardTrendPill_(leaderSummary.trend) : `<span class="pill dark">Sin grupo</span>`}
+          </div>
+
+          ${leaderSummary ? `
+            ${renderDashboardTrendChart_(leaderSummary)}
+
+            <div class="summary-stack dashboard-summary-grid dashboard-group-trend-summary">
+              <div class="summary-box">
+                <span class="status-chip neutral">Mejor sesion</span>
+                <strong>${leaderSummary.bestSession ? escapeHtml(leaderSummary.bestSession.shortLabel || leaderSummary.bestSession.name) : "Sin dato"}</strong>
+                <span>${leaderSummary.bestSession ? escapeHtml(`${leaderSummary.bestSession.present || 0}/${leaderSummary.bestSession.total || 0} (${leaderSummary.bestSession.rate || 0}%)`) : "Aun no hay sesiones capturadas."}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip dark">Ultima sesion</span>
+                <strong>${leaderSummary.latestSession ? escapeHtml(leaderSummary.latestSession.shortLabel || leaderSummary.latestSession.name) : "Sin dato"}</strong>
+                <span>${leaderSummary.latestSession ? escapeHtml(`${leaderSummary.latestSession.present || 0}/${leaderSummary.latestSession.total || 0} (${leaderSummary.latestSession.rate || 0}%)`) : "Sin captura reciente."}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip success">Tendencia</span>
+                <strong>${escapeHtml(leaderSummary.trend?.label || "Sin tendencia")}</strong>
+                <span>${escapeHtml(leaderSummary.trend?.summary || "Sin sesiones suficientes para evaluar el comportamiento del grupo.")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Mayor constancia</span>
+                <strong>${leaderSummary.topPeople.length ? escapeHtml(leaderSummary.topPeople[0].name) : "Sin dato"}</strong>
+                <span>${leaderSummary.topPeople.length ? escapeHtml(`${leaderSummary.topPeople[0].totalPresent || 0} asistencias SI`) : "Aun no hay historial suficiente."}</span>
+              </div>
+            </div>
+          ` : `
+            <div class="empty-state">Selecciona un grupo para visualizar su tendencia de asistencia por sesion.</div>
+          `}
+        </article>
+
+        <article class="detail-card dashboard-group-detail-card module-section-anchor" id="dashboard-group-detail">
+          <div class="panel-head">
+            <div>
+              <h2>Detalle de asistentes por grupo</h2>
+              <p>Paloma verde si asistio, cruz roja si no asistio y guion cuando esa sesion aun no tiene captura.</p>
+            </div>
+            ${leaderSummary ? renderDashboardTrendPill_(leaderSummary.trend) : `<span class="pill dark">Sin grupo</span>`}
+          </div>
+
+          ${leaderSummary ? `
+            <div class="table-wrap dashboard-group-roster-wrap">
+              <table class="dashboard-group-roster-table">
+                <thead>
+                  <tr>
+                    <th>Asistente</th>
+                    <th>Tipo</th>
+                    <th>Total</th>
+                    ${leaderSummary.sessions.map((session) => `
+                      <th>${escapeHtml(session.shortLabel || session.name)}</th>
+                    `).join("")}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${leaderSummary.people.length ? leaderSummary.people.map((person) => `
+                    <tr>
+                      <td>
+                        <span class="row-title">${escapeHtml(person.name)}</span>
+                        <span class="row-meta">${escapeHtml(person.personId)}</span>
+                      </td>
+                      <td>${renderPersonTypePill_(person.type || "")}</td>
+                      <td>
+                        <div class="dashboard-person-total">
+                          <strong>${escapeHtml(`${person.totalPresent || 0}/${person.totalAssignedSessions || leaderSummary.totalSessions || 0}`)}</strong>
+                          <span>${escapeHtml(String(person.attendanceRate || 0))}%</span>
+                        </div>
+                      </td>
+                      ${leaderSummary.sessions.map((session) => `
+                        <td>
+                          <div class="dashboard-attendance-cell">
+                            ${renderDashboardAttendanceMark_(person.attendances?.[session.sessionId] || person.attendances?.[session.id] || "")}
+                          </div>
+                        </td>
+                      `).join("")}
+                    </tr>
+                  `).join("") : `
+                    <tr>
+                      <td colspan="${Math.max((leaderSummary.sessions.length || 0) + 3, 4)}">
+                        <div class="empty-state">Este grupo todavia no tiene personas suficientes para construir el detalle.</div>
+                      </td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          ` : `
+            <div class="empty-state">Selecciona un grupo para revisar el listado detallado de asistentes y su historial por sesion.</div>
+          `}
+        </article>
+      `}
+    </section>
+  `;
+}
+
 function buildDashboardRankingCsv_() {
   const executive = state.dashboardExecutive;
   const groupsRanking = executive?.groupsRanking || [];
@@ -2955,11 +3324,14 @@ function buildDashboardRankingCsv_() {
 
 function buildDashboardGroupDetailCsv_() {
   const executive = state.dashboardExecutive;
-  const detail = state.dashboardLeaderDetail;
+  const selectedGroupId = String(state.filters.dashboard.groupId || "");
+  const detail = (state.dashboardLeaderDetail && String(state.dashboardLeaderDetail.groupId || "") === selectedGroupId)
+    ? state.dashboardLeaderDetail
+    : (state.dashboardSeasonMatrix?.groupDetailsById?.[selectedGroupId] || null);
   const selectedGroupRow = getDashboardSelectedGroupRow_();
   const sessions = Array.isArray(detail?.sessions) ? detail.sessions : [];
   const seasonName = executive?.seasonFocus?.name || resolveSeasonName_(detail?.seasonId) || "Sin temporada";
-  const groupId = selectedGroupRow?.groupId || detail?.groupId || state.filters.dashboard.groupId || "";
+  const groupId = selectedGroupRow?.groupId || detail?.groupId || selectedGroupId || "";
   const groupName = selectedGroupRow?.groupName || resolveGroupName_(groupId) || `Grupo ${groupId}`;
   const rows = [[
     "TEMPORADA",
@@ -5203,10 +5575,10 @@ async function handleClick(event) {
       state.filters.dashboard.groupId = button.dataset.groupId || "";
       await loadDashboardLeaderDetail_({
         force: true,
-        message: "Abriendo detalle del grupo..."
+        showLoading: false
       });
       renderApp();
-      scrollToSection_("dashboard-group-analysis");
+      scrollToSection_("dashboard-group-focus");
       return;
     }
 
@@ -5261,10 +5633,10 @@ async function handleClick(event) {
 
       await loadDashboardLeaderDetail_({
         force: true,
-        message: "Consultando grupo..."
+        showLoading: false
       });
       renderApp();
-      scrollToSection_("dashboard-group-analysis");
+      scrollToSection_("dashboard-group-focus");
       return;
     }
 
@@ -5300,7 +5672,7 @@ async function handleClick(event) {
       state.filters.dashboard.groupId = "";
       state.dashboardLeaderDetail = null;
       renderApp();
-      scrollToSection_("dashboard-consult-hub");
+      scrollToSection_("dashboard-group-focus");
       return;
     }
 
@@ -5973,6 +6345,7 @@ async function handleChange(event) {
     if (target.id === "dashboard-season") {
       state.filters.dashboard.seasonId = target.value;
       state.filters.dashboard.sessionId = "";
+      state.filters.dashboard.groupId = "";
       state.dashboardLeaderDetail = null;
       invalidateDashboardSeasonMatrix_();
       await loadDashboardExecutive_({
@@ -5991,6 +6364,9 @@ async function handleChange(event) {
       state.filters.dashboard.groupId = target.value;
       state.dashboardLeaderDetail = null;
       renderApp();
+      if (target.value) {
+        scrollToSection_("dashboard-group-summary");
+      }
       return;
     }
 
