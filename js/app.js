@@ -1579,12 +1579,13 @@ function renderDashboardView() {
     pendingGroupNames: []
   };
   const groupsRanking = executive?.groupsRanking || [];
+  const seasonMatrix = state.dashboardSeasonMatrix;
+  const sessionTotals = seasonMatrix?.sessionTotals || [];
   const topGroups = executive?.topGroups || groupsRanking.slice(0, 5);
   const selectedGroupId = state.filters.dashboard.groupId;
   const selectedGroupRow = groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
-  const leaderSummary = buildDashboardLeaderSummary_(selectedGroupRow, state.dashboardLeaderDetail);
-  const seasonMatrix = state.dashboardSeasonMatrix;
-  const dashboardSeasonId = state.filters.dashboard.seasonId || focusSeason?.id || "";
+  const selectedMatrixGroup = seasonMatrix?.groups?.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
+  const leaderSummary = buildDashboardLeaderSummary_(selectedMatrixGroup || selectedGroupRow, state.dashboardLeaderDetail);
   const trackedRecentCongregants = getDashboardRecentCongregantsTracking_();
   const recentInGroupCount = trackedRecentCongregants.filter((person) => person.inGroup).length;
   const recentPendingCount = trackedRecentCongregants.length - recentInGroupCount;
@@ -1595,8 +1596,14 @@ function renderDashboardView() {
   const seasonStatsLabel = focusSeason
     ? `${focusSeason.name} | ${focusSeason.sessionsCount || 0} sesiones`
     : 'Selecciona una temporada para ver el resumen ejecutivo';
+  const dashboardGroupSource = seasonMatrix?.groups?.length
+    ? seasonMatrix.groups.map((group) => ({
+      id: String(group.groupId),
+      name: group.groupName
+    }))
+    : state.catalogs.groups;
   const dashboardGroupOptions = renderOptions(
-    state.catalogs.groups.map((group) => ({
+    dashboardGroupSource.map((group) => ({
       value: String(group.id),
       label: `${group.name} (${group.id})`
     })),
@@ -1634,6 +1641,7 @@ function renderDashboardView() {
         <div class="summary-strip">
           <span class="context-item"><strong>Temporada analizada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : 'Sin temporada'}</span>
           <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(seasonMatrix?.sessions?.length || focusSeason?.sessionsCount || 0))}</span>
+          <span class="context-item"><strong>Asistencia global:</strong> ${seasonMatrix?.overall ? escapeHtml(`${seasonMatrix.overall.presentTotal}/${seasonMatrix.overall.capturedBaseTotal || 0}`) : 'Pendiente'}</span>
           <span class="context-item"><strong>Generado:</strong> ${escapeHtml(executive ? formatDateTime_(executive.generatedAt) : 'Cargando...')}</span>
         </div>
       </article>
@@ -1642,7 +1650,7 @@ function renderDashboardView() {
         <div class="panel-head">
           <div>
             <h2>Grupos por sesion</h2>
-            <p>Consulta vital para Pastor: cada celda muestra el total del grupo en la sesion y su composicion entre voluntarios y congregantes. Toca un grupo para abrir su detalle.</p>
+            <p>Consulta vital para Pastor: cada celda muestra la asistencia real del grupo por sesion y su base de participantes. Toca un grupo para abrir su detalle.</p>
           </div>
           <span class="pill dark">${escapeHtml(String(seasonMatrix?.groups?.length || 0))} grupos</span>
         </div>
@@ -1651,7 +1659,19 @@ function renderDashboardView() {
           <div class="summary-strip">
             <span class="context-item"><strong>Temporada:</strong> ${escapeHtml(seasonMatrix.seasonName || focusSeason?.name || "Sin temporada")}</span>
             <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(seasonMatrix.sessions.length || 0))}</span>
-            <span class="context-item"><strong>Clave:</strong> Total = Voluntarios + Congregantes</span>
+            <span class="context-item"><strong>Global temporada:</strong> ${escapeHtml(`${seasonMatrix.overall.presentTotal || 0}/${seasonMatrix.overall.capturedBaseTotal || 0}`)} (${escapeHtml(String(seasonMatrix.overall.attendanceRate || 0))}%)</span>
+            <span class="context-item"><strong>Clave:</strong> Presentes / Base capturada</span>
+          </div>
+
+          <div class="dashboard-session-total-grid">
+            ${sessionTotals.map((session) => `
+              <article class="summary-box dashboard-session-total-card">
+                <span class="status-chip ${session.groupsCaptured ? "success" : "warning"}">${escapeHtml(session.shortLabel || session.name)}</span>
+                <strong>${session.capturedBaseTotal ? escapeHtml(`${session.presentTotal}/${session.capturedBaseTotal}`) : "Sin captura"}</strong>
+                <span>${escapeHtml(String(session.attendanceRate || 0))}% asistencia | ${escapeHtml(String(session.groupsCaptured || 0))}/${escapeHtml(String(session.groupsConfigured || 0))} grupos</span>
+                <small>${escapeHtml(formatDate(session.date))}</small>
+              </article>
+            `).join("")}
           </div>
 
           <div class="table-wrap season-matrix-wrap">
@@ -1662,6 +1682,8 @@ function renderDashboardView() {
                   ${seasonMatrix.sessions.map((session) => `
                     <th>${escapeHtml(session.shortLabel || session.name)}</th>
                   `).join("")}
+                  <th>Total grupo</th>
+                  <th>Tendencia</th>
                 </tr>
               </thead>
               <tbody>
@@ -1675,21 +1697,34 @@ function renderDashboardView() {
                         type="button"
                       >
                         <span class="row-title">${escapeHtml(group.groupName)}</span>
-                        <span class="row-meta">Grupo ${escapeHtml(String(group.groupId))}</span>
+                        <span class="row-meta">Grupo ${escapeHtml(String(group.groupId))} | ${escapeHtml(String(group.uniquePeople || 0))} personas</span>
                       </button>
                     </td>
                     ${group.sessions.map((cell) => `
                       <td>
-                        <div class="season-matrix-cell">
-                          <strong>${escapeHtml(String(cell.total || 0))}</strong>
-                          <span>${escapeHtml(`${cell.volunteers || 0} V + ${cell.congregants || 0} C`)}</span>
+                        <div class="season-matrix-cell ${cell.captured ? "captured" : "pending"}">
+                          <strong>${cell.captured ? escapeHtml(`${cell.present || 0}/${cell.total || 0}`) : escapeHtml(cell.total ? `-/${cell.total}` : "0")}</strong>
+                          <span>${cell.captured ? escapeHtml(`${cell.rate || 0}% asistencia`) : (cell.total ? "Sin captura" : "Sin base")}</span>
+                          <small>${escapeHtml(`${cell.volunteers || 0} V + ${cell.congregants || 0} C`)}</small>
                         </div>
                       </td>
                     `).join("")}
+                    <td>
+                      <div class="season-matrix-total-card">
+                        <strong>${group.capturedBaseTotal ? escapeHtml(`${group.presentTotal || 0}/${group.capturedBaseTotal || 0}`) : "Sin captura"}</strong>
+                        <span>${escapeHtml(String(group.attendanceRate || 0))}% | ${escapeHtml(String(group.capturedSessions || 0))}/${escapeHtml(String(group.totalSessions || 0))} sesiones</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="season-matrix-trend-card">
+                        ${renderDashboardTrendPill_(group.trend)}
+                        <span>${escapeHtml(group.trend?.summary || "Sin tendencia disponible.")}</span>
+                      </div>
+                    </td>
                   </tr>
                 `).join("") : `
                   <tr>
-                    <td colspan="${Math.max((seasonMatrix.sessions.length || 0) + 1, 2)}">
+                    <td colspan="${Math.max((seasonMatrix.sessions.length || 0) + 3, 4)}">
                       <div class="empty-state">Aun no hay participantes cargados en esta temporada.</div>
                     </td>
                   </tr>
@@ -1853,7 +1888,9 @@ function renderDashboardView() {
               <h2>Consulta para lideres</h2>
               <p>Consulta separada del tablero general para revisar un grupo puntual y exportar su detalle.</p>
             </div>
-            ${selectedGroupRow ? renderPill(selectedGroupRow.status) : `<span class="pill dark">Sin grupo</span>`}
+            ${selectedGroupRow
+              ? renderPill(selectedGroupRow.status)
+              : (selectedMatrixGroup ? renderDashboardTrendPill_(selectedMatrixGroup.trend) : `<span class="pill dark">Sin grupo</span>`)}
           </div>
 
           <div class="field-grid dashboard-toolbar-season-grid">
@@ -1872,27 +1909,34 @@ function renderDashboardView() {
             <button class="btn btn-ghost" data-action="clear-dashboard-group-query" ${state.filters.dashboard.groupId || state.dashboardLeaderDetail ? '' : 'disabled'}>Limpiar consulta</button>
           </div>
 
-          ${selectedGroupRow ? `
+          ${selectedGroupRow || selectedMatrixGroup ? `
             <div class="summary-stack dashboard-summary-grid">
               <div class="summary-box">
                 <span class="status-chip neutral">Grupo</span>
-                <strong>${escapeHtml(selectedGroupRow.groupName)}</strong>
-                <span>${escapeHtml(String(selectedGroupRow.groupId))}</span>
+                <strong>${escapeHtml(selectedGroupRow?.groupName || selectedMatrixGroup?.groupName || "Sin grupo")}</strong>
+                <span>${escapeHtml(String(selectedGroupRow?.groupId || selectedMatrixGroup?.groupId || ""))}</span>
               </div>
               <div class="summary-box">
                 <span class="status-chip success">Asistencia</span>
-                <strong>${escapeHtml(String(selectedGroupRow.attendanceRate || 0))}%</strong>
-                <span>${escapeHtml(String(selectedGroupRow.attendanceYes || 0))} asistencias positivas sobre ${escapeHtml(String(selectedGroupRow.attendanceRecords || 0))} registros.</span>
+                <strong>${escapeHtml(String(leaderSummary?.attendanceRate ?? selectedGroupRow?.attendanceRate ?? 0))}%</strong>
+                <span>${leaderSummary
+                  ? escapeHtml(`${leaderSummary.presentTotal || 0} presentes sobre ${leaderSummary.capturedBaseTotal || 0} registros esperados capturados.`)
+                  : escapeHtml(`${String(selectedGroupRow?.attendanceYes || 0)} asistencias positivas sobre ${String(selectedGroupRow?.attendanceRecords || 0)} registros.`)}</span>
               </div>
               <div class="summary-box">
                 <span class="status-chip neutral">Personas</span>
-                <strong>${escapeHtml(String(selectedGroupRow.uniquePeople || 0))}</strong>
-                <span>${escapeHtml(String(selectedGroupRow.participantAssignments || 0))} asignaciones acumuladas en la temporada.</span>
+                <strong>${escapeHtml(String(leaderSummary?.uniquePeople ?? selectedGroupRow?.uniquePeople ?? 0))}</strong>
+                <span>${escapeHtml(String(leaderSummary?.participantAssignments ?? selectedGroupRow?.participantAssignments ?? 0))} asignaciones acumuladas en la temporada.</span>
               </div>
               <div class="summary-box">
                 <span class="status-chip dark">Captura</span>
-                <strong>${escapeHtml(String(selectedGroupRow.sessionsCaptured || 0))}/${escapeHtml(String(selectedGroupRow.totalSessions || 0))}</strong>
-                <span>${escapeHtml(String(selectedGroupRow.captureProgress || 0))}% de sesiones del grupo ya quedaron capturadas.</span>
+                <strong>${escapeHtml(String(leaderSummary?.capturedSessions ?? selectedGroupRow?.sessionsCaptured ?? 0))}/${escapeHtml(String(leaderSummary?.totalSessions ?? selectedGroupRow?.totalSessions ?? 0))}</strong>
+                <span>${escapeHtml(String(leaderSummary?.captureProgress ?? selectedGroupRow?.captureProgress ?? 0))}% de sesiones del grupo ya quedaron capturadas.</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip success">Tendencia</span>
+                <strong>${escapeHtml(leaderSummary?.trend?.label || "Sin captura")}</strong>
+                <span>${escapeHtml(leaderSummary?.trend?.summary || "Cuando consultes el grupo veras si su asistencia subio o disminuyo.")}</span>
               </div>
             </div>
           ` : `
@@ -1903,33 +1947,100 @@ function renderDashboardView() {
         <article class="panel-card dashboard-leader-roster-card">
           <div class="panel-head">
             <div>
-              <h2>Personas destacadas del grupo</h2>
-              <p>Top de constancia dentro del grupo consultado.</p>
+              <h2>Tendencia del grupo</h2>
+              <p>Observa sesion por sesion si el grupo aumento o disminuyo su asistencia.</p>
             </div>
           </div>
 
           ${leaderSummary ? `
-            <div class="results-list dashboard-leader-list">
-              ${leaderSummary.topPeople.length ? leaderSummary.topPeople.map((person) => `
-                <article class="result-card">
-                  <div class="result-row">
-                    <div class="result-copy-stack">
-                      <span class="row-title">${escapeHtml(person.name)}</span>
-                      <span class="row-meta">${escapeHtml(person.personId)} | ${escapeHtml(String(person.totalPresent || 0))} asistencias SI</span>
-                      <span class="row-meta">${escapeHtml(String(leaderSummary.totalSessions))} sesiones en el periodo consultado.</span>
-                    </div>
-                    <span class="pill dark">${escapeHtml(String(person.attendanceRate))}%</span>
-                  </div>
-                </article>
-              `).join('') : `
-                <div class="empty-state">El grupo seleccionado todavia no tiene historial suficiente.</div>
-              `}
+            ${renderDashboardTrendChart_(leaderSummary)}
+
+            <div class="summary-stack dashboard-summary-grid dashboard-group-trend-summary">
+              <div class="summary-box">
+                <span class="status-chip neutral">Mejor sesion</span>
+                <strong>${leaderSummary.bestSession ? escapeHtml(leaderSummary.bestSession.shortLabel || leaderSummary.bestSession.name) : "Sin dato"}</strong>
+                <span>${leaderSummary.bestSession ? escapeHtml(`${leaderSummary.bestSession.present || 0}/${leaderSummary.bestSession.total || 0} (${leaderSummary.bestSession.rate || 0}%)`) : "Todavia no hay sesiones capturadas."}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip dark">Ultima sesion capturada</span>
+                <strong>${leaderSummary.latestSession ? escapeHtml(leaderSummary.latestSession.shortLabel || leaderSummary.latestSession.name) : "Sin dato"}</strong>
+                <span>${leaderSummary.latestSession ? escapeHtml(`${leaderSummary.latestSession.present || 0}/${leaderSummary.latestSession.total || 0} (${leaderSummary.latestSession.rate || 0}%)`) : "Sin captura reciente."}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip success">Tendencia</span>
+                <strong>${escapeHtml(leaderSummary.trend?.label || "Sin tendencia")}</strong>
+                <span>${escapeHtml(leaderSummary.trend?.summary || "Sin sesiones suficientes para evaluar comportamiento.")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Top constancia</span>
+                <strong>${leaderSummary.topPeople.length ? escapeHtml(leaderSummary.topPeople[0].name) : "Sin dato"}</strong>
+                <span>${leaderSummary.topPeople.length ? escapeHtml(`${leaderSummary.topPeople[0].totalPresent || 0} asistencias SI`) : "Aun no hay historial suficiente."}</span>
+              </div>
             </div>
           ` : `
-            <div class="empty-state">Cuando consultes un grupo veras su top de constancia y estado general.</div>
+            <div class="empty-state">Cuando consultes un grupo veras su grafica de tendencia y el comportamiento de asistencia por sesion.</div>
           `}
         </article>
       </div>
+
+      <article class="detail-card dashboard-group-detail-card module-section-anchor" id="dashboard-group-detail">
+        <div class="panel-head">
+          <div>
+            <h2>Detalle de asistentes por grupo</h2>
+            <p>Paloma verde si asistio, cruz roja si no asistio y guion si la sesion aun no tiene captura para esa persona.</p>
+          </div>
+          ${leaderSummary ? renderDashboardTrendPill_(leaderSummary.trend) : `<span class="pill dark">Sin grupo</span>`}
+        </div>
+
+        ${leaderSummary ? `
+          <div class="table-wrap dashboard-group-roster-wrap">
+            <table class="dashboard-group-roster-table">
+              <thead>
+                <tr>
+                  <th>Asistente</th>
+                  <th>Tipo</th>
+                  <th>Total</th>
+                  ${leaderSummary.sessions.map((session) => `
+                    <th>${escapeHtml(session.shortLabel || session.name)}</th>
+                  `).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${leaderSummary.people.length ? leaderSummary.people.map((person) => `
+                  <tr>
+                    <td>
+                      <span class="row-title">${escapeHtml(person.name)}</span>
+                      <span class="row-meta">${escapeHtml(person.personId)}</span>
+                    </td>
+                    <td>${renderPersonTypePill_(person.type || "")}</td>
+                    <td>
+                      <div class="dashboard-person-total">
+                        <strong>${escapeHtml(`${person.totalPresent || 0}/${person.totalAssignedSessions || leaderSummary.totalSessions || 0}`)}</strong>
+                        <span>${escapeHtml(String(person.attendanceRate || 0))}%</span>
+                      </div>
+                    </td>
+                    ${leaderSummary.sessions.map((session) => `
+                      <td>
+                        <div class="dashboard-attendance-cell">
+                          ${renderDashboardAttendanceMark_(person.attendances?.[session.sessionId] || person.attendances?.[session.id] || "")}
+                        </div>
+                      </td>
+                    `).join("")}
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="${Math.max((leaderSummary.sessions.length || 0) + 3, 4)}">
+                      <div class="empty-state">Este grupo todavia no tiene personas suficientes para construir el detalle.</div>
+                    </td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state">Selecciona un grupo desde la matriz o desde la consulta para ver el listado detallado de asistentes y su comportamiento por sesion.</div>
+        `}
+      </article>
 
       <div class="view-grid columns-2">
         <article class="detail-card dashboard-recent-people-card">
@@ -2020,29 +2131,62 @@ function getDashboardPeopleCount_() {
 }
 
 function buildDashboardLeaderSummary_(groupAggregate, detail) {
-  if (!groupAggregate || !detail) {
+  if (!groupAggregate && !detail) {
     return null;
   }
 
-  const totalSessions = Number(groupAggregate.totalSessions || detail?.totalSessions || 0);
-  const topPeople = Array.isArray(detail?.people)
+  const sessions = Array.isArray(detail?.sessions)
+    ? detail.sessions
+    : (Array.isArray(groupAggregate?.sessions) ? groupAggregate.sessions : []);
+  const summaryBase = detail?.summary || groupAggregate || {};
+  const totalSessions = Number(detail?.totalSessions || groupAggregate?.totalSessions || sessions.length || 0);
+  const sourcePeople = Array.isArray(detail?.people)
     ? detail.people
-      .map((person) => ({
-        ...person,
-        attendanceRate: totalSessions ? Math.round(((Number(person.totalPresent || 0)) / totalSessions) * 100) : 0
-      }))
+    : (Array.isArray(groupAggregate?.people) ? groupAggregate.people : []);
+  const topPeople = sourcePeople.length
+    ? [...sourcePeople]
       .sort((left, right) => {
         if (right.totalPresent !== left.totalPresent) {
           return right.totalPresent - left.totalPresent;
+        }
+
+        if (right.attendanceRate !== left.attendanceRate) {
+          return right.attendanceRate - left.attendanceRate;
         }
 
         return normalizeText(left.name).localeCompare(normalizeText(right.name), "es");
       })
       .slice(0, 8)
     : [];
+  const capturedSessions = sessions.filter((session) => session.captured);
+  const bestSession = capturedSessions.length
+    ? [...capturedSessions].sort((left, right) => {
+      if (right.rate !== left.rate) {
+        return right.rate - left.rate;
+      }
+
+      return Number(right.present || 0) - Number(left.present || 0);
+    })[0]
+    : null;
+  const latestSession = capturedSessions.length ? capturedSessions[capturedSessions.length - 1] : null;
 
   return {
+    groupId: detail?.groupId || groupAggregate?.groupId || "",
+    groupName: detail?.groupName || groupAggregate?.groupName || resolveGroupName_(detail?.groupId || groupAggregate?.groupId || ""),
     totalSessions,
+    sessions,
+    uniquePeople: Number(summaryBase.uniquePeople || detail?.people?.length || 0),
+    participantAssignments: Number(summaryBase.participantAssignments || groupAggregate?.participantAssignments || 0),
+    presentTotal: Number(summaryBase.presentTotal || groupAggregate?.presentTotal || 0),
+    capturedBaseTotal: Number(summaryBase.capturedBaseTotal || groupAggregate?.capturedBaseTotal || 0),
+    absentTotal: Number(summaryBase.absentTotal || groupAggregate?.absentTotal || 0),
+    attendanceRate: Number(summaryBase.attendanceRate || groupAggregate?.attendanceRate || 0),
+    capturedSessions: Number(summaryBase.capturedSessions || groupAggregate?.capturedSessions || capturedSessions.length || 0),
+    captureProgress: Number(summaryBase.captureProgress || groupAggregate?.captureProgress || 0),
+    trend: summaryBase.trend || groupAggregate?.trend || buildDashboardTrendMeta_(sessions),
+    bestSession,
+    latestSession,
+    people: sourcePeople,
     topPeople
   };
 }
@@ -2053,89 +2197,472 @@ function getDashboardSelectedGroupRow_() {
   return groupsRanking.find((group) => String(group.groupId) === String(selectedGroupId)) || null;
 }
 
-function buildDashboardSeasonMatrix_({ seasonId, seasonName, sessions, sessionGroupsBySession, participantsBySession }) {
+function renderDashboardTrendPill_(trend) {
+  const normalizedDirection = String(trend?.direction || "pending");
+  const variant = normalizedDirection === "up"
+    ? "success"
+    : (normalizedDirection === "down" ? "warning" : "dark");
+
+  return `<span class="pill ${variant}">${escapeHtml(trend?.label || "Sin tendencia")}</span>`;
+}
+
+function renderDashboardAttendanceMark_(status) {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (normalizedStatus === "SI") {
+    return `
+      <span class="dashboard-attendance-mark dashboard-attendance-mark-yes" title="Asistio" aria-label="Asistio">
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path d="M4.5 10.5 8 14l7.5-8"></path>
+        </svg>
+      </span>
+    `;
+  }
+
+  if (normalizedStatus === "NO") {
+    return `
+      <span class="dashboard-attendance-mark dashboard-attendance-mark-no" title="No asistio" aria-label="No asistio">
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path d="m5 5 10 10"></path>
+          <path d="m15 5-10 10"></path>
+        </svg>
+      </span>
+    `;
+  }
+
+  return `<span class="dashboard-attendance-mark dashboard-attendance-mark-pending" title="Sin captura" aria-label="Sin captura">-</span>`;
+}
+
+function renderDashboardTrendChart_(summary) {
+  const sessions = Array.isArray(summary?.sessions) ? summary.sessions : [];
+
+  if (!sessions.length) {
+    return `<div class="empty-state">Aun no hay sesiones para construir la grafica.</div>`;
+  }
+
+  return `
+    <div class="dashboard-trend-chart" role="img" aria-label="Grafica de tendencia de asistencia por sesion">
+      ${sessions.map((session) => {
+        const height = session.captured ? Math.max(Math.round((Number(session.rate || 0) / 100) * 132), 8) : 10;
+
+        return `
+          <div class="dashboard-trend-slot">
+            <span class="dashboard-trend-rate">${session.captured ? `${escapeHtml(String(session.rate || 0))}%` : "S/C"}</span>
+            <div class="dashboard-trend-bar-rail">
+              <div
+                class="dashboard-trend-bar ${session.captured ? "captured" : "pending"}"
+                style="height: ${height}px;"
+              ></div>
+            </div>
+            <span class="dashboard-trend-label">${escapeHtml(session.shortLabel || session.name || "Sesion")}</span>
+            <small>${session.captured ? escapeHtml(`${session.present || 0}/${session.total || 0}`) : "Sin captura"}</small>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function buildDashboardSeasonMatrix_({ seasonId, seasonName, sessions, sessionGroupsBySession, participants, attendances }) {
+  const normalizedSessions = (sessions || []).map((session) => ({
+    id: String(session.id || ""),
+    name: session.name || String(session.id || ""),
+    shortLabel: session.number ? `S${session.number}` : (session.name || String(session.id || "")),
+    number: Number(session.number || 0),
+    date: session.date || "",
+    status: session.status || ""
+  }));
+  const sessionLookup = new Map();
+  const sessionTotalsMap = new Map();
   const groupMap = new Map();
 
-  (sessions || []).forEach((session) => {
-    const sessionGroups = sessionGroupsBySession[String(session.id)] || [];
+  const ensureGroup = (groupId, fallbackName) => {
+    const normalizedGroupId = String(groupId || "");
 
-    sessionGroups.forEach((group) => {
+    if (!groupMap.has(normalizedGroupId)) {
+      groupMap.set(normalizedGroupId, {
+        groupId: normalizedGroupId,
+        groupName: fallbackName || resolveGroupName_(normalizedGroupId) || `Grupo ${normalizedGroupId}`,
+        cells: {},
+        peopleMap: new Map()
+      });
+    }
+
+    return groupMap.get(normalizedGroupId);
+  };
+
+  const ensureCell = (group, sessionId) => {
+    const normalizedSessionId = String(sessionId || "");
+
+    if (!group.cells[normalizedSessionId]) {
+      group.cells[normalizedSessionId] = {
+        total: 0,
+        volunteers: 0,
+        congregants: 0,
+        present: 0,
+        recorded: 0,
+        captured: false
+      };
+    }
+
+    return group.cells[normalizedSessionId];
+  };
+
+  const ensurePerson = (group, personId, fallbackName, fallbackType) => {
+    const normalizedPersonId = String(personId || "");
+
+    if (!group.peopleMap.has(normalizedPersonId)) {
+      group.peopleMap.set(normalizedPersonId, {
+        personId: normalizedPersonId,
+        name: fallbackName || normalizedPersonId,
+        type: fallbackType || "",
+        assignedSessions: {},
+        attendances: {}
+      });
+    }
+
+    const person = group.peopleMap.get(normalizedPersonId);
+
+    if (fallbackName && (!person.name || person.name === person.personId)) {
+      person.name = fallbackName;
+    }
+
+    if (fallbackType && !person.type) {
+      person.type = fallbackType;
+    }
+
+    return person;
+  };
+
+  normalizedSessions.forEach((session) => {
+    sessionLookup.set(session.id, session);
+    sessionTotalsMap.set(session.id, {
+      sessionId: session.id,
+      name: session.name,
+      shortLabel: session.shortLabel,
+      date: session.date,
+      status: session.status,
+      assignedTotal: 0,
+      assignedVolunteers: 0,
+      assignedCongregants: 0,
+      presentTotal: 0,
+      absentTotal: 0,
+      capturedBaseTotal: 0,
+      groupsConfigured: 0,
+      groupsWithPeopleSet: new Set(),
+      groupsCapturedSet: new Set()
+    });
+
+    (sessionGroupsBySession[String(session.id)] || []).forEach((group) => {
       const groupId = String(group.groupId || "");
-
-      if (!groupMap.has(groupId)) {
-        groupMap.set(groupId, {
-          groupId,
-          groupName: group.groupName || resolveGroupName_(groupId) || `Grupo ${groupId}`,
-          cells: {}
-        });
-      }
+      ensureGroup(groupId, group.groupName);
+      sessionTotalsMap.get(session.id).groupsConfigured += 1;
     });
   });
 
-  (sessions || []).forEach((session) => {
-    const sessionId = String(session.id || "");
-    const rows = participantsBySession[sessionId] || [];
+  (participants || []).forEach((participant) => {
+    const sessionId = String(participant.sessionId || "");
+    const groupId = String(participant.groupId || "");
+    const personId = String(participant.personId || "");
+    const sessionTotal = sessionTotalsMap.get(sessionId);
+    const typeKey = getPersonTypeKey_(participant.type || "");
+    let group;
+    let cell;
+    let person;
 
-    rows.forEach((participant) => {
-      const groupId = String(participant.groupId || "");
-      const typeKey = getPersonTypeKey_(participant.type || "");
-      let group = groupMap.get(groupId);
+    if (!sessionLookup.has(sessionId) || !groupId || !personId) {
+      return;
+    }
 
-      if (!group) {
-        group = {
-          groupId,
-          groupName: resolveGroupName_(groupId) || `Grupo ${groupId}`,
-          cells: {}
-        };
-        groupMap.set(groupId, group);
-      }
+    group = ensureGroup(groupId, resolveGroupName_(groupId));
+    cell = ensureCell(group, sessionId);
+    person = ensurePerson(group, personId, participant.name || personId, participant.type || "");
 
-      if (!group.cells[sessionId]) {
-        group.cells[sessionId] = {
+    cell.total += 1;
+    sessionTotal.assignedTotal += 1;
+    person.assignedSessions[sessionId] = true;
+
+    if (typeKey === "congregante") {
+      cell.congregants += 1;
+      sessionTotal.assignedCongregants += 1;
+    } else {
+      cell.volunteers += 1;
+      sessionTotal.assignedVolunteers += 1;
+    }
+  });
+
+  (attendances || []).forEach((attendance) => {
+    const sessionId = String(attendance.sessionId || "");
+    const groupId = String(attendance.groupId || "");
+    const personId = String(attendance.personId || "");
+    const attended = String(attendance.attended || "").toUpperCase();
+    const sessionTotal = sessionTotalsMap.get(sessionId);
+    let group;
+    let cell;
+    let person;
+
+    if (!sessionLookup.has(sessionId) || !groupId || !personId) {
+      return;
+    }
+
+    group = ensureGroup(groupId, resolveGroupName_(groupId));
+    cell = ensureCell(group, sessionId);
+    person = ensurePerson(group, personId, attendance.name || personId, "");
+
+    cell.recorded += 1;
+    cell.captured = true;
+    person.attendances[sessionId] = attended === "SI" ? "SI" : "NO";
+    sessionTotal.groupsCapturedSet.add(groupId);
+
+    if (attended === "SI") {
+      cell.present += 1;
+      sessionTotal.presentTotal += 1;
+    }
+  });
+
+  const groups = Array.from(groupMap.values())
+    .map((group) => {
+      let presentTotal = 0;
+      let capturedBaseTotal = 0;
+      let capturedSessions = 0;
+      let participantAssignments = 0;
+      const sessionRows = normalizedSessions.map((session) => {
+        const rawCell = group.cells[session.id] || {
           total: 0,
           volunteers: 0,
-          congregants: 0
+          congregants: 0,
+          present: 0,
+          recorded: 0,
+          captured: false
         };
-      }
+        const captured = Boolean(rawCell.captured || rawCell.recorded > 0);
+        const absent = captured ? Math.max(rawCell.total - rawCell.present, 0) : 0;
+        const rate = captured && rawCell.total ? Math.round((rawCell.present / rawCell.total) * 100) : 0;
+        const sessionTotal = sessionTotalsMap.get(session.id);
 
-      group.cells[sessionId].total += 1;
+        participantAssignments += rawCell.total;
 
-      if (typeKey === "congregante") {
-        group.cells[sessionId].congregants += 1;
-      } else {
-        group.cells[sessionId].volunteers += 1;
-      }
-    });
+        if (rawCell.total > 0 && sessionTotal) {
+          sessionTotal.groupsWithPeopleSet.add(group.groupId);
+        }
+
+        if (captured) {
+          presentTotal += rawCell.present;
+          capturedBaseTotal += rawCell.total;
+          capturedSessions += 1;
+
+          if (sessionTotal) {
+            sessionTotal.capturedBaseTotal += rawCell.total;
+            sessionTotal.absentTotal += absent;
+          }
+        }
+
+        return {
+          sessionId: session.id,
+          name: session.name,
+          shortLabel: session.shortLabel,
+          date: session.date,
+          status: session.status,
+          total: rawCell.total,
+          volunteers: rawCell.volunteers,
+          congregants: rawCell.congregants,
+          present: rawCell.present,
+          absent,
+          recorded: rawCell.recorded,
+          captured,
+          rate
+        };
+      });
+      const trend = buildDashboardTrendMeta_(sessionRows);
+      const people = Array.from(group.peopleMap.values())
+        .map((person) => {
+          let totalPresent = 0;
+          let totalAssignedSessions = 0;
+          const attendancesBySession = {};
+
+          normalizedSessions.forEach((session) => {
+            const assigned = Boolean(person.assignedSessions[session.id]);
+            const cell = group.cells[session.id] || null;
+            const captured = Boolean(cell && (cell.captured || cell.recorded > 0));
+            let status = "";
+
+            if (assigned) {
+              totalAssignedSessions += 1;
+
+              if (person.attendances[session.id] === "SI") {
+                status = "SI";
+                totalPresent += 1;
+              } else if (person.attendances[session.id] === "NO") {
+                status = "NO";
+              } else if (captured) {
+                status = "NO";
+              }
+            }
+
+            attendancesBySession[session.id] = status;
+          });
+
+          return {
+            personId: person.personId,
+            name: person.name || person.personId,
+            type: person.type || "",
+            totalPresent,
+            totalAssignedSessions,
+            attendanceRate: totalAssignedSessions ? Math.round((totalPresent / totalAssignedSessions) * 100) : 0,
+            attendances: attendancesBySession
+          };
+        })
+        .sort((left, right) => {
+          if (right.totalPresent !== left.totalPresent) {
+            return right.totalPresent - left.totalPresent;
+          }
+
+          if (right.attendanceRate !== left.attendanceRate) {
+            return right.attendanceRate - left.attendanceRate;
+          }
+
+          return normalizeText(left.name).localeCompare(normalizeText(right.name), "es");
+        });
+
+      return {
+        groupId: group.groupId,
+        groupName: group.groupName,
+        uniquePeople: people.length,
+        participantAssignments,
+        presentTotal,
+        capturedBaseTotal,
+        absentTotal: Math.max(capturedBaseTotal - presentTotal, 0),
+        attendanceRate: capturedBaseTotal ? Math.round((presentTotal / capturedBaseTotal) * 100) : 0,
+        capturedSessions,
+        totalSessions: normalizedSessions.length,
+        captureProgress: normalizedSessions.length ? Math.round((capturedSessions / normalizedSessions.length) * 100) : 0,
+        trend,
+        sessions: sessionRows,
+        people
+      };
+    })
+    .sort((left, right) => normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es"));
+
+  const sessionTotals = normalizedSessions.map((session) => {
+    const total = sessionTotalsMap.get(session.id);
+    const groupsCaptured = total ? total.groupsCapturedSet.size : 0;
+    const groupsWithPeople = total ? total.groupsWithPeopleSet.size : 0;
+
+    return {
+      sessionId: session.id,
+      name: session.name,
+      shortLabel: session.shortLabel,
+      number: session.number,
+      date: session.date,
+      status: session.status,
+      assignedTotal: total ? total.assignedTotal : 0,
+      assignedVolunteers: total ? total.assignedVolunteers : 0,
+      assignedCongregants: total ? total.assignedCongregants : 0,
+      presentTotal: total ? total.presentTotal : 0,
+      absentTotal: total ? total.absentTotal : 0,
+      capturedBaseTotal: total ? total.capturedBaseTotal : 0,
+      groupsConfigured: total ? total.groupsConfigured : 0,
+      groupsWithPeople,
+      groupsCaptured,
+      attendanceRate: total && total.capturedBaseTotal ? Math.round((total.presentTotal / total.capturedBaseTotal) * 100) : 0,
+      captureCoverage: total && total.groupsConfigured ? Math.round((groupsCaptured / total.groupsConfigured) * 100) : 0
+    };
   });
+  const overall = {
+    presentTotal: groups.reduce((sum, group) => sum + Number(group.presentTotal || 0), 0),
+    capturedBaseTotal: groups.reduce((sum, group) => sum + Number(group.capturedBaseTotal || 0), 0),
+    uniquePeople: groups.reduce((sum, group) => sum + Number(group.uniquePeople || 0), 0),
+    groups: groups.length,
+    sessions: normalizedSessions.length
+  };
+  const groupDetailsById = {};
+
+  groups.forEach((group) => {
+    groupDetailsById[String(group.groupId)] = {
+      seasonId: String(seasonId || ""),
+      groupId: String(group.groupId || ""),
+      groupName: group.groupName,
+      totalSessions: group.totalSessions,
+      sessions: group.sessions,
+      summary: {
+        uniquePeople: group.uniquePeople,
+        participantAssignments: group.participantAssignments,
+        presentTotal: group.presentTotal,
+        capturedBaseTotal: group.capturedBaseTotal,
+        absentTotal: group.absentTotal,
+        attendanceRate: group.attendanceRate,
+        capturedSessions: group.capturedSessions,
+        captureProgress: group.captureProgress,
+        trend: group.trend
+      },
+      people: group.people
+    };
+  });
+
+  overall.attendanceRate = overall.capturedBaseTotal
+    ? Math.round((overall.presentTotal / overall.capturedBaseTotal) * 100)
+    : 0;
 
   return {
     key: String(seasonId || ""),
     seasonId: String(seasonId || ""),
     seasonName: seasonName || resolveSeasonName_(seasonId) || "",
-    sessions: (sessions || []).map((session) => ({
-      id: session.id,
-      name: session.name,
-      shortLabel: session.number ? `S${session.number}` : session.name,
-      date: session.date
-    })),
-    groups: Array.from(groupMap.values())
-      .map((group) => ({
-        groupId: group.groupId,
-        groupName: group.groupName,
-        sessions: (sessions || []).map((session) => {
-          const cell = group.cells[String(session.id)] || {
-            total: 0,
-            volunteers: 0,
-            congregants: 0
-          };
+    sessions: normalizedSessions,
+    sessionTotals,
+    overall,
+    groups,
+    groupDetailsById
+  };
+}
 
-          return {
-            sessionId: session.id,
-            ...cell
-          };
-        })
-      }))
-      .sort((left, right) => normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es"))
+function buildDashboardTrendMeta_(sessions) {
+  const capturedSessions = (sessions || []).filter((session) => session && session.captured && Number.isFinite(Number(session.rate)));
+
+  if (!capturedSessions.length) {
+    return {
+      direction: "pending",
+      label: "Sin captura",
+      summary: "Aun no hay sesiones capturadas para medir tendencia.",
+      delta: 0
+    };
+  }
+
+  if (capturedSessions.length === 1) {
+    return {
+      direction: "new",
+      label: "Primer dato",
+      summary: `${capturedSessions[0].shortLabel || capturedSessions[0].name}: ${capturedSessions[0].rate}%`,
+      delta: 0
+    };
+  }
+
+  const first = capturedSessions[0];
+  const last = capturedSessions[capturedSessions.length - 1];
+  const delta = Number(last.rate || 0) - Number(first.rate || 0);
+
+  if (delta >= 5) {
+    return {
+      direction: "up",
+      label: "Aumento",
+      summary: `Subio ${delta} pts entre ${first.shortLabel || first.name} y ${last.shortLabel || last.name}.`,
+      delta
+    };
+  }
+
+  if (delta <= -5) {
+    return {
+      direction: "down",
+      label: "Disminuyo",
+      summary: `Bajo ${Math.abs(delta)} pts entre ${first.shortLabel || first.name} y ${last.shortLabel || last.name}.`,
+      delta
+    };
+  }
+
+  return {
+    direction: "stable",
+    label: "Estable",
+    summary: `Se mantiene entre ${first.shortLabel || first.name} y ${last.shortLabel || last.name}.`,
+    delta
   };
 }
 
@@ -2364,7 +2891,7 @@ function buildDashboardGroupDetailCsv_() {
 
   (detail?.people || []).forEach((person) => {
     const attendanceRate = sessions.length
-      ? Math.round((Number(person.totalPresent || 0) / sessions.length) * 100)
+      ? Math.round((Number(person.totalPresent || 0) / Math.max(Number(person.totalAssignedSessions || sessions.length), 1)) * 100)
       : 0;
 
     rows.push([
@@ -2375,7 +2902,7 @@ function buildDashboardGroupDetailCsv_() {
       person.name || "",
       person.totalPresent || 0,
       `${attendanceRate}%`,
-      ...sessions.map((session) => person.attendances?.[session.name] || "")
+      ...sessions.map((session) => person.attendances?.[session.sessionId] || person.attendances?.[session.id] || "")
     ]);
   });
 
@@ -5878,10 +6405,15 @@ async function loadDashboardLeaderDetail_(options = {}) {
   }
 
   const task = async () => {
-    state.dashboardLeaderDetail = await apiGet("attendances.groupDetail", {
-      seasonId,
-      groupId
-    });
+    if (!state.dashboardSeasonMatrix || state.dashboardSeasonMatrix.seasonId !== String(seasonId)) {
+      await loadDashboardSeasonMatrix_({
+        force: options.force,
+        showLoading: false
+      });
+    }
+
+    state.dashboardLeaderDetail = state.dashboardSeasonMatrix?.groupDetailsById?.[String(groupId)] || null;
+
     return state.dashboardLeaderDetail;
   };
 
@@ -6075,20 +6607,20 @@ async function loadDashboardSeasonMatrix_(options = {}) {
     const sessionGroupsList = await Promise.all(
       sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id))
     );
-    const participantsList = await Promise.all(
-      sessions.map((session) => apiGet("participants.list", {
+    const [participants, attendances] = await Promise.all([
+      apiGet("participants.list", {
         seasonId,
-        sessionId: session.id,
         status: "ACTIVO"
-      }))
-    );
+      }),
+      apiGet("attendances.list", {
+        seasonId
+      })
+    ]);
     const sessionGroupsBySession = {};
-    const participantsBySession = {};
     const seasonName = resolveSeasonName_(seasonId) || sessions[0]?.seasonName || "";
 
     sessions.forEach((session, index) => {
       sessionGroupsBySession[String(session.id)] = sessionGroupsList[index] || [];
-      participantsBySession[String(session.id)] = participantsList[index] || [];
     });
 
     state.dashboardSeasonMatrix = buildDashboardSeasonMatrix_({
@@ -6096,7 +6628,8 @@ async function loadDashboardSeasonMatrix_(options = {}) {
       seasonName,
       sessions,
       sessionGroupsBySession,
-      participantsBySession
+      participants,
+      attendances
     });
     state.cacheKeys.dashboardSeasonMatrix = cacheKey;
     return state.dashboardSeasonMatrix;
