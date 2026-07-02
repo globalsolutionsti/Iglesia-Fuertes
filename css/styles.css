@@ -1419,6 +1419,30 @@ tbody tr:hover {
   color: var(--text);
 }
 
+.session-actions {
+  margin-top: 0;
+  min-width: 220px;
+}
+
+.session-actions .btn {
+  flex: 1 1 120px;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.session-create-inline-card {
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.season-single-session-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+}
+
 .dashboard-toolbar-card {
   position: relative;
   overflow: hidden;
@@ -3038,7 +3062,8 @@ tbody tr:hover {
   .metric-grid,
   .view-grid.columns-3,
   .directory-filter-grid,
-  .bulk-impact-grid {
+  .bulk-impact-grid,
+  .season-single-session-grid {
     grid-template-columns: 1fr;
   }
 
