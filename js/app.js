@@ -2742,6 +2742,37 @@ function renderSeasonsView() {
   const sessions = selectedSeason ? getSessions(selectedSeason.id) : [];
   const sessionGroups = selectedSeason && sessions.length ? getSessionGroups(selectedSeason.id, sessions[0].id) : [];
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
+  const buildSessionStatusActions = (session) => {
+    const actions = [];
+    const status = String(session.status || "").toUpperCase();
+
+    if (status === "ABIERTA") {
+      actions.push({ label: "Cerrar", status: "CERRADA", variant: "btn-danger" });
+      actions.push({ label: "Suspender", status: "SUSPENDIDA", variant: "btn-ghost" });
+    } else if (status === "SUSPENDIDA") {
+      actions.push({ label: "Dejar cerrada", status: "CERRADA", variant: "btn-secondary" });
+      actions.push({ label: "Abrir", status: "ABIERTA", variant: "btn-primary" });
+    } else {
+      actions.push({ label: "Abrir", status: "ABIERTA", variant: "btn-primary" });
+      actions.push({ label: "Suspender", status: "SUSPENDIDA", variant: "btn-ghost" });
+    }
+
+    return `
+      <div class="actions-row session-actions">
+        ${actions.map((action) => `
+          <button
+            class="btn ${action.variant}"
+            data-action="toggle-session-status"
+            data-season-id="${escapeHtml(selectedSeason.id)}"
+            data-session-id="${escapeHtml(session.id)}"
+            data-status="${escapeHtml(action.status)}"
+          >
+            ${escapeHtml(action.label)}
+          </button>
+        `).join("")}
+      </div>
+    `;
+  };
 
   return `
     <section class="view-grid">
@@ -2916,22 +2947,53 @@ function renderSeasonsView() {
                     </td>
                     <td>${escapeHtml(formatDate(session.date))}</td>
                     <td>${renderPill(session.status)}</td>
-                    <td>
-                      <button
-                        class="btn ${session.status === "ABIERTA" ? "btn-danger" : "btn-primary"}"
-                        data-action="toggle-session-status"
-                        data-season-id="${escapeHtml(selectedSeason.id)}"
-                        data-session-id="${escapeHtml(session.id)}"
-                        data-status="${session.status === "ABIERTA" ? "CERRADA" : "ABIERTA"}"
-                      >
-                        ${session.status === "ABIERTA" ? "Cerrar" : "Abrir"}
-                      </button>
-                    </td>
+                    <td>${buildSessionStatusActions(session)}</td>
                   </tr>
                 `).join("")}
               </tbody>
             </table>
           </div>
+
+          <article class="summary-card session-create-inline-card">
+            <div class="panel-head">
+              <div>
+                <h3>Agregar una sesion extra</h3>
+                <p>Crea una sola sesion nueva, asigna todos los grupos y hereda automaticamente los asistentes activos que ya tiene cada grupo en la temporada.</p>
+              </div>
+            </div>
+
+            <form id="session-create-single-form">
+              <input name="seasonId" type="hidden" value="${escapeHtml(selectedSeason.id)}">
+
+              <div class="field-grid three season-single-session-grid">
+                <div class="field">
+                  <label for="single-session-date">Fecha</label>
+                  <input id="single-session-date" name="date" type="date" required>
+                </div>
+
+                <div class="field">
+                  <label for="single-session-name">Nombre</label>
+                  <input id="single-session-name" name="name" placeholder="Sesion 9">
+                </div>
+
+                <div class="field">
+                  <label for="single-session-status">Estado inicial</label>
+                  <select id="single-session-status" name="status">
+                    ${renderOptions([
+                      { value: "CERRADA", label: "CERRADA" },
+                      { value: "ABIERTA", label: "ABIERTA" },
+                      { value: "SUSPENDIDA", label: "SUSPENDIDA" }
+                    ], "CERRADA", "Selecciona estado")}
+                  </select>
+                </div>
+              </div>
+
+              <div class="actions-row">
+                <button class="btn btn-primary" type="submit">Agregar sesion</button>
+                <button class="btn btn-ghost" type="button" data-action="select-season" data-season-id="${escapeHtml(selectedSeason.id)}">Actualizar lista</button>
+              </div>
+            </form>
+          </article>
 
           <p class="footer-note">La primera sesion de esta temporada tiene ${sessionGroups.length} grupos ligados en la hoja de grupos por sesion.</p>
         ` : `
@@ -4250,6 +4312,10 @@ function renderPill(value) {
     return `<span class="pill success">${escapeHtml(value)}</span>`;
   }
 
+  if (normalized === "SUSPENDIDA") {
+    return `<span class="pill danger">${escapeHtml(value)}</span>`;
+  }
+
   if (normalized === "NO" || normalized === "BAJA" || normalized === "CERRADA") {
     return `<span class="pill warning">${escapeHtml(value)}</span>`;
   }
@@ -4683,6 +4749,8 @@ async function handleClick(event) {
         delete state.sessionsBySeason[button.dataset.seasonId];
         await refreshSeasons();
         await ensureSessionsForSeason(button.dataset.seasonId);
+        await loadActiveSession();
+        invalidateDashboardSeasonMatrix_();
       }, "Actualizando sesion...");
 
       showToast("Sesion actualizada", "El estado de la sesion se guardo correctamente.", "success");
@@ -5031,6 +5099,25 @@ async function handleSubmit(event) {
       }, "Creando temporada...");
 
       showToast("Temporada creada", "La temporada, sesiones y grupos por sesion ya fueron generados.", "success");
+      form.reset();
+      renderApp();
+      return;
+    }
+
+    if (form.id === "session-create-single-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+
+      await withLoading(async () => {
+        await apiPost("sessions.createSingle", payload);
+        delete state.sessionsBySeason[payload.seasonId];
+        await refreshSeasons();
+        invalidateDashboardSeasonMatrix_();
+        await ensureSessionsForSeason(payload.seasonId);
+        await loadActiveSession();
+        await syncAllFilters();
+      }, "Agregando sesion...");
+
+      showToast("Sesion agregada", "La sesion nueva ya tiene grupos y heredo a los asistentes activos del grupo en esta temporada.", "success");
       form.reset();
       renderApp();
       return;
