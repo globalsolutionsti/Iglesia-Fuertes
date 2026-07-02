@@ -2065,6 +2065,26 @@ tbody tr:hover {
   margin-top: 16px;
 }
 
+.attendance-session-source-grid {
+  margin-bottom: 18px;
+}
+
+.attendance-source-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.attendance-source-card-active {
+  border-color: rgba(0, 0, 0, 0.16);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.05);
+}
+
+.attendance-session-picker-grid {
+  align-items: end;
+}
+
 .attendance-group-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
