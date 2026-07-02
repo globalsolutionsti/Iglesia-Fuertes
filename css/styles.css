@@ -1521,6 +1521,18 @@ tbody tr:hover {
   flex: 1 1 180px;
 }
 
+.dashboard-executive-flow {
+  gap: 22px;
+}
+
+.dashboard-overview-grid .stat-card {
+  min-height: 156px;
+}
+
+.dashboard-group-focus-grid {
+  align-items: stretch;
+}
+
 .dashboard-consult-hub-card {
   background:
     radial-gradient(circle at top right, rgba(0, 0, 0, 0.05), transparent 24%),
@@ -1584,9 +1596,13 @@ tbody tr:hover {
 .dashboard-executive-card,
 .dashboard-ops-card,
 .dashboard-ranking-card,
+.dashboard-overview-card,
+.dashboard-session-overview-card,
+.dashboard-group-focus-card,
 .dashboard-group-summary-card,
 .dashboard-leader-query-card,
 .dashboard-leader-roster-card,
+.dashboard-group-trend-card,
 .dashboard-group-detail-card {
   background:
     radial-gradient(circle at top right, rgba(0, 0, 0, 0.035), transparent 24%),
