@@ -1601,8 +1601,8 @@ tbody tr:hover {
 
 .dashboard-group-visual-card {
   display: grid;
-  gap: 18px;
-  padding: 20px;
+  gap: 14px;
+  padding: 18px;
   border-radius: 26px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   background:
@@ -1617,97 +1617,44 @@ tbody tr:hover {
 }
 
 .dashboard-group-visual-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 14px;
+  display: grid;
+  gap: 8px;
 }
 
 .dashboard-group-visual-copy {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
-.dashboard-group-visual-copy p {
+.dashboard-group-visual-name {
   margin: 0;
-  color: var(--text-soft);
-  line-height: 1.6;
-}
-
-.dashboard-group-visual-title,
-.dashboard-group-visual-link {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-}
-
-.dashboard-group-visual-title {
-  text-align: left;
   font-size: 24px;
   font-weight: 900;
   letter-spacing: -0.04em;
   color: var(--text-main);
 }
 
-.dashboard-group-visual-title:hover,
-.dashboard-group-visual-link:hover {
-  color: var(--surface-dark);
-}
-
-.dashboard-group-visual-stats {
+.dashboard-group-visual-count {
+  margin: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 2px;
 }
 
-.dashboard-group-visual-stat {
-  display: grid;
-  gap: 6px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.dashboard-group-visual-stat span {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.dashboard-group-visual-stat strong {
-  font-size: 26px;
+.dashboard-group-visual-count strong {
+  font-size: 28px;
   font-weight: 900;
   letter-spacing: -0.04em;
-}
-
-.dashboard-group-visual-stat small {
-  color: var(--text-soft);
-  font-size: 12px;
-}
-
-.dashboard-group-visual-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.dashboard-group-visual-foot span {
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.dashboard-group-visual-link {
   color: var(--text-main);
+}
+
+.dashboard-group-visual-count span {
+  color: var(--text-soft);
   font-size: 13px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+}
+
+.dashboard-group-visual-button {
+  width: 100%;
+  justify-content: center;
 }
 
 .dashboard-stats-grid .stat-card {
@@ -1778,23 +1725,45 @@ tbody tr:hover {
 }
 
 .dashboard-trend-chart.compact {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(64px, 1fr);
+  gap: 12px;
   align-items: flex-end;
   min-height: auto;
+  width: 100%;
   overflow-x: auto;
-  padding-bottom: 4px;
+  overflow-y: hidden;
+  padding: 0 2px 6px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+}
+
+.dashboard-group-visual-card .dashboard-trend-chart.compact {
+  margin-inline: -4px;
+  padding-inline: 4px;
+}
+
+.dashboard-trend-chart.compact::-webkit-scrollbar {
+  height: 6px;
+}
+
+.dashboard-trend-chart.compact::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
 }
 
 .dashboard-trend-chart.compact .dashboard-trend-slot {
-  min-width: 58px;
-  flex: 0 0 58px;
+  min-width: 64px;
+  scroll-snap-align: start;
 }
 
 .dashboard-trend-chart.compact .dashboard-trend-bar-rail {
-  min-height: 112px;
-  padding: 6px;
-  border-radius: 14px;
+  min-height: 124px;
+  padding: 7px;
+  border-radius: 16px;
 }
 
 .dashboard-trend-chart.compact .dashboard-trend-rate,
@@ -3299,8 +3268,7 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-group-visual-grid,
-  .dashboard-group-visual-stats {
+  .dashboard-group-visual-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3414,17 +3382,30 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .app-shell.view-dashboard .dashboard-group-visual-copy p {
-    display: none;
-  }
-
-  .app-shell.view-dashboard .dashboard-group-visual-title {
+  .app-shell.view-dashboard .dashboard-group-visual-name {
     font-size: 22px;
   }
 
-  .app-shell.view-dashboard .dashboard-group-visual-foot {
-    flex-direction: column;
-    align-items: stretch;
+  .app-shell.view-dashboard .dashboard-group-visual-card {
+    padding: 16px;
+    gap: 12px;
+    border-radius: 24px;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-chart.compact {
+    grid-auto-columns: minmax(72px, 1fr);
+    gap: 10px;
+    margin-inline: -8px;
+    padding-inline: 8px 12px;
+    padding-bottom: 10px;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-slot {
+    min-width: 72px;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-bar-rail {
+    min-height: 132px;
   }
 }
 
