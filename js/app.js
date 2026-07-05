@@ -2316,17 +2316,25 @@ function renderDashboardAttendanceMark_(status) {
   return `<span class="dashboard-attendance-mark dashboard-attendance-mark-pending" title="Sin captura" aria-label="Sin captura">-</span>`;
 }
 
-function renderDashboardTrendChart_(summary) {
+function renderDashboardTrendChart_(summary, options = {}) {
   const sessions = Array.isArray(summary?.sessions) ? summary.sessions : [];
+  const compact = Boolean(options.compact);
+  const chartClassName = compact ? "dashboard-trend-chart compact" : "dashboard-trend-chart";
+  const maxBarHeight = compact ? 100 : 132;
+  const minCapturedHeight = compact ? 12 : 8;
+  const pendingHeight = compact ? 8 : 10;
+  const ariaLabel = options.ariaLabel || "Grafica de tendencia de asistencia por sesion";
 
   if (!sessions.length) {
     return `<div class="empty-state">Aun no hay sesiones para construir la grafica.</div>`;
   }
 
   return `
-    <div class="dashboard-trend-chart" role="img" aria-label="Grafica de tendencia de asistencia por sesion">
+    <div class="${chartClassName}" role="img" aria-label="${escapeHtml(ariaLabel)}">
       ${sessions.map((session) => {
-        const height = session.captured ? Math.max(Math.round((Number(session.rate || 0) / 100) * 132), 8) : 10;
+        const height = session.captured
+          ? Math.max(Math.round((Number(session.rate || 0) / 100) * maxBarHeight), minCapturedHeight)
+          : pendingHeight;
 
         return `
           <div class="dashboard-trend-slot">
@@ -2342,6 +2350,99 @@ function renderDashboardTrendChart_(summary) {
           </div>
         `;
       }).join("")}
+    </div>
+  `;
+}
+
+function renderDashboardExecutiveGroupCard_(summary, selectedGroupId) {
+  const isSelected = String(summary?.groupId || "") === String(selectedGroupId || "");
+  const attendanceLabel = Number(summary?.capturedBaseTotal || 0)
+    ? `${summary.presentTotal || 0}/${summary.capturedBaseTotal || 0}`
+    : "Sin captura";
+  const coverageLabel = `${summary?.capturedSessions || 0}/${summary?.totalSessions || 0}`;
+  const peopleLabel = String(summary?.uniquePeople || 0);
+  const latestSession = summary?.latestSession || null;
+  const bestSession = summary?.bestSession || null;
+  const latestLabel = latestSession
+    ? `${latestSession.shortLabel || latestSession.name}: ${latestSession.present || 0}/${latestSession.total || 0}`
+    : "Sin captura";
+  const bestLabel = bestSession
+    ? `${bestSession.shortLabel || bestSession.name} (${bestSession.rate || 0}%)`
+    : "Sin sesion destacada";
+
+  return `
+    <article class="dashboard-group-visual-card ${isSelected ? "is-selected" : ""}">
+      <div class="dashboard-group-visual-head">
+        <div class="dashboard-group-visual-copy">
+          <span class="status-chip neutral">Grupo ${escapeHtml(String(summary?.groupId || ""))}</span>
+          <button
+            class="dashboard-group-visual-title"
+            data-action="open-dashboard-session-group"
+            data-group-id="${escapeHtml(String(summary?.groupId || ""))}"
+            type="button"
+          >
+            ${escapeHtml(summary?.groupName || "Grupo")}
+          </button>
+          <p>${escapeHtml(summary?.trend?.summary || "Consulta la tendencia general del grupo durante la temporada.")}</p>
+        </div>
+        ${renderDashboardTrendPill_(summary?.trend)}
+      </div>
+
+      <div class="dashboard-group-visual-stats">
+        <div class="dashboard-group-visual-stat">
+          <span>Asistencia</span>
+          <strong>${escapeHtml(attendanceLabel)}</strong>
+          <small>${escapeHtml(String(summary?.attendanceRate || 0))}% acumulado</small>
+        </div>
+        <div class="dashboard-group-visual-stat">
+          <span>Cobertura</span>
+          <strong>${escapeHtml(coverageLabel)}</strong>
+          <small>${escapeHtml(String(summary?.captureProgress || 0))}% capturado</small>
+        </div>
+        <div class="dashboard-group-visual-stat">
+          <span>Personas</span>
+          <strong>${escapeHtml(peopleLabel)}</strong>
+          <small>${escapeHtml(String(summary?.participantAssignments || 0))} asignaciones</small>
+        </div>
+        <div class="dashboard-group-visual-stat">
+          <span>Ultima captura</span>
+          <strong>${escapeHtml(latestSession?.shortLabel || latestSession?.name || "Pendiente")}</strong>
+          <small>${escapeHtml(latestLabel)}</small>
+        </div>
+      </div>
+
+      ${renderDashboardTrendChart_(summary, {
+        compact: true,
+        ariaLabel: `Tendencia de asistencia del grupo ${summary?.groupName || "Grupo"}`
+      })}
+
+      <div class="dashboard-group-visual-foot">
+        <span>Mejor sesion: ${escapeHtml(bestLabel)}</span>
+        <button
+          class="dashboard-group-visual-link"
+          data-action="open-dashboard-session-group"
+          data-group-id="${escapeHtml(String(summary?.groupId || ""))}"
+          type="button"
+        >
+          Ver detalle
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderDashboardExecutiveGroupBoard_(groups, selectedGroupId) {
+  const summaries = Array.isArray(groups)
+    ? groups.map((group) => buildDashboardLeaderSummary_(group)).filter(Boolean)
+    : [];
+
+  if (!summaries.length) {
+    return `<div class="empty-state">Aun no hay grupos con participantes para mostrar el panorama ejecutivo.</div>`;
+  }
+
+  return `
+    <div class="dashboard-group-visual-grid">
+      ${summaries.map((summary) => renderDashboardExecutiveGroupCard_(summary, selectedGroupId)).join("")}
     </div>
   `;
 }
@@ -2929,6 +3030,9 @@ function renderDashboardView() {
   const selectedGroupId = String(state.filters.dashboard.groupId || "");
   const selectedGroupRow = getDashboardSelectedGroupRow_();
   const selectedMatrixGroup = seasonMatrix?.groups?.find((group) => String(group.groupId) === selectedGroupId) || null;
+  const groupVisualSummaries = seasonMatrix?.groups?.length
+    ? seasonMatrix.groups.map((group) => buildDashboardLeaderSummary_(group)).filter(Boolean)
+    : [];
   const selectedDetail = state.dashboardLeaderDetail && String(state.dashboardLeaderDetail.groupId || "") === selectedGroupId
     ? state.dashboardLeaderDetail
     : null;
@@ -2943,8 +3047,9 @@ function renderDashboardView() {
     attendanceRate: 0
   };
   const sessionsCount = Number(seasonMatrix?.sessions?.length || focusSeason?.sessionsCount || 0);
-  const groupsCount = Number(seasonMatrix?.groups?.length || 0);
+  const groupsCount = Number(groupVisualSummaries.length || seasonMatrix?.groups?.length || 0);
   const capturedSessionsCount = sessionTotals.filter((session) => Number(session.capturedBaseTotal || 0) > 0 || Number(session.groupsCaptured || 0) > 0).length;
+  const groupsWithCaptureCount = groupVisualSummaries.filter((group) => Number(group.capturedSessions || 0) > 0).length;
   const dashboardGroupSource = seasonMatrix?.groups?.length
     ? seasonMatrix.groups.map((group) => ({
       id: String(group.groupId),
@@ -2997,7 +3102,7 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Resumen global de la temporada</h2>
-              <p>Lectura general para saber rapidamente cuanta asistencia real ya se registro en la temporada.</p>
+              <p>Lectura rapida para saber como va la temporada antes de entrar al detalle por grupo.</p>
             </div>
             ${focusSeason ? renderPill(focusSeason.status) : `<span class="pill warning">Sin temporada</span>`}
           </div>
@@ -3029,6 +3134,25 @@ function renderDashboardView() {
           </div>
         </article>
 
+        <article class="detail-card dashboard-visual-board-card module-section-anchor" id="dashboard-visual-board">
+          <div class="panel-head">
+            <div>
+              <h2>Panorama visual por grupo</h2>
+              <p>Se carga automaticamente para que el pastor o lider vea de inmediato la tendencia de cada grupo y abra el detalle con un toque.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(`${groupsWithCaptureCount}/${groupsCount}`)} con captura</span>
+          </div>
+
+          <div class="summary-strip dashboard-visual-board-strip">
+            <span class="context-item"><strong>Asistencia global:</strong> ${escapeHtml(String(overall.attendanceRate || 0))}%</span>
+            <span class="context-item"><strong>Grupos con captura:</strong> ${escapeHtml(String(groupsWithCaptureCount))} de ${escapeHtml(String(groupsCount))}</span>
+            <span class="context-item"><strong>Sesiones capturadas:</strong> ${escapeHtml(String(capturedSessionsCount))} de ${escapeHtml(String(sessionsCount))}</span>
+            <span class="context-item"><strong>Accion:</strong> toca el nombre del grupo para abrir el detalle</span>
+          </div>
+
+          ${renderDashboardExecutiveGroupBoard_(seasonMatrix?.groups || [], selectedGroupId)}
+        </article>
+
         <article class="detail-card dashboard-session-overview-card module-section-anchor" id="dashboard-session-overview">
           <div class="panel-head">
             <div>
@@ -3057,8 +3181,8 @@ function renderDashboardView() {
         <article class="detail-card dashboard-season-matrix-card module-section-anchor" id="dashboard-season-matrix">
           <div class="panel-head">
             <div>
-              <h2>Asistencia por grupo y sesion</h2>
-              <p>Toca un grupo para abrir su detalle. Cada celda muestra presentes sobre base capturada y la composicion voluntarios + congregantes.</p>
+              <h2>Tabla por grupo y sesion</h2>
+              <p>Vista tabular para validar rapidamente totales, composicion voluntarios + congregantes y cobertura por sesion.</p>
             </div>
             <span class="pill dark">${escapeHtml(String(groupsCount))} grupos</span>
           </div>
@@ -3124,7 +3248,7 @@ function renderDashboardView() {
           <div class="panel-head">
             <div>
               <h2>Detalle del grupo</h2>
-              <p>Selecciona un grupo desde la lista o tocando la matriz para revisar su comportamiento completo.</p>
+              <p>Selecciona un grupo desde el panorama visual, la tabla o la lista para revisar su comportamiento completo.</p>
             </div>
             ${selectedTrend ? renderDashboardTrendPill_(selectedTrend) : `<span class="pill dark">Sin grupo</span>`}
           </div>
@@ -3145,8 +3269,8 @@ function renderDashboardView() {
               </div>
 
               <div class="dashboard-consult-tip">
-                <strong>Ruta recomendada</strong>
-                <span>1. Revisa la temporada. 2. Detecta la sesion o grupo. 3. Abre el detalle para ver personas y asistencia individual.</span>
+                <strong>Consulta sugerida</strong>
+                <span>1. Mira el panorama visual. 2. Toca el grupo que te interese. 3. Exporta o valida su asistencia persona por persona.</span>
               </div>
             </div>
 
