@@ -2335,6 +2335,29 @@ function renderDashboardTrendChart_(summary, options = {}) {
         const height = session.captured
           ? Math.max(Math.round((Number(session.rate || 0) / 100) * maxBarHeight), minCapturedHeight)
           : pendingHeight;
+        const totalLabel = Number(session.total || 0) > 0
+          ? escapeHtml(String(session.total || 0))
+          : "-";
+        const presentLabel = session.captured
+          ? escapeHtml(String(session.present || 0))
+          : "-";
+
+        if (compact) {
+          return `
+            <div class="dashboard-trend-slot">
+              <span class="dashboard-trend-rate">${session.captured ? `${escapeHtml(String(session.rate || 0))}%` : "S/C"}</span>
+              <div class="dashboard-trend-bar-rail">
+                <span class="dashboard-trend-bar-count">${presentLabel}</span>
+                <div
+                  class="dashboard-trend-bar ${session.captured ? "captured" : "pending"}"
+                  style="height: ${height}px;"
+                ></div>
+              </div>
+              <span class="dashboard-trend-label">${escapeHtml(session.shortLabel || session.name || "Sesion")}</span>
+              <small class="dashboard-trend-base">${totalLabel}</small>
+            </div>
+          `;
+        }
 
         return `
           <div class="dashboard-trend-slot">
