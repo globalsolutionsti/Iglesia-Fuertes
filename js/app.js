@@ -2324,14 +2324,20 @@ function renderDashboardTrendChart_(summary, options = {}) {
   const minCapturedHeight = compact ? 12 : 8;
   const pendingHeight = compact ? 8 : 10;
   const ariaLabel = options.ariaLabel || "Grafica de tendencia de asistencia por sesion";
+  const accessibilityAttributes = compact
+    ? `aria-label="${escapeHtml(ariaLabel)}"`
+    : `role="img" aria-label="${escapeHtml(ariaLabel)}"`;
+  const groupId = String(options.groupId || summary?.groupId || "");
+  const activeSessionId = String(options.activeSessionId || "");
 
   if (!sessions.length) {
     return `<div class="empty-state">Aun no hay sesiones para construir la grafica.</div>`;
   }
 
   return `
-    <div class="${chartClassName}" role="img" aria-label="${escapeHtml(ariaLabel)}">
+    <div class="${chartClassName}" ${accessibilityAttributes}>
       ${sessions.map((session) => {
+        const sessionId = String(session.sessionId || session.id || "");
         const height = session.captured
           ? Math.max(Math.round((Number(session.rate || 0) / 100) * maxBarHeight), minCapturedHeight)
           : pendingHeight;
@@ -2341,18 +2347,26 @@ function renderDashboardTrendChart_(summary, options = {}) {
         const presentLabel = session.captured
           ? escapeHtml(String(session.present || 0))
           : "-";
+        const isFocused = activeSessionId && activeSessionId === sessionId;
 
         if (compact) {
           return `
-            <div class="dashboard-trend-slot">
+            <div class="dashboard-trend-slot ${isFocused ? "is-focused" : ""}">
               <span class="dashboard-trend-rate">${session.captured ? `${escapeHtml(String(session.rate || 0))}%` : "S/C"}</span>
-              <div class="dashboard-trend-bar-rail">
+              <button
+                class="dashboard-trend-bar-rail dashboard-trend-bar-rail-button ${isFocused ? "is-focused" : ""}"
+                type="button"
+                data-action="open-dashboard-group-session-detail"
+                data-group-id="${escapeHtml(groupId)}"
+                data-session-id="${escapeHtml(sessionId)}"
+                aria-label="${escapeHtml(`Abrir detalle de ${summary?.groupName || "grupo"} en ${session.shortLabel || session.name || "sesion"}`)}"
+              >
                 <span class="dashboard-trend-bar-count">${presentLabel}</span>
                 <div
                   class="dashboard-trend-bar ${session.captured ? "captured" : "pending"}"
                   style="height: ${height}px;"
                 ></div>
-              </div>
+              </button>
               <span class="dashboard-trend-label">${escapeHtml(session.shortLabel || session.name || "Sesion")}</span>
               <small class="dashboard-trend-base">${totalLabel}</small>
             </div>
@@ -2360,9 +2374,9 @@ function renderDashboardTrendChart_(summary, options = {}) {
         }
 
         return `
-          <div class="dashboard-trend-slot">
+          <div class="dashboard-trend-slot ${isFocused ? "is-focused" : ""}">
             <span class="dashboard-trend-rate">${session.captured ? `${escapeHtml(String(session.rate || 0))}%` : "S/C"}</span>
-            <div class="dashboard-trend-bar-rail">
+            <div class="dashboard-trend-bar-rail ${isFocused ? "is-focused" : ""}">
               <div
                 class="dashboard-trend-bar ${session.captured ? "captured" : "pending"}"
                 style="height: ${height}px;"
@@ -2377,9 +2391,10 @@ function renderDashboardTrendChart_(summary, options = {}) {
   `;
 }
 
-function renderDashboardExecutiveGroupCard_(summary, selectedGroupId) {
+function renderDashboardExecutiveGroupCard_(summary, selectedGroupId, activeSessionId) {
   const isSelected = String(summary?.groupId || "") === String(selectedGroupId || "");
   const peopleLabel = String(summary?.uniquePeople || 0);
+  const focusedSessionId = isSelected ? String(activeSessionId || "") : "";
 
   return `
     <article class="dashboard-group-visual-card ${isSelected ? "is-selected" : ""}">
@@ -2395,7 +2410,9 @@ function renderDashboardExecutiveGroupCard_(summary, selectedGroupId) {
 
       ${renderDashboardTrendChart_(summary, {
         compact: true,
-        ariaLabel: `Tendencia de asistencia del grupo ${summary?.groupName || "Grupo"}`
+        ariaLabel: `Tendencia de asistencia del grupo ${summary?.groupName || "Grupo"}`,
+        groupId: summary?.groupId || "",
+        activeSessionId: focusedSessionId
       })}
 
       <button
@@ -2410,7 +2427,7 @@ function renderDashboardExecutiveGroupCard_(summary, selectedGroupId) {
   `;
 }
 
-function renderDashboardExecutiveGroupBoard_(groups, selectedGroupId) {
+function renderDashboardExecutiveGroupBoard_(groups, selectedGroupId, activeSessionId) {
   const summaries = Array.isArray(groups)
     ? groups.map((group) => buildDashboardLeaderSummary_(group)).filter(Boolean)
     : [];
@@ -2421,7 +2438,7 @@ function renderDashboardExecutiveGroupBoard_(groups, selectedGroupId) {
 
   return `
     <div class="dashboard-group-visual-grid">
-      ${summaries.map((summary) => renderDashboardExecutiveGroupCard_(summary, selectedGroupId)).join("")}
+      ${summaries.map((summary) => renderDashboardExecutiveGroupCard_(summary, selectedGroupId, activeSessionId)).join("")}
     </div>
   `;
 }
@@ -3007,6 +3024,7 @@ function renderDashboardView() {
   const seasonMatrix = state.dashboardSeasonMatrix;
   const sessionTotals = seasonMatrix?.sessionTotals || [];
   const selectedGroupId = String(state.filters.dashboard.groupId || "");
+  const selectedSessionId = String(state.filters.dashboard.sessionId || "");
   const selectedGroupRow = getDashboardSelectedGroupRow_();
   const selectedMatrixGroup = seasonMatrix?.groups?.find((group) => String(group.groupId) === selectedGroupId) || null;
   const groupVisualSummaries = seasonMatrix?.groups?.length
@@ -3048,6 +3066,7 @@ function renderDashboardView() {
     ? `${overall.presentTotal}/${overall.capturedBaseTotal}`
     : "Sin captura";
   const selectedTrend = selectedGroupMeta?.trend || leaderSummary?.trend || null;
+  const focusedSession = leaderSummary?.sessions?.find((session) => String(session.sessionId || session.id || "") === selectedSessionId) || null;
 
   return `
     <section class="view-grid dashboard-executive-flow">
@@ -3129,7 +3148,7 @@ function renderDashboardView() {
             <span class="context-item"><strong>Accion:</strong> toca el nombre del grupo para abrir el detalle</span>
           </div>
 
-          ${renderDashboardExecutiveGroupBoard_(seasonMatrix?.groups || [], selectedGroupId)}
+          ${renderDashboardExecutiveGroupBoard_(seasonMatrix?.groups || [], selectedGroupId, selectedSessionId)}
         </article>
 
         <article class="detail-card dashboard-session-overview-card module-section-anchor" id="dashboard-session-overview">
@@ -3294,9 +3313,18 @@ function renderDashboardView() {
           </div>
 
           ${leaderSummary ? `
-            ${renderDashboardTrendChart_(leaderSummary)}
+            ${renderDashboardTrendChart_(leaderSummary, {
+              activeSessionId: selectedSessionId
+            })}
 
             <div class="summary-stack dashboard-summary-grid dashboard-group-trend-summary">
+              ${focusedSession ? `
+                <div class="summary-box dashboard-focused-session-box">
+                  <span class="status-chip success">Sesion enfocada</span>
+                  <strong>${escapeHtml(focusedSession.shortLabel || focusedSession.name || "Sesion")}</strong>
+                  <span>${focusedSession.captured ? escapeHtml(`${focusedSession.present || 0}/${focusedSession.total || 0} (${focusedSession.rate || 0}%)`) : "Sin captura en esta sesion."}</span>
+                </div>
+              ` : ""}
               <div class="summary-box">
                 <span class="status-chip neutral">Mejor sesion</span>
                 <strong>${leaderSummary.bestSession ? escapeHtml(leaderSummary.bestSession.shortLabel || leaderSummary.bestSession.name) : "Sin dato"}</strong>
@@ -3333,6 +3361,14 @@ function renderDashboardView() {
           </div>
 
           ${leaderSummary ? `
+            ${focusedSession ? `
+              <div class="summary-strip dashboard-focused-session-strip">
+                <span class="context-item"><strong>Sesion enfocada:</strong> ${escapeHtml(focusedSession.shortLabel || focusedSession.name || "Sesion")}</span>
+                <span class="context-item"><strong>Asistieron:</strong> ${focusedSession.captured ? escapeHtml(String(focusedSession.present || 0)) : "-"}</span>
+                <span class="context-item"><strong>Base:</strong> ${escapeHtml(String(focusedSession.total || 0))}</span>
+                <span class="context-item"><strong>Porcentaje:</strong> ${focusedSession.captured ? escapeHtml(`${focusedSession.rate || 0}%`) : "Sin captura"}</span>
+              </div>
+            ` : ""}
             <div class="table-wrap dashboard-group-roster-wrap">
               <table class="dashboard-group-roster-table">
                 <thead>
@@ -3341,7 +3377,10 @@ function renderDashboardView() {
                     <th>Tipo</th>
                     <th>Total</th>
                     ${leaderSummary.sessions.map((session) => `
-                      <th>${escapeHtml(session.shortLabel || session.name)}</th>
+                      <th
+                        class="${String(session.sessionId || session.id || "") === selectedSessionId ? "is-focused" : ""}"
+                        data-dashboard-session-header="${escapeHtml(String(session.sessionId || session.id || ""))}"
+                      >${escapeHtml(session.shortLabel || session.name)}</th>
                     `).join("")}
                   </tr>
                 </thead>
@@ -3360,8 +3399,11 @@ function renderDashboardView() {
                         </div>
                       </td>
                       ${leaderSummary.sessions.map((session) => `
-                        <td>
-                          <div class="dashboard-attendance-cell">
+                        <td
+                          class="${String(session.sessionId || session.id || "") === selectedSessionId ? "is-focused" : ""}"
+                          data-dashboard-session-cell="${escapeHtml(String(session.sessionId || session.id || ""))}"
+                        >
+                          <div class="dashboard-attendance-cell ${String(session.sessionId || session.id || "") === selectedSessionId ? "is-focused" : ""}">
                             ${renderDashboardAttendanceMark_(person.attendances?.[session.sessionId] || person.attendances?.[session.id] || "")}
                           </div>
                         </td>
@@ -5676,12 +5718,28 @@ async function handleClick(event) {
 
     if (action === "open-dashboard-session-group") {
       state.filters.dashboard.groupId = button.dataset.groupId || "";
+      if (button.dataset.sessionId) {
+        state.filters.dashboard.sessionId = button.dataset.sessionId || "";
+      }
       await loadDashboardLeaderDetail_({
         force: true,
         showLoading: false
       });
       renderApp();
       scrollToSection_("dashboard-group-focus");
+      return;
+    }
+
+    if (action === "open-dashboard-group-session-detail") {
+      state.filters.dashboard.groupId = button.dataset.groupId || "";
+      state.filters.dashboard.sessionId = button.dataset.sessionId || "";
+      await loadDashboardLeaderDetail_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      scrollToSection_("dashboard-group-detail");
+      focusDashboardSessionColumn_(state.filters.dashboard.sessionId);
       return;
     }
 
@@ -9871,6 +9929,33 @@ function scrollToSection_(sectionId) {
   section.scrollIntoView({
     behavior: "smooth",
     block: "start"
+  });
+}
+
+function focusDashboardSessionColumn_(sessionId) {
+  if (!sessionId || typeof window === "undefined") {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    const detailSection = document.getElementById("dashboard-group-detail");
+
+    if (!detailSection) {
+      return;
+    }
+
+    const sessionHeader = Array.from(detailSection.querySelectorAll("[data-dashboard-session-header]"))
+      .find((element) => element.getAttribute("data-dashboard-session-header") === String(sessionId));
+
+    if (!sessionHeader || typeof sessionHeader.scrollIntoView !== "function") {
+      return;
+    }
+
+    sessionHeader.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center"
+    });
   });
 }
 
