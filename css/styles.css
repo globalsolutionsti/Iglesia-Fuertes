@@ -1764,6 +1764,10 @@ tbody tr:hover {
   min-height: 124px;
   padding: 7px;
   border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .dashboard-trend-chart.compact .dashboard-trend-rate,
@@ -1771,9 +1775,23 @@ tbody tr:hover {
   font-size: 11px;
 }
 
+.dashboard-trend-chart.compact .dashboard-trend-bar-count {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--text-main);
+}
+
 .dashboard-trend-chart.compact small {
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 800;
   text-align: center;
+  color: var(--text-soft);
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-base {
+  min-height: 16px;
 }
 
 .dashboard-trend-slot {
@@ -3406,6 +3424,14 @@ tbody tr:hover {
 
   .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-bar-rail {
     min-height: 132px;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-bar-count {
+    font-size: 26px;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-base {
+    font-size: 13px;
   }
 }
 
