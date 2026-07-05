@@ -1764,10 +1764,29 @@ tbody tr:hover {
   min-height: 124px;
   padding: 7px;
   border-radius: 16px;
+  position: relative;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
+  overflow: hidden;
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-bar-rail-button {
+  width: 100%;
+  border: 1px solid transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-bar-rail-button:focus-visible {
+  outline: 2px solid rgba(20, 82, 44, 0.36);
+  outline-offset: 2px;
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-bar-rail.is-focused {
+  border-color: rgba(20, 82, 44, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(20, 82, 44, 0.08);
 }
 
 .dashboard-trend-chart.compact .dashboard-trend-rate,
@@ -1776,11 +1795,22 @@ tbody tr:hover {
 }
 
 .dashboard-trend-chart.compact .dashboard-trend-bar-count {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  min-width: 34px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.06);
   font-size: 24px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: -0.04em;
   color: var(--text-main);
+  text-align: center;
 }
 
 .dashboard-trend-chart.compact small {
@@ -1800,6 +1830,12 @@ tbody tr:hover {
   justify-items: center;
 }
 
+.dashboard-trend-slot.is-focused .dashboard-trend-rate,
+.dashboard-trend-slot.is-focused .dashboard-trend-label,
+.dashboard-trend-slot.is-focused .dashboard-trend-base {
+  color: #14522c;
+}
+
 .dashboard-trend-rate {
   font-size: 12px;
   font-weight: 800;
@@ -1816,11 +1852,16 @@ tbody tr:hover {
   background: linear-gradient(180deg, rgba(247, 247, 247, 0.96) 0%, rgba(236, 236, 236, 1) 100%);
 }
 
+.dashboard-trend-bar-rail.is-focused {
+  box-shadow: inset 0 0 0 2px rgba(20, 82, 44, 0.14);
+}
+
 .dashboard-trend-bar {
   width: 100%;
   border-radius: 12px 12px 8px 8px;
   background: rgba(0, 0, 0, 0.18);
   transition: height 180ms ease;
+  align-self: end;
 }
 
 .dashboard-trend-bar.captured {
@@ -1845,8 +1886,25 @@ tbody tr:hover {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 244, 0.98) 100%);
 }
 
+.dashboard-focused-session-strip {
+  margin-bottom: 14px;
+  background: rgba(20, 82, 44, 0.05);
+  border: 1px solid rgba(20, 82, 44, 0.1);
+}
+
 .dashboard-group-roster-table {
   min-width: 880px;
+}
+
+.dashboard-group-roster-table th.is-focused,
+.dashboard-group-roster-table td.is-focused {
+  background: rgba(20, 82, 44, 0.06);
+}
+
+.dashboard-attendance-cell.is-focused {
+  padding: 6px;
+  border-radius: 16px;
+  background: rgba(20, 82, 44, 0.06);
 }
 
 .dashboard-person-total {
