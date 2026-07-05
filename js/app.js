@@ -2356,58 +2356,17 @@ function renderDashboardTrendChart_(summary, options = {}) {
 
 function renderDashboardExecutiveGroupCard_(summary, selectedGroupId) {
   const isSelected = String(summary?.groupId || "") === String(selectedGroupId || "");
-  const attendanceLabel = Number(summary?.capturedBaseTotal || 0)
-    ? `${summary.presentTotal || 0}/${summary.capturedBaseTotal || 0}`
-    : "Sin captura";
-  const coverageLabel = `${summary?.capturedSessions || 0}/${summary?.totalSessions || 0}`;
   const peopleLabel = String(summary?.uniquePeople || 0);
-  const latestSession = summary?.latestSession || null;
-  const bestSession = summary?.bestSession || null;
-  const latestLabel = latestSession
-    ? `${latestSession.shortLabel || latestSession.name}: ${latestSession.present || 0}/${latestSession.total || 0}`
-    : "Sin captura";
-  const bestLabel = bestSession
-    ? `${bestSession.shortLabel || bestSession.name} (${bestSession.rate || 0}%)`
-    : "Sin sesion destacada";
 
   return `
     <article class="dashboard-group-visual-card ${isSelected ? "is-selected" : ""}">
       <div class="dashboard-group-visual-head">
         <div class="dashboard-group-visual-copy">
-          <span class="status-chip neutral">Grupo ${escapeHtml(String(summary?.groupId || ""))}</span>
-          <button
-            class="dashboard-group-visual-title"
-            data-action="open-dashboard-session-group"
-            data-group-id="${escapeHtml(String(summary?.groupId || ""))}"
-            type="button"
-          >
-            ${escapeHtml(summary?.groupName || "Grupo")}
-          </button>
-          <p>${escapeHtml(summary?.trend?.summary || "Consulta la tendencia general del grupo durante la temporada.")}</p>
-        </div>
-        ${renderDashboardTrendPill_(summary?.trend)}
-      </div>
-
-      <div class="dashboard-group-visual-stats">
-        <div class="dashboard-group-visual-stat">
-          <span>Asistencia</span>
-          <strong>${escapeHtml(attendanceLabel)}</strong>
-          <small>${escapeHtml(String(summary?.attendanceRate || 0))}% acumulado</small>
-        </div>
-        <div class="dashboard-group-visual-stat">
-          <span>Cobertura</span>
-          <strong>${escapeHtml(coverageLabel)}</strong>
-          <small>${escapeHtml(String(summary?.captureProgress || 0))}% capturado</small>
-        </div>
-        <div class="dashboard-group-visual-stat">
-          <span>Personas</span>
-          <strong>${escapeHtml(peopleLabel)}</strong>
-          <small>${escapeHtml(String(summary?.participantAssignments || 0))} asignaciones</small>
-        </div>
-        <div class="dashboard-group-visual-stat">
-          <span>Ultima captura</span>
-          <strong>${escapeHtml(latestSession?.shortLabel || latestSession?.name || "Pendiente")}</strong>
-          <small>${escapeHtml(latestLabel)}</small>
+          <h3 class="dashboard-group-visual-name">${escapeHtml(summary?.groupName || "Grupo")}</h3>
+          <p class="dashboard-group-visual-count">
+            <strong>${escapeHtml(peopleLabel)}</strong>
+            <span>personas registradas</span>
+          </p>
         </div>
       </div>
 
@@ -2416,17 +2375,14 @@ function renderDashboardExecutiveGroupCard_(summary, selectedGroupId) {
         ariaLabel: `Tendencia de asistencia del grupo ${summary?.groupName || "Grupo"}`
       })}
 
-      <div class="dashboard-group-visual-foot">
-        <span>Mejor sesion: ${escapeHtml(bestLabel)}</span>
-        <button
-          class="dashboard-group-visual-link"
-          data-action="open-dashboard-session-group"
-          data-group-id="${escapeHtml(String(summary?.groupId || ""))}"
-          type="button"
-        >
-          Ver detalle
-        </button>
-      </div>
+      <button
+        class="btn btn-secondary dashboard-group-visual-button"
+        data-action="open-dashboard-session-group"
+        data-group-id="${escapeHtml(String(summary?.groupId || ""))}"
+        type="button"
+      >
+        Ver detalle
+      </button>
     </article>
   `;
 }
