@@ -1589,6 +1589,127 @@ tbody tr:hover {
   font-size: 12px;
 }
 
+.dashboard-visual-board-strip {
+  margin-bottom: 18px;
+}
+
+.dashboard-group-visual-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.dashboard-group-visual-card {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 26px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.035), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 244, 0.98) 100%);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.05);
+}
+
+.dashboard-group-visual-card.is-selected {
+  border-color: rgba(20, 82, 44, 0.28);
+  box-shadow: 0 22px 46px rgba(20, 82, 44, 0.08);
+}
+
+.dashboard-group-visual-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.dashboard-group-visual-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-group-visual-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.dashboard-group-visual-title,
+.dashboard-group-visual-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.dashboard-group-visual-title {
+  text-align: left;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: var(--text-main);
+}
+
+.dashboard-group-visual-title:hover,
+.dashboard-group-visual-link:hover {
+  color: var(--surface-dark);
+}
+
+.dashboard-group-visual-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-group-visual-stat {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.dashboard-group-visual-stat span {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.dashboard-group-visual-stat strong {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.dashboard-group-visual-stat small {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.dashboard-group-visual-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-group-visual-foot span {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dashboard-group-visual-link {
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .dashboard-stats-grid .stat-card {
   min-height: 168px;
 }
@@ -1596,6 +1717,7 @@ tbody tr:hover {
 .dashboard-executive-card,
 .dashboard-ops-card,
 .dashboard-ranking-card,
+.dashboard-visual-board-card,
 .dashboard-overview-card,
 .dashboard-session-overview-card,
 .dashboard-group-focus-card,
@@ -1653,6 +1775,36 @@ tbody tr:hover {
   align-items: end;
   min-height: 212px;
   margin-top: 8px;
+}
+
+.dashboard-trend-chart.compact {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  min-height: auto;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-slot {
+  min-width: 58px;
+  flex: 0 0 58px;
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-bar-rail {
+  min-height: 112px;
+  padding: 6px;
+  border-radius: 14px;
+}
+
+.dashboard-trend-chart.compact .dashboard-trend-rate,
+.dashboard-trend-chart.compact .dashboard-trend-label {
+  font-size: 11px;
+}
+
+.dashboard-trend-chart.compact small {
+  font-size: 10px;
+  text-align: center;
 }
 
 .dashboard-trend-slot {
@@ -3147,6 +3299,11 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-group-visual-grid,
+  .dashboard-group-visual-stats {
+    grid-template-columns: 1fr;
+  }
+
   .mode-card-grid,
   .permission-grid {
     grid-template-columns: 1fr;
@@ -3251,6 +3408,23 @@ tbody tr:hover {
   .app-shell.view-dashboard .dashboard-toolbar-card .summary-strip {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-shell.view-dashboard .dashboard-visual-board-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-copy p {
+    display: none;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-title {
+    font-size: 22px;
+  }
+
+  .app-shell.view-dashboard .dashboard-group-visual-foot {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
