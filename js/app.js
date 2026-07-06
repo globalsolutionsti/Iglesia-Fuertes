@@ -150,6 +150,9 @@ const state = {
     available: true,
     message: ""
   },
+  backendSupport: {
+    dashboardSeasonMatrixRoute: null
+  },
   viewLoadToken: 0,
   cacheKeys: {
     participants: "",
@@ -437,12 +440,25 @@ function buildBackendRouteMissingError_(actionName, label) {
   );
 }
 
+function shouldShowDashboardLoading_() {
+  const seasonId = String(state.filters.dashboard.seasonId || getLatestSeason()?.id || "");
+  const executiveSeasonId = String(state.dashboardExecutive?.seasonFocus?.id || "");
+  const matrixSeasonId = String(state.dashboardSeasonMatrix?.seasonId || "");
+
+  return !state.dashboardExecutive ||
+    !state.dashboardSeasonMatrix ||
+    executiveSeasonId !== seasonId ||
+    matrixSeasonId !== seasonId;
+}
+
 function loadViewDataInBackground_(view) {
   const token = ++state.viewLoadToken;
   const targetView = view || state.currentView;
+  const shouldShowLoading = targetView === "dashboard" && shouldShowDashboardLoading_();
 
   void loadCurrentViewData({
-    showLoading: false
+    showLoading: shouldShowLoading,
+    message: shouldShowLoading ? "Cargando dashboard ejecutivo..." : undefined
   })
     .then(() => {
       if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView) {
@@ -5694,6 +5710,10 @@ async function handleClick(event) {
     if (action === "navigate") {
       state.currentView = button.dataset.view;
       state.ui.mobileNavOpen = false;
+      if (state.currentView === "dashboard" && shouldShowDashboardLoading_()) {
+        loadingMessage.textContent = "Cargando dashboard ejecutivo...";
+        loadingOverlay.classList.remove("hidden");
+      }
       renderApp();
       scrollViewportToTop_();
       loadViewDataInBackground_(state.currentView);
@@ -5749,22 +5769,10 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-dashboard-executive") {
-      await loadDashboardExecutive_({
+      await ensureDashboardViewData_({
         force: true,
-        message: "Actualizando indicadores ejecutivos..."
+        message: "Actualizando dashboard ejecutivo..."
       });
-      await loadDashboardSeasonMatrix_({
-        force: true,
-        showLoading: false
-      });
-
-      if (state.filters.dashboard.groupId) {
-        await loadDashboardLeaderDetail_({
-          force: true,
-          showLoading: false
-        });
-      }
-
       renderApp();
       return;
     }
@@ -6507,15 +6515,12 @@ async function handleChange(event) {
       state.filters.dashboard.seasonId = target.value;
       state.filters.dashboard.sessionId = "";
       state.filters.dashboard.groupId = "";
+      state.dashboardExecutive = null;
       state.dashboardLeaderDetail = null;
       invalidateDashboardSeasonMatrix_();
-      await loadDashboardExecutive_({
+      await ensureDashboardViewData_({
         force: true,
-        message: "Actualizando temporada ejecutiva..."
-      });
-      await loadDashboardSeasonMatrix_({
-        force: true,
-        showLoading: false
+        message: "Cargando dashboard ejecutivo..."
       });
       renderApp();
       return;
@@ -6723,16 +6728,19 @@ async function bootstrapApplication(options = {}) {
   const task = async () => {
     await loadBootstrapData_();
     syncBootstrapFilters_();
-
-    if (state.currentView !== "dashboard") {
-      await loadCurrentViewData();
-    }
+    await loadCurrentViewData({
+      showLoading: false,
+      force: options.force
+    });
   };
 
   if (options.showLoading === false) {
     await task();
   } else {
-    await withLoading(task, options.message || "Preparando dashboard...");
+    await withLoading(
+      task,
+      options.message || (state.currentView === "dashboard" ? "Cargando dashboard ejecutivo..." : "Preparando dashboard...")
+    );
   }
 
   renderApp();
@@ -6990,17 +6998,18 @@ async function loadDashboardExecutive_(options = {}) {
 
   const seasonId = state.filters.dashboard.seasonId;
   const currentSeasonId = state.dashboardExecutive?.seasonFocus?.id || "";
+  const loadKey = `dashboardExecutive::${seasonId || "none"}`;
 
   if (!options.force && state.dashboardExecutive && currentSeasonId === seasonId) {
     return state.dashboardExecutive;
   }
 
-  const task = async () => {
+  const task = () => runSharedLoad_(loadKey, async () => {
     state.dashboardExecutive = await apiGet("dashboard.executive", {
       seasonId
     });
     return state.dashboardExecutive;
-  };
+  });
 
   if (options.showLoading === false) {
     return task();
@@ -7066,21 +7075,34 @@ async function ensureParticipantsViewData_(options = {}) {
   await loadParticipantsData(options);
 }
 
-async function ensureDashboardViewData_() {
-  syncDashboardFilterState_();
-  await loadDashboardExecutive_({
-    showLoading: false
-  });
-  await loadPeopleDirectory();
-  await loadDashboardSeasonMatrix_({
-    showLoading: false
-  });
+async function ensureDashboardViewData_(options = {}) {
+  const task = async () => {
+    syncDashboardFilterState_();
 
-  if (state.filters.dashboard.groupId) {
-    await loadDashboardLeaderDetail_({
-      showLoading: false
-    });
+    await Promise.all([
+      loadDashboardExecutive_({
+        force: options.force,
+        showLoading: false
+      }),
+      loadDashboardSeasonMatrix_({
+        force: options.force,
+        showLoading: false
+      })
+    ]);
+
+    if (state.filters.dashboard.groupId) {
+      await loadDashboardLeaderDetail_({
+        force: options.force,
+        showLoading: false
+      });
+    }
+  };
+
+  if (options.showLoading === false) {
+    return task();
   }
+
+  return withLoading(task, options.message || "Cargando dashboard ejecutivo...");
 }
 
 async function ensureAdminViewData_() {
@@ -7105,7 +7127,18 @@ function warmDashboardExecutiveInBackground_() {
     return;
   }
 
-  void ensureDashboardViewData_()
+  if (
+    state.dashboardExecutive &&
+    state.dashboardSeasonMatrix &&
+    String(state.dashboardExecutive?.seasonFocus?.id || "") === String(state.filters.dashboard.seasonId || "") &&
+    String(state.dashboardSeasonMatrix?.seasonId || "") === String(state.filters.dashboard.seasonId || "")
+  ) {
+    return;
+  }
+
+  void ensureDashboardViewData_({
+    showLoading: false
+  })
     .then(() => {
       if (state.currentView === "dashboard") {
         renderApp();
@@ -7213,6 +7246,7 @@ async function loadDashboardSeasonMatrix_(options = {}) {
 
   const seasonId = state.filters.dashboard.seasonId || getLatestSeason()?.id || "";
   const cacheKey = String(seasonId || "");
+  const loadKey = `dashboardSeasonMatrix::${cacheKey || "none"}`;
 
   if (!seasonId) {
     state.dashboardSeasonMatrix = null;
@@ -7224,7 +7258,7 @@ async function loadDashboardSeasonMatrix_(options = {}) {
     return state.dashboardSeasonMatrix;
   }
 
-  const task = async () => {
+  const legacyTask = async () => {
     const sessions = await ensureSessionsForSeason(seasonId);
     const sessionGroupsList = await Promise.all(
       sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id))
@@ -7256,6 +7290,38 @@ async function loadDashboardSeasonMatrix_(options = {}) {
     state.cacheKeys.dashboardSeasonMatrix = cacheKey;
     return state.dashboardSeasonMatrix;
   };
+
+  const task = () => runSharedLoad_(loadKey, async () => {
+    let payload;
+
+    if (state.backendSupport.dashboardSeasonMatrixRoute !== false) {
+      try {
+        payload = await apiGet("dashboard.seasonMatrix", {
+          seasonId
+        });
+        state.backendSupport.dashboardSeasonMatrixRoute = true;
+      } catch (error) {
+        if (!isUnknownActionError_(error, "dashboard.seasonMatrix")) {
+          throw error;
+        }
+
+        state.backendSupport.dashboardSeasonMatrixRoute = false;
+      }
+    }
+
+    if (!payload) {
+      return legacyTask();
+    }
+
+    state.dashboardSeasonMatrix = {
+      ...payload,
+      key: String(payload.key || cacheKey),
+      seasonId: String(payload.seasonId || seasonId || ""),
+      seasonName: payload.seasonName || resolveSeasonName_(seasonId) || ""
+    };
+    state.cacheKeys.dashboardSeasonMatrix = cacheKey;
+    return state.dashboardSeasonMatrix;
+  });
 
   if (options.showLoading === false) {
     return task();
@@ -10095,6 +10161,9 @@ function resetRuntimeState() {
   state.adminUsersSupport = {
     available: true,
     message: ""
+  };
+  state.backendSupport = {
+    dashboardSeasonMatrixRoute: null
   };
   state.viewLoadToken = 0;
   state.cacheKeys = {
