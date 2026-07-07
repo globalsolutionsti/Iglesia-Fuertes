@@ -29,6 +29,11 @@ const VIEW_META = {
     title: "Nuevos Congregantes",
     subtitle: "Consulta altas recientes por periodo y revisa datos pastorales clave."
   },
+  "welcome-followup": {
+    module: "congregants",
+    title: "Bienvenida y Seguimiento",
+    subtitle: "Acompaña a cada nuevo congregante hasta integrarlo a su grupo de conexión."
+  },
   catalogs: {
     module: "connection",
     title: "Catalogos",
@@ -54,6 +59,11 @@ const VIEW_META = {
     title: "Asistencias",
     subtitle: "Opera la captura manual, escaneo QR asistido y modo kiosko."
   },
+  formation: {
+    module: "formation",
+    title: "Proceso de Formación",
+    subtitle: "Prospecta, valida y da seguimiento al historial formativo de cada congregante."
+  },
   "admin-settings": {
     module: "admin",
     title: "Configuracion",
@@ -74,13 +84,18 @@ const MODULE_META = {
   },
   congregants: {
     title: "Congregantes",
-    description: "Padron, altas y credenciales",
+    description: "Padron, nuevas personas y seguimiento de Bienvenida",
     defaultView: "assistants"
   },
   connection: {
     title: "Grupos de Conexion",
     description: "Catalogos, temporadas, asignacion y asistencias",
     defaultView: "catalogs"
+  },
+  formation: {
+    title: "Proceso de Formacion",
+    description: "Prospectos, validaciones, niveles e historial",
+    defaultView: "formation"
   },
   admin: {
     title: "Administracion",
@@ -95,13 +110,17 @@ const MODULE_TABS = {
   ],
   congregants: [
     { view: "assistants", label: "Congregantes", description: "Padron y credenciales" },
-    { view: "congregants-new", label: "Nuevos", description: "Altas por periodo" }
+    { view: "congregants-new", label: "Nuevos", description: "Altas por periodo" },
+    { view: "welcome-followup", label: "Bienvenida", description: "Prospectos y seguimiento" }
   ],
   connection: [
     { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
     { view: "seasons", label: "Temporadas", description: "Sesiones y estados" },
     { view: "participants", label: "Asignacion", description: "Individual y masiva" },
     { view: "attendance", label: "Asistencias", description: "Manual, QR y kiosko" }
+  ],
+  formation: [
+    { view: "formation", label: "Formación", description: "Prospectos, niveles e historial" }
   ],
   admin: [
     { view: "admin-settings", label: "Configuracion", description: "API y conexion" },
@@ -113,10 +132,12 @@ const ACCESSIBLE_VIEWS = [
   "dashboard",
   "assistants",
   "congregants-new",
+  "welcome-followup",
   "catalogs",
   "seasons",
   "participants",
   "attendance",
+  "formation",
   "admin-settings",
   "admin-users"
 ];
@@ -127,8 +148,9 @@ const CREDENTIAL_PREVIEW_LIMIT = 8;
 PERSON_TYPE_OPTIONS.splice(0, PERSON_TYPE_OPTIONS.length, "Congregante", "Servidor", "Coordinador", "L\u00edder");
 const MOBILE_NAV_ITEMS = [
   { module: "dashboard", view: "dashboard", label: "Inicio", description: "Pastor" },
-  { module: "congregants", view: "assistants", label: "Padron", description: "Altas" },
+  { module: "congregants", view: "assistants", label: "Congregantes", description: "Padron" },
   { module: "connection", view: "catalogs", label: "Grupos", description: "Operacion" },
+  { module: "formation", view: "formation", label: "Formacion", description: "Proceso" },
   { module: "admin", view: "admin-settings", label: "Admin", description: "Accesos" }
 ];
 
@@ -145,6 +167,12 @@ const state = {
   dashboardLeaderDetail: null,
   dashboardSessionInsights: null,
   dashboardSeasonMatrix: null,
+  welcomePeople: [],
+  welcomeProfile: null,
+  formationCatalog: [],
+  formationRecords: [],
+  formationCandidates: [],
+  formationProfile: null,
   adminUsers: [],
   adminUsersSupport: {
     available: true,
@@ -160,7 +188,10 @@ const state = {
     attendance: "",
     attendanceDetail: "",
     qrSummary: "",
-    dashboardSeasonMatrix: ""
+    dashboardSeasonMatrix: "",
+    welcomePeople: "",
+    formationRecords: "",
+    formationCandidates: ""
   },
   loaded: {
     bootstrap: false,
@@ -170,7 +201,11 @@ const state = {
     people: false,
     peopleDirectory: false,
     activeSession: false,
-    users: false
+    users: false,
+    welcome: false,
+    formationCatalog: false,
+    formationRecords: false,
+    formationCandidates: false
   },
   catalogs: {
     groups: [],
@@ -211,6 +246,10 @@ const state = {
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
+    editingFormationLevelId: "",
+    editingFormationRecordId: "",
+    selectedWelcomePersonId: "",
+    selectedFormationPersonId: "",
     confirmation: null
   },
   filters: {
@@ -229,6 +268,11 @@ const state = {
     congregants: {
       recentFrom: "",
       recentTo: ""
+    },
+    welcome: {
+      search: "",
+      status: "ALL",
+      groupId: ""
     },
     seasons: {
       seasonId: ""
@@ -260,6 +304,13 @@ const state = {
       peopleSearch: "",
       cameraFacing: DEFAULT_QR_CAMERA_FACING
     },
+    formation: {
+      seasonId: "",
+      groupId: "",
+      levelId: "",
+      status: "ALL",
+      search: ""
+    },
     admin: {
       userSearch: "",
       groupSearch: "",
@@ -276,7 +327,13 @@ const pendingResourceLoads = {
   people: null,
   peopleDirectory: null,
   activeSession: null,
-  users: null
+  users: null,
+  welcome: null,
+  welcomeProfile: null,
+  formationCatalog: null,
+  formationRecords: null,
+  formationCandidates: null,
+  formationProfile: null
 };
 
 const qrScannerRuntime = {
@@ -951,6 +1008,8 @@ function renderCurrentView() {
       return renderCongregantsDirectoryView_();
     case "congregants-new":
       return renderCongregantsRecentView_();
+    case "welcome-followup":
+      return renderWelcomeFollowupView_();
     case "catalogs":
       return renderCatalogsView_();
     case "seasons":
@@ -961,6 +1020,8 @@ function renderCurrentView() {
       return renderConnectionAttendanceView_();
     case "qr":
       return renderConnectionAttendanceView_();
+    case "formation":
+      return renderFormationView_();
     case "admin-settings":
       return renderAdminSettingsView_();
     case "admin-users":
@@ -1156,6 +1217,794 @@ function renderCongregantsRecentView_() {
             </tbody>
           </table>
         </div>
+      </article>
+    </section>
+  `;
+}
+
+function renderWelcomeFollowupView_() {
+  const rows = getFilteredWelcomePeople_();
+  const selectedProfile = state.welcomeProfile;
+  const selectedPerson = selectedProfile?.person || null;
+  const summary = buildWelcomeSummary_();
+  const statusOptions = [
+    { value: "ALL", label: "Todos los estatus" },
+    { value: "NUEVO", label: "Nuevo" },
+    { value: "PROSPECTO", label: "Prospecto" },
+    { value: "CONGREGANTE", label: "Congregante" }
+  ];
+  const groupOptions = renderOptions(
+    state.catalogs.groups.map((group) => ({
+      value: String(group.id),
+      label: `${group.name} (${group.id})`
+    })),
+    state.filters.welcome.groupId,
+    "Todos los grupos"
+  );
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "assistants",
+        eyebrow: "Ministerio de Bienvenida",
+        title: "Seguimiento de nuevos congregantes",
+        copy: "Lleva a cada persona desde su primer domingo hasta su integración a un grupo de conexión.",
+        badge: {
+          label: `${summary.prospects} prospectos activos`,
+          kind: summary.prospects ? "success" : "warning"
+        },
+        metrics: [
+          { label: "Nuevos", value: String(summary.newPeople) },
+          { label: "Prospectos", value: String(summary.prospects) },
+          { label: "Integrados", value: String(summary.congregants) },
+          { label: "Pendientes hoy", value: String(summary.followupDue) }
+        ],
+        actions: [
+          { label: "Padron", variant: "secondary", view: "assistants" },
+          { label: "Asignacion", variant: "primary", view: "participants" },
+          { label: "Perfil", variant: "ghost", sectionId: "welcome-profile" }
+        ]
+      })}
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip neutral">Seguimiento total</span>
+          <strong>${escapeHtml(String(summary.total))}</strong>
+          <span>Congregantes monitoreados por Bienvenida.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip warning">Nuevos</span>
+          <strong>${escapeHtml(String(summary.newPeople))}</strong>
+          <span>Personas aún en primer contacto o invitación.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip success">Prospectos</span>
+          <strong>${escapeHtml(String(summary.prospects))}</strong>
+          <span>Disponibles para asignación y seguimiento con líder.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Con grupo sugerido</span>
+          <strong>${escapeHtml(String(summary.withSuggestedGroup))}</strong>
+          <span>Casos listos para enviar al líder correcto.</span>
+        </article>
+      </div>
+
+      <div class="view-grid columns-2">
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Filtro pastoral</h2>
+              <p>Busca por nombre y localiza rápido los nuevos, prospectos o ya integrados.</p>
+            </div>
+            <button class="btn btn-secondary" data-action="refresh-welcome">Actualizar</button>
+          </div>
+
+          <div class="field-grid two">
+            <div class="field">
+              <label for="welcome-search">Buscar</label>
+              <input id="welcome-search" value="${escapeHtml(state.filters.welcome.search)}" placeholder="Nombre, teléfono, QR ID o grupo">
+            </div>
+            <div class="field">
+              <label for="welcome-status">Estatus</label>
+              <select id="welcome-status">
+                ${renderOptions(statusOptions, state.filters.welcome.status, "Todos los estatus")}
+              </select>
+            </div>
+            <div class="field">
+              <label for="welcome-group">Grupo sugerido</label>
+              <select id="welcome-group">
+                ${groupOptions}
+              </select>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel-card module-section-anchor" id="welcome-profile">
+          <div class="panel-head">
+            <div>
+              <h2>${selectedPerson ? "Perfil de seguimiento" : "Selecciona una persona"}</h2>
+              <p>${selectedPerson ? "Actualiza el estatus, prepara la invitación y registra cada acercamiento." : "Toca Ver seguimiento desde la tabla para abrir el expediente pastoral."}</p>
+            </div>
+            ${selectedPerson ? renderWorkflowStatusPill_(selectedPerson.welcomeStatus) : `<span class="pill dark">Sin selección</span>`}
+          </div>
+
+          ${selectedPerson ? `
+            <div class="summary-stack">
+              <div class="summary-box">
+                <span class="status-chip neutral">Congregante</span>
+                <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
+                <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Grupo sugerido</span>
+                <strong>${escapeHtml(selectedPerson.suggestedGroupName || "Sin sugerencia")}</strong>
+                <span>${escapeHtml(selectedPerson.leader?.name || "Sin líder asignado")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Último contacto</span>
+                <strong>${escapeHtml(formatDate(selectedPerson.lastContactAt) || "Sin registro")}</strong>
+                <span>${escapeHtml(selectedPerson.lastFollowupResult || "Pendiente")}</span>
+              </div>
+            </div>
+
+            <form id="welcome-person-form" style="margin-top: 18px;">
+              <input type="hidden" name="personId" value="${escapeHtml(selectedPerson.id || "")}">
+              <div class="field-grid two">
+                <div class="field">
+                  <label for="welcome-person-status">Estatus Bienvenida</label>
+                  <select id="welcome-person-status" name="status">
+                    ${renderOptions(statusOptions.filter((item) => item.value !== "ALL"), selectedPerson.welcomeStatus, "Selecciona estatus")}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="welcome-person-group">Grupo sugerido</label>
+                  <select id="welcome-person-group" name="suggestedGroupId">
+                    ${renderOptions(
+                      state.catalogs.groups.map((group) => ({
+                        value: String(group.id),
+                        label: `${group.name} (${group.id})`
+                      })),
+                      selectedPerson.suggestedGroupId,
+                      "Selecciona grupo sugerido"
+                    )}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="welcome-person-next">Próximo seguimiento</label>
+                  <input id="welcome-person-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(selectedPerson.nextFollowUpDate) || "")}">
+                </div>
+                <div class="field">
+                  <label for="welcome-person-notes">Notas actuales</label>
+                  <input id="welcome-person-notes" name="notes" value="${escapeHtml(selectedPerson.notasBienvenida || selectedPerson.lastFollowupNotes || "")}" placeholder="Contexto pastoral del caso">
+                </div>
+              </div>
+
+              <div class="actions-row">
+                <button class="btn btn-primary" type="submit">Guardar seguimiento</button>
+                ${selectedPerson.leaderWhatsappUrl ? `<a class="btn btn-secondary" href="${escapeHtml(selectedPerson.leaderWhatsappUrl)}" target="_blank" rel="noreferrer">Preparar WhatsApp líder</a>` : `<button class="btn btn-secondary" type="button" disabled>Sin WhatsApp líder</button>`}
+              </div>
+            </form>
+          ` : `
+            <div class="empty-state">Abre un expediente desde el listado para capturar la invitación, asignar grupo sugerido y dejar el siguiente paso claro para Bienvenida.</div>
+          `}
+        </article>
+      </div>
+
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Casos de Bienvenida</h2>
+            <p>Cada fila deja visible si la persona sigue nueva, si ya es prospecto o si ya quedó integrada.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Congregante</th>
+                <th>Estatus</th>
+                <th>Invitación</th>
+                <th>Seguimiento</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map((row) => `
+                <tr>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
+                    <span class="row-meta">${escapeHtml(row.telefono || "Sin teléfono")} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "-")}</span>
+                    <span class="row-meta">${escapeHtml(row.numero || "-")} | QR ${escapeHtml(row.id || "-")}</span>
+                  </td>
+                  <td>${renderWorkflowStatusPill_(row.welcomeStatus)}</td>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.suggestedGroupName || "Sin grupo sugerido")}</span>
+                    <span class="row-meta">${escapeHtml(row.leader?.name || "Sin líder detectado")}</span>
+                  </td>
+                  <td>
+                    <span class="row-title">${escapeHtml(formatDate(row.nextFollowUpDate) || "Sin fecha")}</span>
+                    <span class="row-meta">${escapeHtml(row.lastFollowupResult || "Sin resultado")}</span>
+                  </td>
+                  <td>
+                    <div class="inline-actions">
+                      <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Ver seguimiento</button>
+                      ${row.leaderWhatsappUrl ? `<a class="btn btn-ghost" href="${escapeHtml(row.leaderWhatsappUrl)}" target="_blank" rel="noreferrer">WhatsApp</a>` : ""}
+                    </div>
+                  </td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="5"><div class="empty-state">No hay congregantes que coincidan con los filtros de Bienvenida.</div></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      ${selectedPerson ? `
+        <article class="detail-card">
+          <div class="panel-head">
+            <div>
+              <h2>Bitácora de seguimiento</h2>
+              <p>Registra llamadas, invitaciones, notas y acuerdos con fecha y responsable.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(String(selectedProfile?.followups?.length || 0))} eventos</span>
+          </div>
+
+          <form id="welcome-followup-form" style="margin-bottom: 18px;">
+            <input type="hidden" name="personId" value="${escapeHtml(selectedPerson.id || "")}">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="welcome-followup-type">Tipo de acción</label>
+                <select id="welcome-followup-type" name="actionType">
+                  ${renderOptions([
+                    { value: "INVITACION", label: "Invitación" },
+                    { value: "WHATSAPP", label: "WhatsApp" },
+                    { value: "LLAMADA", label: "Llamada" },
+                    { value: "SEGUIMIENTO", label: "Seguimiento" }
+                  ], "SEGUIMIENTO", "Selecciona acción")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="welcome-followup-result">Resultado</label>
+                <select id="welcome-followup-result" name="result">
+                  ${renderOptions([
+                    { value: "PENDIENTE", label: "Pendiente" },
+                    { value: "CONFIRMADO", label: "Confirmó interés" },
+                    { value: "NO_RESPONDE", label: "No responde" },
+                    { value: "ASISTIO", label: "Asistió" },
+                    { value: "NO_ASISTIO", label: "No asistió" }
+                  ], "PENDIENTE", "Selecciona resultado")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="welcome-followup-owner">Responsable</label>
+                <input id="welcome-followup-owner" name="owner" placeholder="Bienvenida / líder / seguimiento">
+              </div>
+              <div class="field">
+                <label for="welcome-followup-next">Próximo seguimiento</label>
+                <input id="welcome-followup-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(selectedPerson.nextFollowUpDate) || "")}">
+              </div>
+              <div class="field">
+                <label for="welcome-followup-status">Nuevo estatus</label>
+                <select id="welcome-followup-status" name="status">
+                  ${renderOptions(statusOptions.filter((item) => item.value !== "ALL"), selectedPerson.welcomeStatus, "Selecciona estatus")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="welcome-followup-group">Grupo sugerido</label>
+                <select id="welcome-followup-group" name="suggestedGroupId">
+                  ${renderOptions(
+                    state.catalogs.groups.map((group) => ({
+                      value: String(group.id),
+                      label: `${group.name} (${group.id})`
+                    })),
+                    selectedPerson.suggestedGroupId,
+                    "Selecciona grupo sugerido"
+                  )}
+                </select>
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="welcome-followup-notes">Notas</label>
+                <textarea id="welcome-followup-notes" name="notes" rows="3" placeholder="Qué habló Bienvenida, qué respondió la persona y cuál será el siguiente paso"></textarea>
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">Registrar evento</button>
+            </div>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Acción</th>
+                  <th>Resultado</th>
+                  <th>Responsable</th>
+                  <th>Notas</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(selectedProfile?.followups || []).length ? (selectedProfile.followups || []).map((followup) => `
+                  <tr>
+                    <td>${escapeHtml(formatDateTimeCompact_(followup.actionDate) || "-")}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml(followup.actionType || "-")}</span>
+                      <span class="row-meta">${escapeHtml(followup.nextFollowUpDate ? `Siguiente: ${formatDate(followup.nextFollowUpDate)}` : "Sin próxima fecha")}</span>
+                    </td>
+                    <td>${renderWorkflowResultPill_(followup.result)}</td>
+                    <td>${escapeHtml(followup.owner || "Sin responsable")}</td>
+                    <td>${escapeHtml(followup.notes || "Sin notas")}</td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="5"><div class="empty-state">Todavía no hay eventos de seguimiento para esta persona.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderFormationView_() {
+  const candidates = getFilteredFormationCandidates_();
+  const records = getFilteredFormationRecords_();
+  const profile = state.formationProfile;
+  const selectedPersonId = state.ui.selectedFormationPersonId;
+  const selectedCandidate = candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
+    || profile?.currentCandidate
+    || (profile?.person ? {
+      personId: profile.person.id,
+      personName: profile.person.nombreCompleto || profile.person.nombre || "Congregante",
+      personNumber: profile.person.numero || "",
+      groupId: profile.person.grupo || "",
+      groupName: resolveGroupName_(profile.person.grupo) || profile.person.grupo || "Sin grupo",
+      seasonId: state.filters.formation.seasonId || "",
+      formationStatus: profile.person.estatusFormacion || "",
+      currentLevel: profile.person.nivelFormacionActual || ""
+    } : null);
+  const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
+  const editingRecord = records.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || profile?.records?.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || null;
+  const summary = buildFormationSummary_();
+  const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "participants",
+        eyebrow: "Proceso de Formación",
+        title: "Prospectos, validación e historial",
+        copy: "Evalúa asistencia, manda prospectos a coordinación y visualiza el avance completo por persona.",
+        badge: {
+          label: `${summary.pending} por validar`,
+          kind: summary.pending ? "warning" : "dark"
+        },
+        metrics: [
+          { label: "Candidatos", value: String(summary.candidates) },
+          { label: "Prospectos", value: String(summary.prospects) },
+          { label: "Aceptados", value: String(summary.accepted) },
+          { label: "Acreditados", value: String(summary.approved) }
+        ],
+        actions: [
+          { label: "Asignacion", variant: "secondary", view: "participants" },
+          { label: "Asistencias", variant: "primary", view: "attendance" },
+          { label: "Historial", variant: "ghost", sectionId: "formation-profile" }
+        ]
+      })}
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip neutral">Catálogo activo</span>
+          <strong>${escapeHtml(String(state.formationCatalog.length))}</strong>
+          <span>Niveles cargados para ordenar todo el proceso.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip warning">Pendientes</span>
+          <strong>${escapeHtml(String(summary.pending))}</strong>
+          <span>Prospectos esperando validación o arranque formal.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip success">En curso</span>
+          <strong>${escapeHtml(String(summary.inProgress))}</strong>
+          <span>Congregantes avanzando en su formación.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Historial</span>
+          <strong>${escapeHtml(String(records.length))}</strong>
+          <span>Casos registrados dentro del proceso formativo.</span>
+        </article>
+      </div>
+
+      <article class="panel-card">
+        <div class="panel-head">
+          <div>
+            <h2>Filtro operativo</h2>
+            <p>Selecciona la temporada y el grupo para revisar quién ya puede ser prospectado.</p>
+          </div>
+          <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
+        </div>
+
+        <div class="field-grid two">
+          ${renderSeasonSelect("formation-season", state.filters.formation.seasonId || seasonId)}
+          <div class="field">
+            <label for="formation-group">Grupo</label>
+            <select id="formation-group">
+              ${renderOptions(
+                state.catalogs.groups.map((group) => ({
+                  value: String(group.id),
+                  label: `${group.name} (${group.id})`
+                })),
+                state.filters.formation.groupId,
+                "Todos los grupos"
+              )}
+            </select>
+          </div>
+          <div class="field">
+            <label for="formation-level-filter">Nivel</label>
+            <select id="formation-level-filter">
+              ${renderOptions(
+                state.formationCatalog.map((level) => ({
+                  value: level.id,
+                  label: `${level.name} (${level.order})`
+                })),
+                state.filters.formation.levelId,
+                "Todos los niveles"
+              )}
+            </select>
+          </div>
+          <div class="field">
+            <label for="formation-status-filter">Estatus</label>
+            <select id="formation-status-filter">
+              ${renderOptions([
+                { value: "ALL", label: "Todos los estatus" },
+                { value: "PROSPECTO_FORMACION", label: "Prospecto formación" },
+                { value: "ACEPTADO_FORMACION", label: "Aceptado" },
+                { value: "RECHAZADO_FORMACION", label: "Rechazado" },
+                { value: "EN_CURSO", label: "En curso" },
+                { value: "ACREDITADO", label: "Acreditado" },
+                { value: "NO_ACREDITADO", label: "No acreditado" }
+              ], state.filters.formation.status, "Todos los estatus")}
+            </select>
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <label for="formation-search">Buscar</label>
+            <input id="formation-search" value="${escapeHtml(state.filters.formation.search)}" placeholder="Nombre, QR ID, grupo o nivel">
+          </div>
+        </div>
+      </article>
+
+      <div class="view-grid columns-2">
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>${editingRecord ? "Actualizar caso formativo" : "Prospectar o validar congregante"}</h2>
+              <p>${selectedCandidate ? `${selectedCandidate.personName} | ${selectedCandidate.groupName || "Sin grupo"}` : "Selecciona un congregante desde la tabla para cargarlo en el formulario."}</p>
+            </div>
+            ${selectedCandidate ? renderWorkflowStatusPill_(selectedCandidate.formationStatus || "SIN_PROCESO") : `<span class="pill dark">Sin selección</span>`}
+          </div>
+
+          <form id="formation-record-form">
+            <input type="hidden" name="id" value="${escapeHtml(editingRecord?.id || "")}">
+            <input type="hidden" name="personId" value="${escapeHtml(selectedCandidate?.personId || profile?.person?.id || "")}">
+            <input type="hidden" name="seasonId" value="${escapeHtml(selectedCandidate?.seasonId || seasonId || "")}">
+            <input type="hidden" name="groupId" value="${escapeHtml(selectedCandidate?.groupId || profile?.currentCandidate?.groupId || "")}">
+
+            <div class="field-grid two">
+              <div class="field">
+                <label for="formation-level">Nivel</label>
+                <select id="formation-level" name="levelId">
+                  ${renderOptions(
+                    state.formationCatalog.map((level) => ({
+                      value: level.id,
+                      label: `${level.name} (${level.order})`
+                    })),
+                    editingRecord?.levelId || profile?.nextLevel?.id || "",
+                    "Selecciona nivel"
+                  )}
+                </select>
+              </div>
+              <div class="field">
+                <label for="formation-status">Estatus</label>
+                <select id="formation-status" name="status">
+                  ${renderOptions([
+                    { value: "PROSPECTO_FORMACION", label: "Prospecto formación" },
+                    { value: "ACEPTADO_FORMACION", label: "Aceptado formación" },
+                    { value: "RECHAZADO_FORMACION", label: "Rechazado formación" },
+                    { value: "EN_CURSO", label: "En curso" },
+                    { value: "ACREDITADO", label: "Acreditado" },
+                    { value: "NO_ACREDITADO", label: "No acreditado" }
+                  ], editingRecord?.status || "PROSPECTO_FORMACION", "Selecciona estatus")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="formation-requested-by">Solicitado por</label>
+                <input id="formation-requested-by" name="requestedBy" value="${escapeHtml(editingRecord?.requestedBy || state.user?.name || "")}" placeholder="Líder o responsable">
+              </div>
+              <div class="field">
+                <label for="formation-reviewed-by">Revisado por</label>
+                <input id="formation-reviewed-by" name="reviewedBy" value="${escapeHtml(editingRecord?.reviewedBy || "")}" placeholder="Coordinación">
+              </div>
+              <div class="field">
+                <label for="formation-start-date">Inicio</label>
+                <input id="formation-start-date" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingRecord?.startDate) || "")}">
+              </div>
+              <div class="field">
+                <label for="formation-end-date">Fin</label>
+                <input id="formation-end-date" name="endDate" type="date" value="${escapeHtml(formatDateForInput_(editingRecord?.endDate) || "")}">
+              </div>
+              <div class="field">
+                <label for="formation-result">Resultado</label>
+                <input id="formation-result" name="result" value="${escapeHtml(editingRecord?.result || "")}" placeholder="Aprobado, por iniciar, reagendado...">
+              </div>
+              <div class="field">
+                <label for="formation-reason">Motivo / observación</label>
+                <input id="formation-reason" name="reason" value="${escapeHtml(editingRecord?.reason || "")}" placeholder="Usa este campo si fue rechazado o reagendado">
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="formation-notes">Notas</label>
+                <textarea id="formation-notes" name="notes" rows="3" placeholder="Seguimiento del líder, validación de coordinación o acuerdos pastorales">${escapeHtml(editingRecord?.notes || "")}</textarea>
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit" ${selectedCandidate || profile?.person ? "" : "disabled"}>${editingRecord ? "Guardar cambios" : "Registrar caso"}</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-formation-record-form" ${editingRecord || selectedCandidate ? "" : "disabled"}>Limpiar</button>
+              ${profile?.records?.[0]?.coordinatorWhatsappUrl ? `<a class="btn btn-secondary" href="${escapeHtml(profile.records[0].coordinatorWhatsappUrl)}" target="_blank" rel="noreferrer">Preparar WhatsApp coordinación</a>` : ""}
+            </div>
+          </form>
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>${editingLevel ? "Editar nivel" : "Catálogo de niveles"}</h2>
+              <p>Ordena la ruta de formación y deja listo el siguiente paso cuando alguien acredite.</p>
+            </div>
+          </div>
+
+          <form id="formation-level-form">
+            <input type="hidden" name="id" value="${escapeHtml(editingLevel?.id || "")}">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="formation-level-name">Nombre</label>
+                <input id="formation-level-name" name="name" value="${escapeHtml(editingLevel?.name || "")}" placeholder="Encuentro" required>
+              </div>
+              <div class="field">
+                <label for="formation-level-order">Orden</label>
+                <input id="formation-level-order" name="order" type="number" min="0" value="${escapeHtml(String(editingLevel?.order || state.formationCatalog.length + 1))}" required>
+              </div>
+              <div class="field">
+                <label for="formation-level-status">Estado</label>
+                <select id="formation-level-status" name="status">
+                  ${renderOptions([
+                    { value: "ACTIVO", label: "ACTIVO" },
+                    { value: "INACTIVO", label: "INACTIVO" }
+                  ], editingLevel?.status || "ACTIVO", "Selecciona estado")}
+                </select>
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="formation-level-description">Descripción</label>
+                <input id="formation-level-description" name="description" value="${escapeHtml(editingLevel?.description || "")}" placeholder="Objetivo pastoral o alcance del nivel">
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">${editingLevel ? "Guardar nivel" : "Crear nivel"}</button>
+              <button class="btn btn-ghost" type="button" data-action="clear-formation-level-form" ${editingLevel ? "" : "disabled"}>Limpiar</button>
+            </div>
+          </form>
+
+          <div class="table-wrap" style="margin-top: 18px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Orden</th>
+                  <th>Nivel</th>
+                  <th>Estado</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${state.formationCatalog.length ? state.formationCatalog.map((level) => `
+                  <tr>
+                    <td>${escapeHtml(String(level.order || 0))}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml(level.name)}</span>
+                      <span class="row-meta">${escapeHtml(level.description || "Sin descripción")}</span>
+                    </td>
+                    <td>${renderPill(level.status)}</td>
+                    <td><button class="btn btn-secondary" data-action="edit-formation-level" data-level-id="${escapeHtml(level.id)}">Editar</button></td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="4"><div class="empty-state">Crea el catálogo inicial de niveles para activar este módulo.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Candidatos por asistencia</h2>
+            <p>Usa la asistencia como criterio. Aquí ves cada grupo, su porcentaje y desde aquí arrancas el proceso.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(candidates.length))} candidatos</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Congregante</th>
+                <th>Grupo</th>
+                <th>Asistencia</th>
+                <th>Formación</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${candidates.length ? candidates.map((candidate) => `
+                <tr>
+                  <td>
+                    <span class="row-title">${escapeHtml(candidate.personName)}</span>
+                    <span class="row-meta">${escapeHtml(candidate.personNumber || "-")} | QR ${escapeHtml(candidate.personId)}</span>
+                  </td>
+                  <td>${escapeHtml(candidate.groupName || "Sin grupo")}</td>
+                  <td>
+                    <span class="row-title">${escapeHtml(String(candidate.attendanceRate || 0))}%</span>
+                    <span class="row-meta">${escapeHtml(String(candidate.attendanceCount || 0))}/${escapeHtml(String(candidate.sessionsCount || 0))} sesiones</span>
+                  </td>
+                  <td>
+                    ${renderWorkflowStatusPill_(candidate.formationStatus || "SIN_PROCESO")}
+                    <span class="row-meta">${escapeHtml(candidate.currentLevel || "Sin nivel actual")}</span>
+                  </td>
+                  <td>
+                    <div class="inline-actions">
+                      <button class="btn btn-secondary" data-action="select-formation-person" data-person-id="${escapeHtml(candidate.personId)}">Cargar</button>
+                      <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(candidate.personId)}">Perfil</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="5"><div class="empty-state">No hay candidatos para la temporada y filtros seleccionados.</div></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Casos de formación</h2>
+            <p>Consulta el historial operativo: quién fue prospectado, quién fue aceptado y quién ya acreditó.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(records.length))} registros</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Congregante</th>
+                <th>Nivel</th>
+                <th>Estatus</th>
+                <th>Seguimiento</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${records.length ? records.map((record) => `
+                <tr>
+                  <td>
+                    <span class="row-title">${escapeHtml(record.personName)}</span>
+                    <span class="row-meta">${escapeHtml(record.groupName || "Sin grupo")} | ${escapeHtml(record.seasonId || "Sin temporada")}</span>
+                  </td>
+                  <td>${escapeHtml(record.levelName || "Sin nivel")}</td>
+                  <td>${renderWorkflowStatusPill_(record.status)}</td>
+                  <td>
+                    <span class="row-title">${escapeHtml(formatDate(record.requestedAt) || "Sin fecha")}</span>
+                    <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
+                  </td>
+                  <td>
+                    <div class="inline-actions">
+                      <button class="btn btn-secondary" data-action="edit-formation-record" data-record-id="${escapeHtml(record.id)}" data-person-id="${escapeHtml(record.personId)}">Editar</button>
+                      <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(record.personId)}">Perfil</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="5"><div class="empty-state">Todavía no hay casos formativos registrados.</div></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="detail-card module-section-anchor" id="formation-profile">
+        <div class="panel-head">
+          <div>
+            <h2>${profile?.person ? "Perfil formativo" : "Selecciona un congregante"}</h2>
+            <p>${profile?.person ? "Aquí ves todo su historial, el nivel actual y el siguiente paso recomendado." : "Abre el perfil desde Candidatos o Casos para consultar el historial completo."}</p>
+          </div>
+          ${profile?.person ? renderWorkflowStatusPill_(profile.person.estatusFormacion || "SIN_PROCESO") : `<span class="pill dark">Sin perfil</span>`}
+        </div>
+
+        ${profile?.person ? `
+          <div class="summary-stack dashboard-summary-grid">
+            <div class="summary-box">
+              <span class="status-chip neutral">Congregante</span>
+              <strong>${escapeHtml(profile.person.nombreCompleto || profile.person.nombre || "-")}</strong>
+              <span>${escapeHtml(profile.person.numero || "-")} | QR ${escapeHtml(profile.person.id || "-")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Grupo actual</span>
+              <strong>${escapeHtml(profile.currentCandidate?.groupName || resolveGroupName_(profile.person.grupo) || "Sin grupo")}</strong>
+              <span>${escapeHtml(profile.currentCandidate ? `${profile.currentCandidate.attendanceCount}/${profile.currentCandidate.sessionsCount} asistencias` : "Sin resumen de asistencia")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Nivel actual</span>
+              <strong>${escapeHtml(profile.person.nivelFormacionActual || "Sin nivel")}</strong>
+              <span>${escapeHtml(profile.person.estatusFormacion || "Sin proceso")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Siguiente paso</span>
+              <strong>${escapeHtml(profile.nextLevel?.name || "Sin recomendación")}</strong>
+              <span>${escapeHtml(profile.nextLevel ? `Orden ${profile.nextLevel.order}` : "Primero define el catálogo o acredita un nivel")}</span>
+            </div>
+          </div>
+
+          <div class="table-wrap" style="margin-top: 18px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Nivel</th>
+                  <th>Estatus</th>
+                  <th>Resultado</th>
+                  <th>Notas</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(profile.records || []).length ? profile.records.map((record) => `
+                  <tr>
+                    <td>${escapeHtml(formatDate(record.requestedAt) || "-")}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml(record.levelName || "Sin nivel")}</span>
+                      <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
+                    </td>
+                    <td>${renderWorkflowStatusPill_(record.status)}</td>
+                    <td>${escapeHtml(record.result || record.reason || "Sin resultado")}</td>
+                    <td>${escapeHtml(record.notes || "Sin notas")}</td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="5"><div class="empty-state">Este congregante aún no tiene historial dentro del proceso de formación.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state">Selecciona una persona para consultar su historial, revisar su asistencia y decidir si avanza al siguiente nivel.</div>
+        `}
       </article>
     </section>
   `;
@@ -5853,6 +6702,33 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "refresh-welcome") {
+      await Promise.all([
+        loadWelcomePeople_({
+          force: true,
+          showLoading: false
+        }),
+        state.ui.selectedWelcomePersonId
+          ? loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
+            force: true,
+            showLoading: false
+          })
+          : Promise.resolve()
+      ]);
+      renderApp();
+      return;
+    }
+
+    if (action === "open-welcome-profile") {
+      await loadWelcomeProfile_(button.dataset.personId || "", {
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      scrollToSection_("welcome-profile");
+      return;
+    }
+
     if (action === "edit-group-catalog") {
       state.ui.editingGroupId = String(button.dataset.groupId || "");
       renderApp();
@@ -6337,6 +7213,75 @@ async function handleClick(event) {
       await registerQrAttendance(button.dataset.personId || "");
       return;
     }
+
+    if (action === "refresh-formation") {
+      await ensureFormationViewData_({
+        force: true,
+        message: "Actualizando proceso de formación..."
+      });
+      if (state.ui.selectedFormationPersonId) {
+        await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+          force: true,
+          showLoading: false
+        });
+      }
+      renderApp();
+      return;
+    }
+
+    if (action === "select-formation-person") {
+      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
+      state.ui.editingFormationRecordId = "";
+      await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      scrollToSection_("formation-profile");
+      return;
+    }
+
+    if (action === "open-formation-profile") {
+      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
+      await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      scrollToSection_("formation-profile");
+      return;
+    }
+
+    if (action === "edit-formation-level") {
+      state.ui.editingFormationLevelId = String(button.dataset.levelId || "");
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "clear-formation-level-form") {
+      state.ui.editingFormationLevelId = "";
+      renderApp();
+      return;
+    }
+
+    if (action === "edit-formation-record") {
+      state.ui.editingFormationRecordId = String(button.dataset.recordId || "");
+      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
+      await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "clear-formation-record-form") {
+      state.ui.editingFormationRecordId = "";
+      renderApp();
+      return;
+    }
   } catch (error) {
     handleError(error);
   }
@@ -6423,6 +7368,20 @@ async function handleSubmit(event) {
       return;
     }
 
+    if (form.id === "welcome-person-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveWelcomePerson_(payload);
+      return;
+    }
+
+    if (form.id === "welcome-followup-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveWelcomeFollowup_(payload);
+      form.reset();
+      renderApp();
+      return;
+    }
+
     if (form.id === "catalog-group-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
 
@@ -6448,6 +7407,20 @@ async function handleSubmit(event) {
       state.ui.editingMinistryId = "";
       showToast("Catalogo actualizado", "El ministerio quedo guardado correctamente.", "success");
       renderApp();
+      return;
+    }
+
+    if (form.id === "formation-level-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveFormationLevel_(payload);
+      form.reset();
+      renderApp();
+      return;
+    }
+
+    if (form.id === "formation-record-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveFormationRecord_(payload);
       return;
     }
 
@@ -6507,6 +7480,18 @@ async function handleChange(event) {
 
     if (target.id === "assistants-type") {
       state.filters.assistants.type = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "welcome-status") {
+      state.filters.welcome.status = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "welcome-group") {
+      state.filters.welcome.groupId = target.value;
       renderApp();
       return;
     }
@@ -6648,6 +7633,54 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "formation-season") {
+      state.filters.formation.seasonId = target.value;
+      state.ui.editingFormationRecordId = "";
+      state.formationProfile = null;
+      await ensureFormationViewData_({
+        force: true,
+        showLoading: false
+      });
+      if (state.ui.selectedFormationPersonId) {
+        await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+          force: true,
+          showLoading: false
+        });
+      }
+      renderApp();
+      return;
+    }
+
+    if (target.id === "formation-group") {
+      state.filters.formation.groupId = target.value;
+      await loadFormationData_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "formation-level-filter") {
+      state.filters.formation.levelId = target.value;
+      await loadFormationData_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "formation-status-filter") {
+      state.filters.formation.status = target.value;
+      await loadFormationData_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
     if (target.dataset.role === "move-target") {
       state.filters.participants.moveTargets[target.dataset.participantId] = target.value;
       renderApp();
@@ -6677,6 +7710,12 @@ function handleInput(event) {
     return;
   }
 
+  if (target.id === "welcome-search") {
+    state.filters.welcome.search = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
   if (target.id === "participant-people-search") {
     state.filters.participants.peopleSearch = target.value;
     rerenderPreservingInput_(target);
@@ -6685,6 +7724,12 @@ function handleInput(event) {
 
   if (target.id === "participant-bulk-search") {
     state.filters.participants.bulkSearch = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
+  if (target.id === "formation-search") {
+    state.filters.formation.search = target.value;
     rerenderPreservingInput_(target);
     return;
   }
@@ -6761,6 +7806,9 @@ async function loadCurrentViewData(options = {}) {
     case "congregants-new":
       await ensureAssistantsViewData_(options);
       return;
+    case "welcome-followup":
+      await ensureWelcomeViewData_(options);
+      return;
     case "catalogs":
       await ensureCatalogsViewData_(options);
       return;
@@ -6780,6 +7828,9 @@ async function loadCurrentViewData(options = {}) {
       return;
     case "qr":
       await ensureQrViewData_(options);
+      return;
+    case "formation":
+      await ensureFormationViewData_(options);
       return;
     case "admin-settings":
     case "admin-users":
@@ -6868,6 +7919,7 @@ function syncBootstrapFilters_() {
     state.filters.dashboard.groupId = "";
   }
   state.filters.seasons.seasonId = ensureValidSeasonId(state.filters.seasons.seasonId);
+  state.filters.formation.seasonId = ensureValidSeasonId(state.filters.formation.seasonId);
 }
 
 async function loadCatalogs(options = {}) {
@@ -7061,6 +8113,181 @@ async function ensureAssistantsViewData_() {
   }
 }
 
+async function loadWelcomePeople_(options = {}) {
+  const requestKey = "welcomePeople::all";
+
+  if (!options.force && state.loaded.welcome && state.cacheKeys.welcomePeople === requestKey) {
+    return state.welcomePeople;
+  }
+
+  const task = () => runSharedLoad_("welcome", async () => {
+    state.welcomePeople = await apiGet("welcome.people.list");
+    state.loaded.welcome = true;
+    state.cacheKeys.welcomePeople = requestKey;
+    return state.welcomePeople;
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Cargando seguimiento de Bienvenida...");
+}
+
+async function loadWelcomeProfile_(personId, options = {}) {
+  const cleanPersonId = String(personId || "");
+
+  if (!cleanPersonId) {
+    state.welcomeProfile = null;
+    state.ui.selectedWelcomePersonId = "";
+    return null;
+  }
+
+  if (!options.force && state.ui.selectedWelcomePersonId === cleanPersonId && state.welcomeProfile?.person?.id === cleanPersonId) {
+    return state.welcomeProfile;
+  }
+
+  const task = () => runSharedLoad_(`welcomeProfile::${cleanPersonId}`, async () => {
+    state.welcomeProfile = await apiGet("welcome.person.profile", {
+      personId: cleanPersonId
+    });
+    state.ui.selectedWelcomePersonId = cleanPersonId;
+    return state.welcomeProfile;
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Abriendo expediente de Bienvenida...");
+}
+
+async function loadFormationCatalog_(options = {}) {
+  if (!options.force && state.loaded.formationCatalog) {
+    return state.formationCatalog;
+  }
+
+  const task = () => runSharedLoad_("formationCatalog", async () => {
+    state.formationCatalog = await apiGet("formation.catalog.list");
+    state.loaded.formationCatalog = true;
+    return state.formationCatalog;
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Cargando niveles de formación...");
+}
+
+async function syncFormationFilterState_() {
+  state.filters.formation.seasonId = ensureValidSeasonId(state.filters.formation.seasonId);
+
+  if (!state.filters.formation.seasonId) {
+    state.filters.formation.seasonId = getLatestSeason()?.id || "";
+  }
+
+  if (state.filters.formation.groupId && !state.catalogs.groups.some((group) => String(group.id) === String(state.filters.formation.groupId))) {
+    state.filters.formation.groupId = "";
+  }
+
+  if (state.filters.formation.levelId && !state.formationCatalog.some((level) => String(level.id) === String(state.filters.formation.levelId))) {
+    state.filters.formation.levelId = "";
+  }
+}
+
+async function loadFormationData_(options = {}) {
+  await loadFormationCatalog_({
+    force: options.force,
+    showLoading: false
+  });
+  await syncFormationFilterState_();
+
+  const filter = state.filters.formation;
+  const recordsKey = `${filter.seasonId}::${filter.groupId}::${filter.levelId}::${filter.status}`;
+  const candidatesKey = `${filter.seasonId}::${filter.groupId}`;
+
+  if (
+    !options.force &&
+    state.loaded.formationRecords &&
+    state.loaded.formationCandidates &&
+    state.cacheKeys.formationRecords === recordsKey &&
+    state.cacheKeys.formationCandidates === candidatesKey
+  ) {
+    return;
+  }
+
+  const task = async () => {
+    const [records, candidates] = await Promise.all([
+      apiGet("formation.records.list", {
+        seasonId: filter.seasonId,
+        groupId: filter.groupId,
+        levelId: filter.levelId,
+        status: filter.status === "ALL" ? "" : filter.status
+      }),
+      apiGet("formation.candidates.list", {
+        seasonId: filter.seasonId,
+        groupId: filter.groupId
+      })
+    ]);
+
+    state.formationRecords = records;
+    state.formationCandidates = candidates;
+    state.cacheKeys.formationRecords = recordsKey;
+    state.cacheKeys.formationCandidates = candidatesKey;
+    state.loaded.formationRecords = true;
+    state.loaded.formationCandidates = true;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, options.message || "Preparando proceso de formación...");
+}
+
+async function loadFormationProfile_(personId, options = {}) {
+  const cleanPersonId = String(personId || "");
+
+  if (!cleanPersonId) {
+    state.formationProfile = null;
+    state.ui.selectedFormationPersonId = "";
+    state.ui.editingFormationRecordId = "";
+    return null;
+  }
+
+  const task = () => runSharedLoad_(`formationProfile::${cleanPersonId}`, async () => {
+    state.formationProfile = await apiGet("formation.person.profile", {
+      personId: cleanPersonId,
+      seasonId: state.filters.formation.seasonId
+    });
+    state.ui.selectedFormationPersonId = cleanPersonId;
+    return state.formationProfile;
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Abriendo historial formativo...");
+}
+
+async function ensureWelcomeViewData_(options = {}) {
+  await Promise.all([
+    state.loaded.peopleDirectory ? Promise.resolve() : loadPeopleDirectory(),
+    state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_()
+  ]);
+
+  await loadWelcomePeople_(options);
+
+  if ((!state.welcomeProfile || state.welcomeProfile?.person?.id !== state.ui.selectedWelcomePersonId) && state.welcomePeople.length) {
+    await loadWelcomeProfile_(state.ui.selectedWelcomePersonId || state.welcomePeople[0].id, {
+      showLoading: false
+    });
+  }
+}
+
 async function ensureCatalogsViewData_() {
   await loadCatalogs({
     includeMinistries: true
@@ -7120,6 +8347,29 @@ async function ensureQrViewData_(options = {}) {
   }
 
   await loadQrSummary(options);
+}
+
+async function ensureFormationViewData_(options = {}) {
+  await Promise.all([
+    state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_(),
+    state.loaded.seasons ? Promise.resolve() : refreshSeasons(),
+    loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  await loadFormationData_(options);
+
+  if (!state.formationProfile || state.formationProfile?.person?.id !== state.ui.selectedFormationPersonId) {
+    const selectedCandidate = state.formationCandidates.find((candidate) => String(candidate.personId) === String(state.ui.selectedFormationPersonId || ""))
+      || state.formationCandidates[0];
+
+    if (selectedCandidate) {
+      await loadFormationProfile_(selectedCandidate.personId, {
+        showLoading: false
+      });
+    }
+  }
 }
 
 function warmDashboardExecutiveInBackground_() {
@@ -7507,6 +8757,63 @@ async function saveAssistant(rawPayload) {
   showToast("Congregante guardado", "La persona ya forma parte del padron base del sistema.", "success");
 }
 
+async function saveWelcomePerson_(rawPayload) {
+  const payload = {
+    personId: V(rawPayload.personId),
+    status: V(rawPayload.status),
+    suggestedGroupId: V(rawPayload.suggestedGroupId),
+    nextFollowUpDate: V(rawPayload.nextFollowUpDate),
+    notes: V(rawPayload.notes)
+  };
+
+  if (!payload.personId) {
+    showToast("Selecciona una persona", "Abre primero un expediente de Bienvenida para poder guardarlo.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    state.welcomeProfile = await apiPost("welcome.people.update", payload);
+    await loadWelcomePeople_({
+      force: true,
+      showLoading: false
+    });
+  }, "Guardando seguimiento de Bienvenida...");
+
+  state.ui.selectedWelcomePersonId = payload.personId;
+  showToast("Seguimiento guardado", "El estatus pastoral y el grupo sugerido quedaron actualizados.", "success");
+  renderApp();
+}
+
+async function saveWelcomeFollowup_(rawPayload) {
+  const payload = {
+    personId: V(rawPayload.personId),
+    actionType: V(rawPayload.actionType),
+    result: V(rawPayload.result),
+    owner: V(rawPayload.owner),
+    nextFollowUpDate: V(rawPayload.nextFollowUpDate),
+    status: V(rawPayload.status),
+    suggestedGroupId: V(rawPayload.suggestedGroupId),
+    notes: V(rawPayload.notes)
+  };
+
+  if (!payload.personId) {
+    showToast("Selecciona una persona", "Abre primero un expediente de Bienvenida para registrar un evento.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const response = await apiPost("welcome.followups.save", payload);
+    state.welcomeProfile = response.profile;
+    await loadWelcomePeople_({
+      force: true,
+      showLoading: false
+    });
+  }, "Registrando evento de Bienvenida...");
+
+  state.ui.selectedWelcomePersonId = payload.personId;
+  showToast("Evento registrado", "La bitácora de seguimiento ya quedó actualizada.", "success");
+}
+
 async function processPeopleImportFile_(file) {
   await withLoading(async () => {
     ensureXlsxLoaded_();
@@ -7576,6 +8883,68 @@ async function importPreparedPeopleRows_() {
     `Creados: ${state.peopleImport.progress.created}, actualizados: ${state.peopleImport.progress.updated}, fallidos: ${state.peopleImport.progress.failed}.`,
     state.peopleImport.progress.failed ? "warning" : "success"
   );
+}
+
+async function saveFormationLevel_(rawPayload) {
+  const payload = {
+    id: V(rawPayload.id),
+    name: V(rawPayload.name),
+    order: V(rawPayload.order),
+    status: V(rawPayload.status),
+    description: V(rawPayload.description)
+  };
+
+  await withLoading(async () => {
+    await apiPost("formation.catalog.save", payload);
+    await loadFormationCatalog_({
+      force: true,
+      showLoading: false
+    });
+    await loadFormationData_({
+      force: true,
+      showLoading: false
+    });
+  }, payload.id ? "Actualizando nivel..." : "Creando nivel...");
+
+  state.ui.editingFormationLevelId = "";
+  showToast("Nivel guardado", "El catálogo de formación quedó actualizado.", "success");
+}
+
+async function saveFormationRecord_(rawPayload) {
+  const payload = {
+    id: V(rawPayload.id),
+    personId: V(rawPayload.personId),
+    seasonId: V(rawPayload.seasonId),
+    groupId: V(rawPayload.groupId),
+    levelId: V(rawPayload.levelId),
+    status: V(rawPayload.status),
+    requestedBy: V(rawPayload.requestedBy),
+    reviewedBy: V(rawPayload.reviewedBy),
+    startDate: V(rawPayload.startDate),
+    endDate: V(rawPayload.endDate),
+    result: V(rawPayload.result),
+    reason: V(rawPayload.reason),
+    notes: V(rawPayload.notes)
+  };
+
+  if (!payload.personId) {
+    showToast("Selecciona una persona", "Carga primero un congregante desde la tabla de candidatos o desde el historial.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const response = await apiPost("formation.records.save", payload);
+    state.formationProfile = response.profile;
+    await loadFormationData_({
+      force: true,
+      showLoading: false
+    });
+  }, payload.id ? "Actualizando caso formativo..." : "Registrando caso formativo...");
+
+  state.ui.selectedFormationPersonId = payload.personId;
+  state.ui.editingFormationRecordId = "";
+  showToast("Caso guardado", "El proceso formativo quedó actualizado y ya se reflejó en el historial.", "success");
+  renderApp();
 }
 
 function downloadPeopleTemplate_() {
@@ -8815,6 +10184,214 @@ function buildPeopleDirectorySummary_() {
   return summary;
 }
 
+function getFilteredWelcomePeople_() {
+  const search = normalizeText(state.filters.welcome.search);
+  const status = String(state.filters.welcome.status || "ALL").toUpperCase();
+  const groupId = String(state.filters.welcome.groupId || "");
+
+  return state.welcomePeople.filter((person) => {
+    const haystack = normalizeText([
+      person.id,
+      person.numero,
+      person.nombreCompleto || [person.nombre, person.apellidos].join(" "),
+      person.telefono,
+      person.email,
+      person.suggestedGroupName,
+      person.assignedGroupName,
+      person.leader?.name
+    ].join(" "));
+    const matchesSearch = !search || haystack.includes(search);
+    const matchesStatus = status === "ALL" || String(person.welcomeStatus || "").toUpperCase() === status;
+    const matchesGroup = !groupId
+      || String(person.suggestedGroupId || "") === groupId
+      || String(person.assignedGroupId || "") === groupId;
+
+    return matchesSearch && matchesStatus && matchesGroup;
+  });
+}
+
+function buildWelcomeSummary_() {
+  const summary = {
+    total: state.welcomePeople.length,
+    newPeople: 0,
+    prospects: 0,
+    congregants: 0,
+    followupDue: 0,
+    withSuggestedGroup: 0
+  };
+  const today = formatDateForInput_(new Date());
+
+  state.welcomePeople.forEach((person) => {
+    const status = String(person.welcomeStatus || "").toUpperCase();
+
+    if (status === "NUEVO") {
+      summary.newPeople += 1;
+    }
+
+    if (status === "PROSPECTO") {
+      summary.prospects += 1;
+    }
+
+    if (status === "CONGREGANTE") {
+      summary.congregants += 1;
+    }
+
+    if (person.suggestedGroupId) {
+      summary.withSuggestedGroup += 1;
+    }
+
+    if (person.nextFollowUpDate && String(formatDateForInput_(person.nextFollowUpDate) || "") <= today) {
+      summary.followupDue += 1;
+    }
+  });
+
+  return summary;
+}
+
+function getFilteredFormationCandidates_() {
+  const search = normalizeText(state.filters.formation.search);
+
+  return state.formationCandidates.filter((candidate) => {
+    const haystack = normalizeText([
+      candidate.personId,
+      candidate.personName,
+      candidate.personNumber,
+      candidate.groupName,
+      candidate.currentLevel,
+      candidate.formationStatus
+    ].join(" "));
+
+    return !search || haystack.includes(search);
+  });
+}
+
+function getFilteredFormationRecords_() {
+  const search = normalizeText(state.filters.formation.search);
+
+  return state.formationRecords.filter((record) => {
+    const haystack = normalizeText([
+      record.personId,
+      record.personName,
+      record.groupName,
+      record.levelName,
+      record.status,
+      record.result,
+      record.reason
+    ].join(" "));
+
+    return !search || haystack.includes(search);
+  });
+}
+
+function buildFormationSummary_() {
+  const records = getFilteredFormationRecords_();
+  const summary = {
+    candidates: getFilteredFormationCandidates_().length,
+    prospects: 0,
+    accepted: 0,
+    pending: 0,
+    inProgress: 0,
+    approved: 0
+  };
+
+  records.forEach((record) => {
+    const status = String(record.status || "").toUpperCase();
+
+    if (status === "PROSPECTO_FORMACION") {
+      summary.prospects += 1;
+      summary.pending += 1;
+    }
+
+    if (status === "ACEPTADO_FORMACION") {
+      summary.accepted += 1;
+      summary.pending += 1;
+    }
+
+    if (status === "EN_CURSO") {
+      summary.inProgress += 1;
+    }
+
+    if (status === "ACREDITADO") {
+      summary.approved += 1;
+    }
+  });
+
+  return summary;
+}
+
+function renderWorkflowStatusPill_(value) {
+  const normalized = String(value || "").toUpperCase();
+
+  if (normalized === "NUEVO") {
+    return `<span class="pill warning">Nuevo</span>`;
+  }
+
+  if (normalized === "PROSPECTO" || normalized === "PROSPECTO_FORMACION") {
+    return `<span class="pill dark">${escapeHtml(value === "PROSPECTO_FORMACION" ? "Prospecto formación" : "Prospecto")}</span>`;
+  }
+
+  if (normalized === "CONGREGANTE" || normalized === "ACEPTADO_FORMACION" || normalized === "EN_CURSO" || normalized === "ACREDITADO") {
+    return `<span class="pill success">${escapeHtml(getWorkflowStatusLabel_(value))}</span>`;
+  }
+
+  if (normalized === "RECHAZADO_FORMACION" || normalized === "NO_ACREDITADO") {
+    return `<span class="pill danger">${escapeHtml(getWorkflowStatusLabel_(value))}</span>`;
+  }
+
+  return `<span class="pill">${escapeHtml(getWorkflowStatusLabel_(value) || "Sin proceso")}</span>`;
+}
+
+function renderWorkflowResultPill_(value) {
+  const normalized = String(value || "").toUpperCase();
+
+  if (normalized === "ASISTIO" || normalized === "CONFIRMADO") {
+    return `<span class="pill success">${escapeHtml(value)}</span>`;
+  }
+
+  if (normalized === "NO_ASISTIO" || normalized === "NO_RESPONDE") {
+    return `<span class="pill danger">${escapeHtml(value)}</span>`;
+  }
+
+  if (normalized === "PENDIENTE") {
+    return `<span class="pill warning">${escapeHtml(value)}</span>`;
+  }
+
+  return `<span class="pill dark">${escapeHtml(value || "Sin resultado")}</span>`;
+}
+
+function getWorkflowStatusLabel_(value) {
+  const normalized = String(value || "").toUpperCase();
+  const labels = {
+    NUEVO: "Nuevo",
+    PROSPECTO: "Prospecto",
+    CONGREGANTE: "Congregante",
+    PROSPECTO_FORMACION: "Prospecto formación",
+    ACEPTADO_FORMACION: "Aceptado formación",
+    RECHAZADO_FORMACION: "Rechazado formación",
+    EN_CURSO: "En curso",
+    ACREDITADO: "Acreditado",
+    NO_ACREDITADO: "No acreditado",
+    SIN_PROCESO: "Sin proceso"
+  };
+
+  return labels[normalized] || value || "";
+}
+
+function formatDateTimeCompact_(value) {
+  const date = coerceClientDate_(value);
+
+  if (!date) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function sanitizeAssistantPayload_(payload) {
   const clean = {
     nombre: V(payload.nombre),
@@ -9889,10 +11466,12 @@ function getPermissionLabel_(permission) {
     dashboard: "Dashboard Ejecutivo",
     assistants: "Congregantes",
     "congregants-new": "Nuevos congregantes",
+    "welcome-followup": "Bienvenida",
     catalogs: "Catalogos",
     seasons: "Temporadas",
     participants: "Asignacion",
     attendance: "Asistencias",
+    formation: "Formación",
     "admin-settings": "Configuracion",
     "admin-users": "Usuarios"
   };
@@ -9905,10 +11484,12 @@ function getPermissionDescription_(permission) {
     dashboard: "Indicadores, consultas y exportaciones para pastor y lideres.",
     assistants: "Padron general, altas, importacion y credenciales QR.",
     "congregants-new": "Consulta de congregantes nuevos por periodo.",
+    "welcome-followup": "Seguimiento pastoral de nuevos congregantes y prospectos.",
     catalogs: "Catalogos de grupos y ministerios.",
     seasons: "Temporadas, sesiones y estados operativos.",
     participants: "Asignacion individual y masiva a grupos.",
     attendance: "Captura manual, QR asistido y kiosko.",
+    formation: "Prospectos, validaciones, catálogo de niveles e historial formativo.",
     "admin-settings": "URL de API y conexion del sistema.",
     "admin-users": "Alta de usuarios, perfiles y permisos."
   };
@@ -10157,6 +11738,12 @@ function resetRuntimeState() {
   state.dashboardLeaderDetail = null;
   state.dashboardSessionInsights = null;
   state.dashboardSeasonMatrix = null;
+  state.welcomePeople = [];
+  state.welcomeProfile = null;
+  state.formationCatalog = [];
+  state.formationRecords = [];
+  state.formationCandidates = [];
+  state.formationProfile = null;
   state.adminUsers = [];
   state.adminUsersSupport = {
     available: true,
@@ -10172,7 +11759,10 @@ function resetRuntimeState() {
     attendance: "",
     attendanceDetail: "",
     qrSummary: "",
-    dashboardSeasonMatrix: ""
+    dashboardSeasonMatrix: "",
+    welcomePeople: "",
+    formationRecords: "",
+    formationCandidates: ""
   };
   state.loaded = {
     bootstrap: false,
@@ -10182,7 +11772,11 @@ function resetRuntimeState() {
     people: false,
     peopleDirectory: false,
     activeSession: false,
-    users: false
+    users: false,
+    welcome: false,
+    formationCatalog: false,
+    formationRecords: false,
+    formationCandidates: false
   };
   state.catalogs = {
     groups: [],
@@ -10218,7 +11812,16 @@ function resetRuntimeState() {
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
+    editingFormationLevelId: "",
+    editingFormationRecordId: "",
+    selectedWelcomePersonId: "",
+    selectedFormationPersonId: "",
     confirmation: null
+  };
+  state.filters.assistants = {
+    search: "",
+    status: "ACTIVO",
+    type: "ALL"
   };
   state.filters.dashboard = {
     seasonId: "",
@@ -10231,6 +11834,22 @@ function resetRuntimeState() {
     recentFrom: "",
     recentTo: ""
   };
+  state.filters.welcome = {
+    search: "",
+    status: "ALL",
+    groupId: ""
+  };
+  state.filters.seasons = {
+    seasonId: ""
+  };
+  state.filters.participants = {
+    seasonId: "",
+    sessionId: "",
+    groupId: "",
+    peopleSearch: "",
+    bulkSearch: "",
+    moveTargets: {}
+  };
   state.filters.attendance = {
     seasonId: "",
     sessionId: "",
@@ -10240,6 +11859,22 @@ function resetRuntimeState() {
     scope: "today",
     pickerSeasonId: "",
     pickerSessionId: ""
+  };
+  state.filters.qr = {
+    mode: "active",
+    surface: "scanner",
+    seasonId: "",
+    sessionId: "",
+    personId: "",
+    peopleSearch: "",
+    cameraFacing: DEFAULT_QR_CAMERA_FACING
+  };
+  state.filters.formation = {
+    seasonId: "",
+    groupId: "",
+    levelId: "",
+    status: "ALL",
+    search: ""
   };
   state.filters.admin = {
     userSearch: "",
