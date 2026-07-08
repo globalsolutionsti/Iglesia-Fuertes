@@ -1130,6 +1130,8 @@ function renderConnectionAttendanceView_() {
 
 function renderWelcomeNewView_() {
   const rows = getWelcomeNewPeople_();
+  const allNewRows = state.welcomePeople.filter((person) => String(person.welcomeStatus || "").toUpperCase() === "NUEVO");
+  const hiddenNewCount = Math.max(allNewRows.length - rows.length, 0);
   const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
   const withBirthDateCount = rows.filter((row) => String(row.fechaNacimiento || "").trim()).length;
   const withFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
@@ -1142,7 +1144,7 @@ function renderWelcomeNewView_() {
         title: "Nuevos congregantes",
         copy: "Registra a cada nueva persona y déjala lista para seguimiento pastoral.",
         badge: {
-          label: `${rows.length} nuevos en periodo`,
+          label: hiddenNewCount ? `${rows.length} visibles de ${allNewRows.length}` : `${rows.length} nuevos en periodo`,
           kind: rows.length ? "success" : "warning"
         },
         metrics: [
@@ -1237,7 +1239,7 @@ function renderWelcomeNewView_() {
           <div class="panel-head">
             <div>
               <h2>Filtro de Bienvenida</h2>
-              <p>Consulta el último mes o define manualmente el periodo de llegada.</p>
+              <p>El listado se actualiza al aplicar el filtro o al usar un atajo rápido.</p>
             </div>
           </div>
 
@@ -1253,8 +1255,18 @@ function renderWelcomeNewView_() {
           </div>
 
           <div class="actions-row">
+            <button class="btn btn-primary" data-action="apply-congregants-filter">Aplicar filtro</button>
             <button class="btn btn-secondary" data-action="set-congregants-period" data-days="30">Último mes</button>
             <button class="btn btn-ghost" data-action="set-congregants-period" data-days="90">Últimos 3 meses</button>
+            <button class="btn btn-ghost" data-action="clear-congregants-period">Ver todo</button>
+          </div>
+
+          <div class="summary-stack" style="margin-top: 18px;">
+            <div class="summary-box">
+              <span class="status-chip neutral">Rango activo</span>
+              <strong>${escapeHtml(formatDate(state.filters.congregants.recentFrom) || "Sin inicio")} - ${escapeHtml(formatDate(state.filters.congregants.recentTo) || "Sin fin")}</strong>
+              <span>${hiddenNewCount ? `${hiddenNewCount} nuevo(s) quedan fuera del rango actual.` : "Mostrando todos los nuevos dentro del rango elegido."}</span>
+            </div>
           </div>
 
           <div class="summary-stack" style="margin-top: 18px;">
@@ -1272,7 +1284,7 @@ function renderWelcomeNewView_() {
         </article>
       </div>
 
-      <article class="detail-card">
+      <article class="detail-card module-section-anchor" id="welcome-new-list">
         <div class="panel-head">
           <div>
             <h2>Listado de nuevos</h2>
@@ -1320,7 +1332,7 @@ function renderWelcomeNewView_() {
               `).join("") : `
                 <tr>
                   <td colspan="5">
-                    <div class="empty-state">No hay nuevos congregantes en el periodo seleccionado.</div>
+                    <div class="empty-state">${hiddenNewCount ? `Hay ${hiddenNewCount} nuevo(s) fuera del rango actual. Usa "Ver todo" o ajusta las fechas.` : "No hay nuevos congregantes en el periodo seleccionado."}</div>
                   </td>
                 </tr>
               `}
@@ -6909,6 +6921,21 @@ async function handleClick(event) {
       state.filters.congregants.recentFrom = range.from;
       state.filters.congregants.recentTo = range.to;
       renderApp();
+      scrollToSection_("welcome-new-list");
+      return;
+    }
+
+    if (action === "apply-congregants-filter") {
+      renderApp();
+      scrollToSection_("welcome-new-list");
+      return;
+    }
+
+    if (action === "clear-congregants-period") {
+      state.filters.congregants.recentFrom = "";
+      state.filters.congregants.recentTo = "";
+      renderApp();
+      scrollToSection_("welcome-new-list");
       return;
     }
 
@@ -7728,6 +7755,9 @@ async function handleSubmit(event) {
       await saveAssistant(payload);
       form.reset();
       renderApp();
+      if (state.currentView === "congregants-new") {
+        scrollToSection_("welcome-new-list");
+      }
       return;
     }
 
@@ -8548,18 +8578,22 @@ async function loadWelcomePeople_(options = {}) {
     return state.welcomePeople;
   }
 
-  const task = () => runSharedLoad_("welcome", async () => {
+  const task = async () => {
     state.welcomePeople = await apiGet("welcome.people.list");
     state.loaded.welcome = true;
     state.cacheKeys.welcomePeople = requestKey;
     return state.welcomePeople;
-  });
+  };
 
-  if (options.showLoading === false) {
+  if (options.force) {
     return task();
   }
 
-  return withLoading(task, options.message || "Cargando seguimiento de Bienvenida...");
+  if (options.showLoading === false) {
+    return runSharedLoad_("welcome", task);
+  }
+
+  return withLoading(() => runSharedLoad_("welcome", task), options.message || "Cargando seguimiento de Bienvenida...");
 }
 
 async function loadWelcomeProfile_(personId, options = {}) {
@@ -9205,6 +9239,7 @@ async function saveAssistant(rawPayload) {
     invalidateWelcomeCache_();
 
     if (isWelcomeWorkflow) {
+      ensureCongregantsFilterIncludesDate_(savedPerson?.fechaIngreso || payload.fechaIngreso);
       await loadWelcomePeople_({
         force: true,
         showLoading: false
@@ -9223,6 +9258,22 @@ async function saveAssistant(rawPayload) {
   );
 
   return savedPerson;
+}
+
+function ensureCongregantsFilterIncludesDate_(value) {
+  const normalizedDate = String(formatDateForInput_(value) || value || "").trim();
+
+  if (!normalizedDate) {
+    return;
+  }
+
+  if (!state.filters.congregants.recentFrom || normalizedDate < state.filters.congregants.recentFrom) {
+    state.filters.congregants.recentFrom = normalizedDate;
+  }
+
+  if (!state.filters.congregants.recentTo || normalizedDate > state.filters.congregants.recentTo) {
+    state.filters.congregants.recentTo = normalizedDate;
+  }
 }
 
 function prepareLeaderWhatsappWindow_(enabled) {
@@ -10732,19 +10783,19 @@ function buildPeopleDirectorySummary_() {
 }
 
 function matchesWelcomePeriod_(person) {
-  const from = String(state.filters.congregants.recentFrom || "");
-  const to = String(state.filters.congregants.recentTo || "");
-  const dateValue = String(formatDateForInput_(person.fechaIngreso) || person.fechaIngreso || "");
+  const fromTimestamp = parseDateToTimestamp_(state.filters.congregants.recentFrom, false);
+  const toTimestamp = parseDateToTimestamp_(state.filters.congregants.recentTo, true);
+  const joinedAtTimestamp = parseDateToTimestamp_(person.fechaIngreso, true);
 
-  if (!dateValue) {
+  if (!joinedAtTimestamp) {
     return false;
   }
 
-  if (from && dateValue < from) {
+  if (fromTimestamp && joinedAtTimestamp < fromTimestamp) {
     return false;
   }
 
-  if (to && dateValue > to) {
+  if (toTimestamp && joinedAtTimestamp > toTimestamp) {
     return false;
   }
 
