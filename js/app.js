@@ -263,6 +263,8 @@ const state = {
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     selectedWelcomePersonId: "",
+    welcomeWorkbenchMode: "",
+    welcomeModal: null,
     selectedFormationPersonId: "",
     confirmation: null
   },
@@ -642,6 +644,7 @@ function renderApp() {
     </div>
 
     ${renderSystemConfirmationDialog_()}
+    ${renderWelcomeActionModal_()}
   `;
 
   schedulePostRenderSync_();
@@ -674,6 +677,101 @@ function renderSystemConfirmationDialog_() {
         <div class="actions-row">
           <button class="btn btn-ghost" data-action="cancel-system-confirmation">${escapeHtml(confirmation.cancelLabel || "Cancelar")}</button>
           <button class="btn ${confirmation.tone === "danger" ? "btn-danger" : "btn-primary"}" data-action="confirm-system-action">${escapeHtml(confirmation.confirmLabel || "Confirmar")}</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderWelcomeActionModal_() {
+  const modal = state.ui.welcomeModal;
+
+  if (!modal || modal.kind !== "prospect") {
+    return "";
+  }
+
+  const personId = String(modal.personId || "");
+  const profilePerson = String(state.welcomeProfile?.person?.id || "") === personId
+    ? state.welcomeProfile.person
+    : null;
+  const rowPerson = state.welcomePeople.find((item) => String(item.id || "") === personId) || null;
+  const person = profilePerson || rowPerson;
+
+  if (!person) {
+    return "";
+  }
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="welcome-modal-title">Prospecto GC</h2>
+            <p>Asigna el grupo de conexión sugerido y deja listo el mensaje para el líder.</p>
+          </div>
+          <span class="pill warning">En espera de registro</span>
+        </div>
+
+        <div class="summary-stack" style="margin-bottom: 18px;">
+          <div class="summary-box">
+            <span class="status-chip neutral">Persona</span>
+            <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</strong>
+            <span>${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Situación</span>
+            <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
+            <span>${escapeHtml(person.suggestedGroupId ? getWelcomeLeaderContactSummary_(person) : "Primero guarda el grupo sugerido para habilitar el mensaje al líder.")}</span>
+          </div>
+        </div>
+
+        <form id="welcome-prospect-form">
+          <input type="hidden" name="personId" value="${escapeHtml(person.id || "")}">
+          <input type="hidden" name="status" value="PROSPECTO GP">
+          <div class="field-grid two">
+            <div class="field">
+              <label for="welcome-prospect-group">Grupo de conexión</label>
+              <select id="welcome-prospect-group" name="suggestedGroupId" required>
+                ${renderOptions(
+                  state.catalogs.groups.map((group) => ({
+                    value: String(group.id),
+                    label: `${group.name} (${group.id})`
+                  })),
+                  person.suggestedGroupId,
+                  "Selecciona grupo sugerido"
+                )}
+              </select>
+            </div>
+            <div class="field">
+              <label for="welcome-prospect-next">Próximo seguimiento</label>
+              <input id="welcome-prospect-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(person.nextFollowUpDate) || "")}">
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label for="welcome-prospect-notes">Notas para el líder</label>
+              <textarea id="welcome-prospect-notes" name="notes" rows="4" placeholder="Indica contexto, edad, estado civil y lo que el líder debe tomar en cuenta.">${escapeHtml(person.lastFollowupNotes || person.notasBienvenida || "")}</textarea>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" type="submit">Guardar grupo sugerido</button>
+            <button class="btn btn-ghost" type="button" data-action="close-welcome-modal">Cerrar</button>
+          </div>
+        </form>
+
+        <div class="actions-row" style="margin-top: 18px;">
+          <button
+            class="btn btn-secondary"
+            type="button"
+            data-action="send-welcome-prospect"
+            data-person-id="${escapeHtml(person.id || "")}"
+            ${person.suggestedGroupId ? "" : "disabled"}
+          >
+            Enviar mensaje al líder
+          </button>
+          ${renderWelcomeLeaderWhatsappButtons_(person, {
+            variant: "btn btn-ghost",
+            emptyLabel: "Sin WhatsApp líder"
+          })}
         </div>
       </section>
     </div>
@@ -717,6 +815,11 @@ async function confirmSystemAction_() {
 
   if (confirmation.kind === "deactivate-participant") {
     await executeDeactivateParticipant_(confirmation.payload.participantId);
+    return;
+  }
+
+  if (confirmation.kind === "welcome-promote-prospect") {
+    await promoteWelcomePersonToProspect_(confirmation.payload.personId);
   }
 }
 
@@ -1348,18 +1451,11 @@ function renderWelcomeFollowupView_() {
   const rows = getWelcomeFollowupPeople_();
   const selectedProfile = state.welcomeProfile;
   const selectedPerson = selectedProfile?.person || null;
-  const summary = buildWelcomeSummary_();
+  const mode = state.ui.welcomeWorkbenchMode || "";
   const selectedHealth = selectedPerson ? getWelcomeFollowupHealth_(selectedPerson) : null;
   const overdueCount = rows.filter((row) => getWelcomeFollowupHealth_(row).overdue).length;
-  const inTimeCount = Math.max(rows.length - overdueCount, 0);
   const withHistoryCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
   const withSuggestedGroupCount = rows.filter((row) => row.suggestedGroupId).length;
-  const statusOptions = [
-    { value: "ALL", label: "Todos los casos de Bienvenida" },
-    { value: "NUEVO", label: "Nuevo" },
-    { value: "PROSPECTO GP", label: "Prospecto GC" },
-    { value: "CONGREGANTE", label: "Congregante" }
-  ];
   const groupOptions = renderOptions(
     state.catalogs.groups.map((group) => ({
       value: String(group.id),
@@ -1381,23 +1477,22 @@ function renderWelcomeFollowupView_() {
           kind: overdueCount ? "warning" : "success"
         },
         metrics: [
-          { label: "En bandeja", value: String(rows.length) },
+          { label: "Nuevos", value: String(rows.length) },
           { label: "Con historial", value: String(withHistoryCount) },
-          { label: "Prospectos GC", value: String(summary.prospects) },
-          { label: "En tiempo", value: String(inTimeCount) }
+          { label: "Listos PGC", value: String(withSuggestedGroupCount) },
+          { label: "Pendientes", value: String(overdueCount) }
         ],
         actions: [
           { label: "Nuevos", variant: "secondary", view: "congregants-new" },
-          { label: "Prospectos", variant: "primary", view: "welcome-prospects" },
-          { label: "Expediente", variant: "ghost", sectionId: "welcome-profile" }
+          { label: "Prospectos", variant: "primary", view: "welcome-prospects" }
         ]
       })}
 
       <div class="stats-grid assistants-stats-grid">
         <article class="stat-card">
-          <span class="status-chip neutral">Nuevos por contactar</span>
+          <span class="status-chip neutral">En seguimiento</span>
           <strong>${escapeHtml(String(rows.length))}</strong>
-          <span>Listado inicial de personas NUEVO que Bienvenida debe revisar una por una.</span>
+          <span>Listado de personas NUEVO que Bienvenida está trabajando actualmente.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip success">Con bitácora</span>
@@ -1417,11 +1512,11 @@ function renderWelcomeFollowupView_() {
       </div>
 
       <div class="view-grid columns-2">
-        <article class="panel-card">
+        <article class="detail-card">
           <div class="panel-head">
             <div>
-              <h2>Filtro pastoral</h2>
-              <p>Por default ves a las personas NUEVO. Si hace falta, puedes abrir otros estatus.</p>
+              <h2>Personas nuevas en seguimiento</h2>
+              <p>Primero selecciona una acción por persona: seguimiento, historial o pase a Prospecto GC.</p>
             </div>
             <button class="btn btn-secondary" data-action="refresh-welcome">Actualizar</button>
           </div>
@@ -1432,254 +1527,238 @@ function renderWelcomeFollowupView_() {
               <input id="welcome-search" value="${escapeHtml(state.filters.welcome.search)}" placeholder="Nombre, teléfono, QR ID o grupo">
             </div>
             <div class="field">
-              <label for="welcome-status">Estatus</label>
-              <select id="welcome-status">
-                ${renderOptions(statusOptions, state.filters.welcome.status, "Todos los estatus")}
-              </select>
-            </div>
-            <div class="field">
               <label for="welcome-group">Grupo sugerido</label>
               <select id="welcome-group">
                 ${groupOptions}
               </select>
             </div>
           </div>
-        </article>
 
-        <article class="panel-card module-section-anchor" id="welcome-profile">
-          <div class="panel-head">
+          <div class="panel-head" style="margin-top: 18px;">
             <div>
-              <h2>${selectedPerson ? "Expediente pastoral" : "Selecciona una persona"}</h2>
-              <p>${selectedPerson ? "Aquí ves toda su historia de seguimientos, actualizas el estatus y decides si ya pasa a Prospectos GC." : "Abre una persona desde la tabla para revisar su expediente completo."}</p>
+              <h2>Listado operativo</h2>
+              <p>Usa las tres acciones por persona para trabajar sin salirte del flujo.</p>
             </div>
-            ${selectedPerson ? renderWorkflowStatusPill_(selectedPerson.welcomeStatus) : `<span class="pill dark">Sin selección</span>`}
+            <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
           </div>
-
-          ${selectedPerson ? `
-            <div class="summary-stack">
-              <div class="summary-box">
-                <span class="status-chip neutral">Persona</span>
-                <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
-                <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
-              </div>
-              <div class="summary-box">
-                <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semáforo</span>
-                <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
-                <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Programa el siguiente contacto")}</span>
-              </div>
-              <div class="summary-box">
-                <span class="status-chip neutral">Grupo sugerido</span>
-                <strong>${escapeHtml(selectedPerson.suggestedGroupName || "Sin sugerencia")}</strong>
-                <span>${escapeHtml(selectedPerson.suggestedGroupId ? getWelcomeLeaderContactSummary_(selectedPerson) : "Puedes definirlo aquí o terminarlo después en Prospectos.")}</span>
-              </div>
-            </div>
-
-            <form id="welcome-person-form" style="margin-top: 18px;">
-              <input type="hidden" name="personId" value="${escapeHtml(selectedPerson.id || "")}">
-              <div class="field-grid two">
-                <div class="field">
-                  <label for="welcome-person-status">Estatus</label>
-                  <select id="welcome-person-status" name="status">
-                    ${renderOptions(statusOptions.filter((item) => item.value !== "ALL"), selectedPerson.welcomeStatus, "Selecciona estatus")}
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="welcome-person-group">Grupo sugerido</label>
-                  <select id="welcome-person-group" name="suggestedGroupId">
-                    ${renderOptions(
-                      state.catalogs.groups.map((group) => ({
-                        value: String(group.id),
-                        label: `${group.name} (${group.id})`
-                      })),
-                      selectedPerson.suggestedGroupId,
-                      "Selecciona grupo sugerido"
-                    )}
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="welcome-person-next">Próximo seguimiento</label>
-                  <input id="welcome-person-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(selectedPerson.nextFollowUpDate) || "")}">
-                </div>
-                <div class="field">
-                  <label for="welcome-person-notes">Notas actuales</label>
-                  <input id="welcome-person-notes" name="notes" value="${escapeHtml(selectedPerson.notasBienvenida || selectedPerson.lastFollowupNotes || "")}" placeholder="Contexto pastoral del caso">
-                </div>
-              </div>
-
-              <div class="actions-row">
-                <button class="btn btn-primary" type="submit">Guardar ficha</button>
-                ${renderWelcomeLeaderWhatsappButtons_(selectedPerson)}
-              </div>
-            </form>
-          ` : `
-            <div class="empty-state">Abre un expediente desde el listado para revisar su semáforo, actualizar la ficha y registrar el siguiente contacto.</div>
-          `}
-        </article>
-      </div>
-
-      <article class="detail-card">
-        <div class="panel-head">
-          <div>
-            <h2>Personas nuevas en seguimiento</h2>
-            <p>Selecciona a la persona para ver sus seguimientos ordenados del más reciente al más antiguo.</p>
-          </div>
-          <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Congregante</th>
-                <th>Estatus</th>
-                <th>Semáforo</th>
-                <th>Próximo contacto</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.length ? rows.map((row) => `
-                <tr>
-                  <td>
-                    <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
-                    <span class="row-meta">${escapeHtml(row.telefono || "Sin teléfono")} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "-")}</span>
-                    <span class="row-meta">${escapeHtml(row.numero || "-")} | QR ${escapeHtml(row.id || "-")}</span>
-                  </td>
-                  <td>${renderWorkflowStatusPill_(row.welcomeStatus)}</td>
-                  <td>${renderWelcomeFollowupHealthPill_(row)}</td>
-                  <td>
-                    <span class="row-title">${escapeHtml(formatDate(row.nextFollowUpDate) || "Sin fecha")}</span>
-                    <span class="row-meta">${escapeHtml(row.lastFollowupResult || row.lastActionType || "Sin resultado")}</span>
-                  </td>
-                  <td>
-                    <div class="inline-actions">
-                      <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Abrir historial</button>
-                    </div>
-                  </td>
-                </tr>
-              `).join("") : `
-                <tr>
-                  <td colspan="5"><div class="empty-state">No hay personas de Bienvenida que coincidan con los filtros actuales.</div></td>
-                </tr>
-              `}
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      ${selectedPerson ? `
-        <article class="detail-card">
-          <div class="panel-head">
-            <div>
-              <h2>Bitácora de seguimiento</h2>
-              <p>Registra cómo fue el contacto, qué pasó y cuándo debe ocurrir el siguiente acercamiento.</p>
-            </div>
-            <span class="pill dark">${escapeHtml(String(selectedProfile?.followups?.length || 0))} eventos</span>
-          </div>
-
-          <form id="welcome-followup-form" style="margin-bottom: 18px;">
-            <input type="hidden" name="personId" value="${escapeHtml(selectedPerson.id || "")}">
-            <div class="field-grid two">
-              <div class="field">
-                <label for="welcome-followup-type">Tipo de contacto</label>
-                <select id="welcome-followup-type" name="actionType">
-                  ${renderOptions([
-                    { value: "LLAMADA", label: "Llamada" },
-                    { value: "CORREO", label: "Correo" },
-                    { value: "WHATSAPP", label: "WhatsApp" },
-                    { value: "SEGUIMIENTO", label: "Seguimiento" }
-                  ], "LLAMADA", "Selecciona contacto")}
-                </select>
-              </div>
-              <div class="field">
-                <label for="welcome-followup-date">Fecha de contacto</label>
-                <input id="welcome-followup-date" name="actionDate" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}">
-              </div>
-              <div class="field">
-                <label for="welcome-followup-owner">Responsable</label>
-                <input id="welcome-followup-owner" name="owner" placeholder="Bienvenida / líder / seguimiento">
-              </div>
-              <div class="field">
-                <label for="welcome-followup-next">Próximo contacto</label>
-                <input id="welcome-followup-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(selectedPerson.nextFollowUpDate) || "")}">
-              </div>
-              <div class="field">
-                <label for="welcome-followup-result">Resultado breve</label>
-                <input id="welcome-followup-result" name="result" placeholder="Confirmó interés, no respondió, pidió llamada...">
-              </div>
-              <div class="field">
-                <label for="welcome-followup-status">Nuevo estatus</label>
-                <select id="welcome-followup-status" name="status">
-                  ${renderOptions(statusOptions.filter((item) => item.value !== "ALL"), selectedPerson.welcomeStatus, "Selecciona estatus")}
-                </select>
-              </div>
-              <div class="field">
-                <label for="welcome-followup-group">Grupo sugerido</label>
-                <select id="welcome-followup-group" name="suggestedGroupId">
-                  ${renderOptions(
-                    state.catalogs.groups.map((group) => ({
-                      value: String(group.id),
-                      label: `${group.name} (${group.id})`
-                    })),
-                    selectedPerson.suggestedGroupId,
-                    "Selecciona grupo sugerido"
-                  )}
-                </select>
-              </div>
-              <div class="field" style="grid-column: 1 / -1;">
-                <label for="welcome-followup-notes">Descripción del seguimiento</label>
-                <textarea id="welcome-followup-notes" name="notes" rows="3" placeholder="Qué pasó en el contacto, qué respondió la persona y cuál será el siguiente paso"></textarea>
-              </div>
-            </div>
-
-            <div class="actions-row">
-              <button class="btn btn-primary" type="submit">Registrar seguimiento</button>
-            </div>
-          </form>
 
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Fecha</th>
-                  <th>Contacto</th>
-                  <th>Resultado</th>
-                  <th>Responsable</th>
-                  <th>Descripción</th>
+                  <th>Congregante</th>
+                  <th>Situación</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                ${(selectedProfile?.followups || []).length ? (selectedProfile.followups || []).map((followup) => `
+                ${rows.length ? rows.map((row) => `
                   <tr>
-                    <td>${escapeHtml(formatDateTimeCompact_(followup.actionDate) || "-")}</td>
-                    <td>
-                      <span class="row-title">${escapeHtml(followup.actionType || "-")}</span>
-                      <span class="row-meta">${escapeHtml(followup.nextFollowUpDate ? `Siguiente: ${formatDate(followup.nextFollowUpDate)}` : "Sin próximo contacto")}</span>
-                    </td>
-                    <td>${renderWorkflowResultPill_(followup.result)}</td>
-                    <td>${escapeHtml(followup.owner || "Sin responsable")}</td>
-                    <td>${escapeHtml(followup.notes || "Sin descripción")}</td>
-                  </tr>
-                `).join("") : `
-                  <tr>
-                    <td colspan="5"><div class="empty-state">Todavía no hay seguimientos registrados para esta persona.</div></td>
-                  </tr>
-                `}
-              </tbody>
-            </table>
-          </div>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
+                    <span class="row-meta">${escapeHtml(row.telefono || "Sin teléfono")} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "-")}</span>
+                    <span class="row-meta">${escapeHtml(row.numero || "-")} | QR ${escapeHtml(row.id || "-")}</span>
+                  </td>
+                  <td>
+                    ${renderWelcomeFollowupHealthPill_(row)}
+                    <span class="row-meta">${escapeHtml(row.lastFollowupResult || row.lastActionType || "Sin resultado")}</span>
+                    <span class="row-meta">${escapeHtml(row.nextFollowUpDate ? `Próximo: ${formatDate(row.nextFollowUpDate)}` : "Sin próximo contacto")}</span>
+                  </td>
+                  <td>
+                    <div class="inline-actions">
+                      <button class="btn btn-primary" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}">Seguimientos</button>
+                      <button class="btn btn-secondary" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}">Abrir historial</button>
+                      <button class="btn btn-ghost" data-action="promote-welcome-pgc" data-person-id="${escapeHtml(row.id || "")}">PGC</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="3"><div class="empty-state">No hay personas nuevas en seguimiento que coincidan con los filtros actuales.</div></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
         </article>
-      ` : ""}
+
+        <article class="panel-card module-section-anchor" id="welcome-workbench">
+          ${renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode)}
+        </article>
+      </div>
     </section>
+  `;
+}
+
+function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode) {
+  if (!selectedPerson || !mode) {
+    return `
+      <div class="panel-head">
+        <div>
+          <h2>Panel de trabajo</h2>
+          <p>Usa las acciones del listado para abrir el formulario de seguimiento o el historial completo.</p>
+        </div>
+        <span class="pill dark">Sin selección</span>
+      </div>
+      <div class="empty-state">Selecciona una persona y la acción que quieres realizar.</div>
+    `;
+  }
+
+  const switchActions = `
+    <div class="actions-row" style="margin-top: 18px;">
+      <button class="btn ${mode === "followup" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}">Seguimientos</button>
+      <button class="btn ${mode === "history" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-history" data-person-id="${escapeHtml(selectedPerson.id || "")}">Abrir historial</button>
+      <button class="btn btn-ghost" data-action="promote-welcome-pgc" data-person-id="${escapeHtml(selectedPerson.id || "")}">PGC</button>
+    </div>
+  `;
+
+  if (mode === "history") {
+    return `
+      <div class="panel-head">
+        <div>
+          <h2>Historial de seguimientos</h2>
+          <p>Revisa todos los seguimientos de la persona del más reciente al más antiguo.</p>
+        </div>
+        <span class="pill dark">${escapeHtml(String(selectedProfile?.followups?.length || 0))} eventos</span>
+      </div>
+
+      <div class="summary-stack">
+        <div class="summary-box">
+          <span class="status-chip neutral">Persona</span>
+          <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
+          <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
+        </div>
+        <div class="summary-box">
+          <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semáforo</span>
+          <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
+          <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto")}</span>
+        </div>
+      </div>
+
+      ${switchActions}
+
+      <div class="table-wrap" style="margin-top: 18px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Contacto</th>
+              <th>Resultado</th>
+              <th>Responsable</th>
+              <th>Descripción</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(selectedProfile?.followups || []).length ? (selectedProfile.followups || []).map((followup) => `
+              <tr>
+                <td>${escapeHtml(formatDateTimeCompact_(followup.actionDate) || "-")}</td>
+                <td>
+                  <span class="row-title">${escapeHtml(followup.actionType || "-")}</span>
+                  <span class="row-meta">${escapeHtml(followup.nextFollowUpDate ? `Siguiente: ${formatDate(followup.nextFollowUpDate)}` : "Sin próximo contacto")}</span>
+                </td>
+                <td>${renderWorkflowResultPill_(followup.result)}</td>
+                <td>${escapeHtml(followup.owner || "Sin responsable")}</td>
+                <td>${escapeHtml(followup.notes || "Sin descripción")}</td>
+              </tr>
+            `).join("") : `
+              <tr>
+                <td colspan="5"><div class="empty-state">Todavía no hay seguimientos registrados para esta persona.</div></td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="panel-head">
+      <div>
+        <h2>Registrar seguimiento</h2>
+        <p>Captura el nuevo contacto sin salir del listado.</p>
+      </div>
+      <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
+    </div>
+
+    <div class="summary-stack">
+      <div class="summary-box">
+        <span class="status-chip neutral">Persona</span>
+        <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
+        <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
+      </div>
+      <div class="summary-box">
+        <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semáforo</span>
+        <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
+        <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Programa el siguiente contacto")}</span>
+      </div>
+      <div class="summary-box">
+        <span class="status-chip neutral">Grupo sugerido</span>
+        <strong>${escapeHtml(selectedPerson.suggestedGroupName || "Sin sugerencia")}</strong>
+        <span>${escapeHtml(selectedPerson.suggestedGroupId ? getWelcomeLeaderContactSummary_(selectedPerson) : "Todavía no hay grupo sugerido.")}</span>
+      </div>
+    </div>
+
+    ${switchActions}
+
+    <form id="welcome-followup-form" style="margin-top: 18px;">
+      <input type="hidden" name="personId" value="${escapeHtml(selectedPerson.id || "")}">
+      <input type="hidden" name="status" value="${escapeHtml(selectedPerson.welcomeStatus || "NUEVO")}">
+      <div class="field-grid two">
+        <div class="field">
+          <label for="welcome-followup-type">Tipo de contacto</label>
+          <select id="welcome-followup-type" name="actionType">
+            ${renderOptions([
+              { value: "LLAMADA", label: "Llamada" },
+              { value: "CORREO", label: "Correo" },
+              { value: "WHATSAPP", label: "WhatsApp" },
+              { value: "SEGUIMIENTO", label: "Seguimiento" }
+            ], "LLAMADA", "Selecciona contacto")}
+          </select>
+        </div>
+        <div class="field">
+          <label for="welcome-followup-date">Fecha de contacto</label>
+          <input id="welcome-followup-date" name="actionDate" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}">
+        </div>
+        <div class="field">
+          <label for="welcome-followup-owner">Responsable</label>
+          <input id="welcome-followup-owner" name="owner" placeholder="Bienvenida / líder / seguimiento">
+        </div>
+        <div class="field">
+          <label for="welcome-followup-next">Próximo contacto</label>
+          <input id="welcome-followup-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(selectedPerson.nextFollowUpDate) || "")}">
+        </div>
+        <div class="field">
+          <label for="welcome-followup-result">Resultado breve</label>
+          <input id="welcome-followup-result" name="result" placeholder="Confirmó interés, no respondió, pidió llamada...">
+        </div>
+        <div class="field">
+          <label for="welcome-followup-group">Grupo sugerido</label>
+          <select id="welcome-followup-group" name="suggestedGroupId">
+            ${renderOptions(
+              state.catalogs.groups.map((group) => ({
+                value: String(group.id),
+                label: `${group.name} (${group.id})`
+              })),
+              selectedPerson.suggestedGroupId,
+              "Selecciona grupo sugerido"
+            )}
+          </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="welcome-followup-notes">Descripción del seguimiento</label>
+          <textarea id="welcome-followup-notes" name="notes" rows="4" placeholder="Qué pasó en el contacto, qué respondió la persona y cuál será el siguiente paso"></textarea>
+        </div>
+      </div>
+
+      <div class="actions-row">
+        <button class="btn btn-primary" type="submit">Guardar seguimiento</button>
+      </div>
+    </form>
   `;
 }
 
 function renderWelcomeProspectsView_() {
   const rows = getWelcomeProspectPeople_();
-  const selectedProfile = state.welcomeProfile;
-  const selectedPerson = selectedProfile?.person || null;
-  const selectedMatchesView = selectedPerson && rows.some((row) => String(row.id) === String(selectedPerson.id));
-  const activePerson = selectedMatchesView ? selectedPerson : null;
   const withGroupCount = rows.filter((row) => row.suggestedGroupId).length;
   const readyToSend = rows.filter((row) => row.suggestedGroupId && getWelcomeLeaderWhatsappTargets_(row).length).length;
 
@@ -1702,8 +1781,7 @@ function renderWelcomeProspectsView_() {
         ],
         actions: [
           { label: "Seguimientos", variant: "secondary", view: "welcome-followup" },
-          { label: "Asignación", variant: "primary", view: "participants" },
-          { label: "Detalle", variant: "ghost", sectionId: "welcome-prospect-profile" }
+          { label: "Asignación", variant: "primary", view: "participants" }
         ]
       })}
 
@@ -1730,9 +1808,29 @@ function renderWelcomeProspectsView_() {
           <div class="panel-head">
             <div>
               <h2>Listado de prospectos</h2>
-              <p>Selecciona el caso, define el grupo sugerido y deja listo el aviso para el líder principal.</p>
+              <p>Abre la persona y usa el modal para definir grupo sugerido y preparar el mensaje al líder.</p>
             </div>
             <span class="pill dark">${escapeHtml(String(rows.length))} casos</span>
+          </div>
+
+          <div class="field-grid two">
+            <div class="field">
+              <label for="welcome-search">Buscar</label>
+              <input id="welcome-search" value="${escapeHtml(state.filters.welcome.search)}" placeholder="Nombre, teléfono, QR ID o grupo">
+            </div>
+            <div class="field">
+              <label for="welcome-group">Grupo sugerido</label>
+              <select id="welcome-group">
+                ${renderOptions(
+                  state.catalogs.groups.map((group) => ({
+                    value: String(group.id),
+                    label: `${group.name} (${group.id})`
+                  })),
+                  state.filters.welcome.groupId,
+                  "Todos los grupos"
+                )}
+              </select>
+            </div>
           </div>
 
           <div class="table-wrap">
@@ -1768,15 +1866,7 @@ function renderWelcomeProspectsView_() {
                     </td>
                     <td>
                       <div class="inline-actions">
-                        <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Abrir</button>
-                        <button
-                          class="btn btn-ghost"
-                          data-action="send-welcome-prospect"
-                          data-person-id="${escapeHtml(row.id || "")}"
-                          ${row.suggestedGroupId ? "" : "disabled"}
-                        >
-                          Enviar
-                        </button>
+                        <button class="btn btn-primary" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">Gestionar</button>
                       </div>
                     </td>
                   </tr>
@@ -1790,73 +1880,36 @@ function renderWelcomeProspectsView_() {
           </div>
         </article>
 
-        <article class="panel-card module-section-anchor" id="welcome-prospect-profile">
+        <article class="panel-card">
           <div class="panel-head">
             <div>
-              <h2>${activePerson ? "Preparar prospecto" : "Selecciona una persona"}</h2>
-              <p>${activePerson ? "Confirma el grupo sugerido, deja notas y prepara el WhatsApp para que el líder lo registre en su grupo." : "Abre un caso desde el listado para definir el grupo de conexión y avisar al líder."}</p>
+              <h2>Cómo operar Prospectos</h2>
+              <p>El flujo ideal es muy corto para evitar cuellos de botella en Bienvenida.</p>
             </div>
-            ${activePerson ? renderWorkflowStatusPill_(activePerson.welcomeStatus) : `<span class="pill dark">Sin selección</span>`}
+            <span class="pill dark">Flujo simple</span>
           </div>
 
-          ${activePerson ? `
-            <div class="summary-stack">
-              <div class="summary-box">
-                <span class="status-chip neutral">Congregante</span>
-                <strong>${escapeHtml(activePerson.nombreCompleto || activePerson.nombre || "Sin nombre")}</strong>
-                <span>${escapeHtml(activePerson.numero || "-")} | QR ${escapeHtml(activePerson.id || "-")}</span>
-              </div>
-              <div class="summary-box">
-                <span class="status-chip neutral">Grupo sugerido</span>
-                <strong>${escapeHtml(activePerson.suggestedGroupName || "Sin sugerencia")}</strong>
-                <span>${escapeHtml(getWelcomeLeaderContactSummary_(activePerson))}</span>
-              </div>
-              <div class="summary-box">
-                <span class="status-chip neutral">Próximo paso</span>
-                <strong>En espera de registro</strong>
-                <span>${escapeHtml(activePerson.suggestedGroupId ? "El líder debe registrarlo dentro de Grupos de Conexión." : "Primero selecciona el grupo sugerido para preparar el aviso al líder.")}</span>
-              </div>
+          <div class="summary-stack">
+            <div class="summary-box">
+              <span class="status-chip neutral">Paso 1</span>
+              <strong>Abrir persona</strong>
+              <span>Usa el botón <strong>Gestionar</strong> desde el listado.</span>
             </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Paso 2</span>
+              <strong>Asignar grupo</strong>
+              <span>Dentro del modal selecciona el grupo de conexión sugerido y guarda.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Paso 3</span>
+              <strong>Enviar mensaje</strong>
+              <span>Desde el mismo modal prepara el mensaje al líder. El prospecto queda en espera de registro.</span>
+            </div>
+          </div>
 
-            <form id="welcome-prospect-form" style="margin-top: 18px;">
-              <input type="hidden" name="personId" value="${escapeHtml(activePerson.id || "")}">
-              <input type="hidden" name="status" value="PROSPECTO GP">
-              <div class="field-grid two">
-                <div class="field">
-                  <label for="welcome-prospect-group">Grupo de conexión</label>
-                  <select id="welcome-prospect-group" name="suggestedGroupId" required>
-                    ${renderOptions(
-                      state.catalogs.groups.map((group) => ({
-                        value: String(group.id),
-                        label: `${group.name} (${group.id})`
-                      })),
-                      activePerson.suggestedGroupId,
-                      "Selecciona grupo sugerido"
-                    )}
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="welcome-prospect-next">Próximo seguimiento</label>
-                  <input id="welcome-prospect-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(activePerson.nextFollowUpDate) || "")}">
-                </div>
-                <div class="field" style="grid-column: 1 / -1;">
-                  <label for="welcome-prospect-notes">Notas para el líder</label>
-                  <textarea id="welcome-prospect-notes" name="notes" rows="4" placeholder="Indica edad, contexto, cómo llegó a la iglesia y lo que debe revisar el líder">${escapeHtml(activePerson.lastFollowupNotes || activePerson.notasBienvenida || "")}</textarea>
-                </div>
-              </div>
-
-              <div class="actions-row">
-                <button class="btn btn-primary" type="submit">Guardar y preparar WhatsApp</button>
-                ${renderWelcomeLeaderWhatsappButtons_(activePerson, {
-                  variant: "btn btn-secondary",
-                  emptyLabel: "Sin WhatsApp líder"
-                })}
-                <button class="btn btn-secondary" type="button" data-action="navigate" data-view="participants">Ir a asignación</button>
-              </div>
-            </form>
-          ` : `
-            <div class="empty-state">No hay un prospecto abierto en pantalla. Selecciona uno desde la tabla para continuar.</div>
-          `}
+          <div class="actions-row" style="margin-top: 18px;">
+            <button class="btn btn-secondary" type="button" data-action="navigate" data-view="participants">Ir a asignación por grupo</button>
+          </div>
         </article>
       </div>
     </section>
@@ -6874,6 +6927,12 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "close-welcome-modal") {
+      state.ui.welcomeModal = null;
+      renderApp();
+      return;
+    }
+
     if (action === "confirm-system-action") {
       await confirmSystemAction_();
       return;
@@ -6902,8 +6961,18 @@ async function handleClick(event) {
 
     if (action === "navigate") {
       state.currentView = button.dataset.view;
+      state.ui.welcomeModal = null;
       if (state.currentView === "welcome-followup") {
         state.filters.welcome.status = "NUEVO";
+        state.ui.welcomeWorkbenchMode = "";
+        state.welcomeProfile = null;
+        state.ui.selectedWelcomePersonId = "";
+      } else {
+        state.ui.welcomeWorkbenchMode = "";
+      }
+      if (state.currentView === "welcome-prospects") {
+        state.welcomeProfile = null;
+        state.ui.selectedWelcomePersonId = "";
       }
       state.ui.mobileNavOpen = false;
       if (state.currentView === "dashboard" && shouldShowDashboardLoading_()) {
@@ -7082,6 +7151,58 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "open-welcome-followup") {
+      await loadWelcomeProfile_(button.dataset.personId || "", {
+        force: true,
+        showLoading: false
+      });
+      state.ui.welcomeWorkbenchMode = "followup";
+      state.ui.welcomeModal = null;
+      renderApp();
+      scrollToSection_("welcome-workbench");
+      return;
+    }
+
+    if (action === "open-welcome-history") {
+      await loadWelcomeProfile_(button.dataset.personId || "", {
+        force: true,
+        showLoading: false
+      });
+      state.ui.welcomeWorkbenchMode = "history";
+      state.ui.welcomeModal = null;
+      renderApp();
+      scrollToSection_("welcome-workbench");
+      return;
+    }
+
+    if (action === "promote-welcome-pgc") {
+      const personId = String(button.dataset.personId || "");
+      const person = state.welcomePeople.find((row) => String(row.id || "") === personId);
+
+      if (!personId || !person) {
+        showToast("Persona no disponible", "Recarga el módulo e intenta nuevamente.", "warning");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "welcome-promote-prospect",
+        title: "Mover a Prospecto GC",
+        copy: "La persona dejará de estar en Seguimientos y quedará disponible en Prospectos para asignar su grupo de conexión.",
+        badge: "Prospecto GC",
+        confirmLabel: "Cambiar estatus",
+        cancelLabel: "Cancelar",
+        notes: [
+          `${person.nombreCompleto || person.nombre || "Sin nombre"}`,
+          `TIPO_PERSONA actual: ${getPersonTypeDisplayLabel_(person.tipoPersona || person.welcomeStatus || "NUEVO")}`,
+          "Nuevo estatus: Prospecto GC"
+        ],
+        payload: {
+          personId
+        }
+      });
+      return;
+    }
+
     if (action === "open-welcome-profile") {
       await loadWelcomeProfile_(button.dataset.personId || "", {
         force: true,
@@ -7090,10 +7211,25 @@ async function handleClick(event) {
 
       if (state.currentView === "congregants-new") {
         state.currentView = "welcome-followup";
+        state.ui.welcomeWorkbenchMode = "followup";
       }
 
       renderApp();
-      scrollToSection_(state.currentView === "welcome-prospects" ? "welcome-prospect-profile" : "welcome-profile");
+      scrollToSection_("welcome-workbench");
+      return;
+    }
+
+    if (action === "open-welcome-prospect-modal") {
+      await loadWelcomeProfile_(button.dataset.personId || "", {
+        force: true,
+        showLoading: false
+      });
+      state.ui.welcomeWorkbenchMode = "";
+      state.ui.welcomeModal = {
+        kind: "prospect",
+        personId: String(button.dataset.personId || "")
+      };
+      renderApp();
       return;
     }
 
@@ -7778,10 +7914,9 @@ async function handleSubmit(event) {
     if (form.id === "welcome-prospect-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
       await saveWelcomePerson_(payload, {
-        openLeaderWhatsapp: true,
-        loadingMessage: "Preparando prospecto para el líder...",
-        successTitle: "Prospecto preparado",
-        successMessage: "El caso quedó como Prospecto GC y se preparó el WhatsApp del líder."
+        loadingMessage: "Guardando grupo sugerido...",
+        successTitle: "Prospecto actualizado",
+        successMessage: "El grupo sugerido quedó guardado. Ahora ya puedes enviar el mensaje al líder."
       });
       return;
     }
@@ -9536,6 +9671,37 @@ function openLeaderWhatsappWindow_(preparedWindow, url) {
   }
 }
 
+async function promoteWelcomePersonToProspect_(personId) {
+  const cleanPersonId = String(personId || "");
+  const person = state.welcomePeople.find((item) => String(item.id || "") === cleanPersonId)
+    || (String(state.welcomeProfile?.person?.id || "") === cleanPersonId ? state.welcomeProfile.person : null);
+
+  if (!cleanPersonId || !person) {
+    showToast("Persona no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
+    return;
+  }
+
+  await saveWelcomePerson_({
+    personId: cleanPersonId,
+    status: "PROSPECTO GP",
+    suggestedGroupId: person.suggestedGroupId || "",
+    nextFollowUpDate: person.nextFollowUpDate || "",
+    notes: person.lastFollowupNotes || person.notasBienvenida || ""
+  }, {
+    navigateToProspects: false,
+    loadingMessage: "Moviendo a Prospecto GC...",
+    successTitle: "Persona actualizada",
+    successMessage: "La persona pasó a Prospecto GC y ya aparece en el módulo Prospectos."
+  });
+
+  if (state.currentView === "welcome-followup") {
+    state.welcomeProfile = null;
+    state.ui.selectedWelcomePersonId = "";
+    state.ui.welcomeWorkbenchMode = "";
+    renderApp();
+  }
+}
+
 function handleLeaderWhatsappAfterSave_(preparedWindow, profile, enabled) {
   if (!enabled) {
     return;
@@ -9567,7 +9733,8 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
     options.openLeaderWhatsapp
     && String(payload.status || "").toUpperCase() === "PROSPECTO GP"
   );
-  const shouldOpenProspects = String(payload.status || "").toUpperCase() === "PROSPECTO GP";
+  const shouldMoveToProspectStatus = String(payload.status || "").toUpperCase() === "PROSPECTO GP";
+  const navigateToProspects = Boolean(options.navigateToProspects);
   const preparedWhatsappWindow = prepareLeaderWhatsappWindow_(shouldOpenLeaderWhatsapp);
 
   if (!payload.personId) {
@@ -9592,21 +9759,18 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
   }
 
   state.ui.selectedWelcomePersonId = payload.personId;
-  if (shouldOpenProspects) {
+  if (navigateToProspects) {
     state.currentView = "welcome-prospects";
   }
   handleLeaderWhatsappAfterSave_(preparedWhatsappWindow, state.welcomeProfile, shouldOpenLeaderWhatsapp);
   showToast(
     options.successTitle || "Seguimiento guardado",
-    options.successMessage || (shouldOpenProspects
+    options.successMessage || (shouldMoveToProspectStatus
       ? "La persona pasó a Prospectos GC y quedó lista para continuar con la asignación al grupo."
       : "El estatus pastoral y el grupo sugerido quedaron actualizados."),
     "success"
   );
   renderApp();
-  if (shouldOpenProspects) {
-    scrollToSection_("welcome-prospect-profile");
-  }
 }
 
 async function saveWelcomeFollowup_(rawPayload) {
@@ -9627,8 +9791,6 @@ async function saveWelcomeFollowup_(rawPayload) {
     return;
   }
 
-  const movedToProspects = String(payload.status || "").toUpperCase() === "PROSPECTO GP";
-
   await withLoading(async () => {
     const response = await apiPost("welcome.followups.save", payload);
     state.welcomeProfile = response.profile;
@@ -9641,21 +9803,8 @@ async function saveWelcomeFollowup_(rawPayload) {
   }, "Registrando evento de Bienvenida...");
 
   state.ui.selectedWelcomePersonId = payload.personId;
-  if (movedToProspects) {
-    state.currentView = "welcome-prospects";
-  }
-  showToast(
-    "Evento registrado",
-    movedToProspects
-      ? "La bitácora quedó actualizada y la persona pasó a Prospectos GC."
-      : "La bitácora de seguimiento ya quedó actualizada.",
-    "success"
-  );
-  if (movedToProspects) {
-    renderApp();
-    scrollToSection_("welcome-prospect-profile");
-  }
-  return movedToProspects;
+  showToast("Evento registrado", "La bitácora de seguimiento ya quedó actualizada.", "success");
+  return false;
 }
 
 async function processPeopleImportFile_(file) {
@@ -12883,6 +13032,8 @@ function resetRuntimeState() {
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     selectedWelcomePersonId: "",
+    welcomeWorkbenchMode: "",
+    welcomeModal: null,
     selectedFormationPersonId: "",
     confirmation: null
   };
