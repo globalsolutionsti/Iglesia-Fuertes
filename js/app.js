@@ -9244,6 +9244,9 @@ async function saveAssistant(rawPayload) {
         force: true,
         showLoading: false
       });
+      if (savedPerson?.id && !state.welcomePeople.some((person) => String(person.id) === String(savedPerson.id))) {
+        upsertWelcomePersonInState_(savedPerson);
+      }
       state.welcomeProfile = null;
       state.ui.selectedWelcomePersonId = "";
     }
@@ -9274,6 +9277,80 @@ function ensureCongregantsFilterIncludesDate_(value) {
   if (!state.filters.congregants.recentTo || normalizedDate > state.filters.congregants.recentTo) {
     state.filters.congregants.recentTo = normalizedDate;
   }
+}
+
+function buildWelcomePersonClientDto_(person) {
+  const latestSeason = getLatestSeason();
+  const suggestedGroupId = String(person?.suggestedGroupId || person?.grupoSugerido || "").trim();
+  const suggestedGroup = state.catalogs.groups.find((group) => String(group.id) === suggestedGroupId) || null;
+  const leaderContacts = [];
+  const addLeader = (name, phone) => {
+    const cleanName = String(name || "").trim();
+    const cleanPhone = String(phone || "").trim();
+
+    if (!cleanName && !cleanPhone) {
+      return;
+    }
+
+    leaderContacts.push({
+      id: "",
+      name: cleanName,
+      phone: cleanPhone,
+      type: "LIDER"
+    });
+  };
+
+  addLeader(suggestedGroup?.leader1Name, suggestedGroup?.leader1Phone);
+  addLeader(suggestedGroup?.leader2Name, suggestedGroup?.leader2Phone);
+
+  const welcomeStatus = String(
+    person?.welcomeStatus
+    || person?.estatusBienvenida
+    || (String(person?.tipoPersona || "").toUpperCase() === "NUEVO" ? "NUEVO" : "CONGREGANTE")
+  ).toUpperCase();
+  const nombre = String(person?.nombre || "").trim();
+  const apellidos = String(person?.apellidos || "").trim();
+  const nombreCompleto = String(person?.nombreCompleto || `${nombre} ${apellidos}`.trim()).trim();
+
+  return {
+    ...person,
+    nombre,
+    apellidos,
+    nombreCompleto,
+    welcomeStatus,
+    latestSeasonId: latestSeason?.id || "",
+    latestSeasonName: latestSeason?.name || "",
+    assignedInLatestSeason: Boolean(person?.assignedInLatestSeason),
+    assignedGroupId: String(person?.assignedGroupId || "").trim(),
+    assignedGroupName: String(person?.assignedGroupName || "").trim(),
+    suggestedGroupId,
+    suggestedGroupName: suggestedGroup?.name || String(person?.suggestedGroupName || "").trim(),
+    leader: leaderContacts[0] || null,
+    leaderContacts,
+    leaderWhatsappUrl: String(person?.leaderWhatsappUrl || "").trim(),
+    leaderWhatsappUrls: Array.isArray(person?.leaderWhatsappUrls) ? person.leaderWhatsappUrls : [],
+    lastContactAt: String(person?.lastContactAt || "").trim(),
+    lastActionType: String(person?.lastActionType || "").trim(),
+    lastFollowupResult: String(person?.lastFollowupResult || "").trim(),
+    lastFollowupNotes: String(person?.lastFollowupNotes || person?.notasBienvenida || "").trim(),
+    nextFollowUpDate: String(person?.nextFollowUpDate || person?.proximoSeguimiento || "").trim(),
+    followupsCount: Number(person?.followupsCount || 0),
+    availableForAssignment: welcomeStatus === "PROSPECTO GP" && !person?.assignedInLatestSeason
+  };
+}
+
+function upsertWelcomePersonInState_(person) {
+  const nextPerson = buildWelcomePersonClientDto_(person);
+  const nextId = String(nextPerson.id || "").trim();
+
+  if (!nextId) {
+    return;
+  }
+
+  state.welcomePeople = [nextPerson, ...state.welcomePeople.filter((item) => String(item.id || "") !== nextId)]
+    .sort((left, right) => parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true));
+  state.loaded.welcome = true;
+  state.cacheKeys.welcomePeople = "welcomePeople::all";
 }
 
 function prepareLeaderWhatsappWindow_(enabled) {
