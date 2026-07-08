@@ -16,23 +16,28 @@ const loadingMessage = document.getElementById("loading-message");
 const VIEW_META = {
   dashboard: {
     module: "dashboard",
-    title: "Dashboard Ejecutivo",
-    subtitle: "Indicadores pastorales, consulta de grupos y crecimiento reciente."
+    title: "Dashboard Iglesia",
+    subtitle: "Indicadores pastorales, consulta de grupos y crecimiento de la iglesia."
   },
   assistants: {
-    module: "congregants",
+    module: "directory",
     title: "Congregantes",
-    subtitle: "Padron general, altas, importacion y credenciales QR."
+    subtitle: "Padron administrativo, credenciales QR y gestion masiva."
   },
   "congregants-new": {
-    module: "congregants",
-    title: "Nuevos Congregantes",
-    subtitle: "Consulta altas recientes por periodo y revisa datos pastorales clave."
+    module: "welcome",
+    title: "Bienvenida: Nuevos",
+    subtitle: "Da de alta a las nuevas personas y revisa sus primeros datos pastorales."
   },
   "welcome-followup": {
-    module: "congregants",
-    title: "Bienvenida y Seguimiento",
-    subtitle: "Acompaña a cada nuevo congregante hasta integrarlo a su grupo de conexión."
+    module: "welcome",
+    title: "Bienvenida: Seguimientos",
+    subtitle: "Lleva el CRM pastoral de contactos, notas y próximos pasos."
+  },
+  "welcome-prospects": {
+    module: "welcome",
+    title: "Bienvenida: Prospectos",
+    subtitle: "Ubica a cada nuevo en su grupo ideal y avisa al líder correspondiente."
   },
   catalogs: {
     module: "connection",
@@ -78,13 +83,18 @@ const VIEW_META = {
 
 const MODULE_META = {
   dashboard: {
-    title: "Dashboard Ejecutivo",
+    title: "Dashboard Iglesia",
     description: "Pastor, lideres e indicadores clave",
     defaultView: "dashboard"
   },
-  congregants: {
+  welcome: {
+    title: "Bienvenida",
+    description: "Nuevos, seguimientos y prospectos",
+    defaultView: "congregants-new"
+  },
+  directory: {
     title: "Congregantes",
-    description: "Padron, nuevas personas y seguimiento de Bienvenida",
+    description: "Padron administrativo y credenciales",
     defaultView: "assistants"
   },
   connection: {
@@ -108,10 +118,13 @@ const MODULE_TABS = {
   dashboard: [
     { view: "dashboard", label: "Resumen", description: "Pastor y lideres" }
   ],
-  congregants: [
-    { view: "assistants", label: "Congregantes", description: "Padron y credenciales" },
-    { view: "congregants-new", label: "Nuevos", description: "Altas por periodo" },
-    { view: "welcome-followup", label: "Bienvenida", description: "Prospectos y seguimiento" }
+  welcome: [
+    { view: "congregants-new", label: "Nuevos", description: "Alta inicial" },
+    { view: "welcome-followup", label: "Seguimientos", description: "CRM pastoral" },
+    { view: "welcome-prospects", label: "Prospectos", description: "Aviso al líder" }
+  ],
+  directory: [
+    { view: "assistants", label: "Congregantes", description: "Padron y credenciales" }
   ],
   connection: [
     { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
@@ -133,6 +146,7 @@ const ACCESSIBLE_VIEWS = [
   "assistants",
   "congregants-new",
   "welcome-followup",
+  "welcome-prospects",
   "catalogs",
   "seasons",
   "participants",
@@ -148,7 +162,8 @@ const CREDENTIAL_PREVIEW_LIMIT = 8;
 PERSON_TYPE_OPTIONS.splice(0, PERSON_TYPE_OPTIONS.length, "Congregante", "Servidor", "Coordinador", "L\u00edder");
 const MOBILE_NAV_ITEMS = [
   { module: "dashboard", view: "dashboard", label: "Inicio", description: "Pastor" },
-  { module: "congregants", view: "assistants", label: "Congregantes", description: "Padron" },
+  { module: "welcome", view: "congregants-new", label: "Bienvenida", description: "Nuevos" },
+  { module: "directory", view: "assistants", label: "Congregantes", description: "Padron" },
   { module: "connection", view: "catalogs", label: "Grupos", description: "Operacion" },
   { module: "formation", view: "formation", label: "Formacion", description: "Proceso" },
   { module: "admin", view: "admin-settings", label: "Admin", description: "Accesos" }
@@ -406,9 +421,18 @@ function getModuleTabs_(moduleId) {
 }
 
 function getUserPermissions_() {
-  return Array.isArray(state.user?.permissions) && state.user.permissions.length
-    ? state.user.permissions
+  const basePermissions = Array.isArray(state.user?.permissions) && state.user.permissions.length
+    ? state.user.permissions.slice()
     : ACCESSIBLE_VIEWS.slice();
+
+  if (
+    (basePermissions.includes("congregants-new") || basePermissions.includes("welcome-followup"))
+    && !basePermissions.includes("welcome-prospects")
+  ) {
+    basePermissions.push("welcome-prospects");
+  }
+
+  return basePermissions;
 }
 
 function canAccessView_(view) {
@@ -515,7 +539,7 @@ function loadViewDataInBackground_(view) {
 
   void loadCurrentViewData({
     showLoading: shouldShowLoading,
-    message: shouldShowLoading ? "Cargando dashboard ejecutivo..." : undefined
+    message: shouldShowLoading ? "Cargando Dashboard Iglesia..." : undefined
   })
     .then(() => {
       if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView) {
@@ -986,7 +1010,7 @@ function renderDashboardMobileHero_(options) {
     <article class="dashboard-mobile-hero">
       <div class="dashboard-mobile-hero-head">
         <div>
-          <h2>Dashboard Ejecutivo</h2>
+          <h2>Dashboard Iglesia</h2>
         </div>
         <span class="pill ${activeSessionOpen ? "success" : "warning"}">${activeSessionOpen ? "Sesion abierta" : "Sin sesion"}</span>
       </div>
@@ -1007,9 +1031,11 @@ function renderCurrentView() {
     case "assistants":
       return renderCongregantsDirectoryView_();
     case "congregants-new":
-      return renderCongregantsRecentView_();
+      return renderWelcomeNewView_();
     case "welcome-followup":
       return renderWelcomeFollowupView_();
+    case "welcome-prospects":
+      return renderWelcomeProspectsView_();
     case "catalogs":
       return renderCatalogsView_();
     case "seasons":
@@ -1103,81 +1129,155 @@ function renderConnectionAttendanceView_() {
   `;
 }
 
-function renderCongregantsRecentView_() {
-  const rows = getRecentCongregants_();
-  const activeCount = rows.filter((row) => String(row.estado || "").toUpperCase() === "ACTIVO").length;
+function renderWelcomeNewView_() {
+  const rows = getWelcomeNewPeople_();
   const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
   const withBirthDateCount = rows.filter((row) => String(row.fechaNacimiento || "").trim()).length;
+  const withFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
 
   return `
     <section class="view-grid">
       ${renderModuleMobileHero_({
         tone: "assistants",
-        eyebrow: "Nuevos congregantes",
-        title: "Consulta pastoral por periodo",
-        copy: "Filtra altas recientes y revisa los datos clave para seguimiento.",
+        eyebrow: "Bienvenida",
+        title: "Nuevos congregantes",
+        copy: "Registra a cada nueva persona y déjala lista para seguimiento pastoral.",
         badge: {
-          label: `${rows.length} en periodo`,
+          label: `${rows.length} nuevos en periodo`,
           kind: rows.length ? "success" : "warning"
         },
         metrics: [
-          { label: "Activos", value: String(activeCount) },
+          { label: "Nuevos", value: String(rows.length) },
           { label: "Telefonos", value: String(withPhoneCount) },
+          { label: "Seguimientos", value: String(withFollowupCount) },
           { label: "Nacimiento", value: String(withBirthDateCount) }
         ],
         actions: [
-          { label: "Ir al padron", variant: "primary", view: "assistants" }
+          { label: "Alta", variant: "primary", sectionId: "welcome-new-create" },
+          { label: "Seguimientos", variant: "secondary", view: "welcome-followup" },
+          { label: "Prospectos", variant: "ghost", view: "welcome-prospects" }
         ]
       })}
 
       <div class="stats-grid assistants-stats-grid">
         <article class="stat-card">
-          <span class="status-chip success">Altas en periodo</span>
+          <span class="status-chip success">Nuevos en periodo</span>
           <strong>${escapeHtml(String(rows.length))}</strong>
-          <span>Congregantes nuevos segun el rango de fechas seleccionado.</span>
+          <span>Personas registradas por Bienvenida dentro del rango seleccionado.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip neutral">Activos</span>
-          <strong>${escapeHtml(String(activeCount))}</strong>
-          <span>Registros activos listos para seguimiento pastoral.</span>
-        </article>
-        <article class="stat-card">
-          <span class="status-chip neutral">Con telefono</span>
+          <span class="status-chip neutral">Con teléfono</span>
           <strong>${escapeHtml(String(withPhoneCount))}</strong>
-          <span>Facilita contacto, bienvenida y seguimiento inicial.</span>
+          <span>Listos para iniciar seguimiento inmediato.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Con historial</span>
+          <strong>${escapeHtml(String(withFollowupCount))}</strong>
+          <span>Ya cuentan con al menos un contacto registrado.</span>
         </article>
       </div>
 
-      <article class="panel-card">
-        <div class="panel-head">
-          <div>
-            <h2>Filtro de periodo</h2>
-            <p>Consulta el ultimo mes o define manualmente desde y hasta.</p>
+      <div class="view-grid columns-2">
+        <article class="panel-card module-section-anchor" id="welcome-new-create">
+          <div class="panel-head">
+            <div>
+              <h2>Alta de nuevo congregante</h2>
+              <p>Este registro nace como <strong>NUEVO</strong> dentro de Bienvenida y después continuará a Seguimientos o Prospectos.</p>
+            </div>
           </div>
-        </div>
 
-        <div class="field-grid two">
-          <div class="field">
-            <label for="congregants-recent-from">Desde</label>
-            <input id="congregants-recent-from" type="date" value="${escapeHtml(state.filters.congregants.recentFrom)}">
-          </div>
-          <div class="field">
-            <label for="congregants-recent-to">Hasta</label>
-            <input id="congregants-recent-to" type="date" value="${escapeHtml(state.filters.congregants.recentTo)}">
-          </div>
-        </div>
+          <form id="assistant-create-form">
+            <input type="hidden" name="tipoPersona" value="Congregante">
+            <input type="hidden" name="estado" value="ACTIVO">
+            <input type="hidden" name="estatusBienvenida" value="NUEVO">
+            <input type="hidden" name="workflowOrigin" value="welcome">
 
-        <div class="actions-row">
-          <button class="btn btn-secondary" data-action="set-congregants-period" data-days="30">Ultimo mes</button>
-          <button class="btn btn-ghost" data-action="set-congregants-period" data-days="90">Ultimos 3 meses</button>
-        </div>
-      </article>
+            <div class="field-grid two">
+              <div class="field">
+                <label for="welcome-new-nombre">Nombre</label>
+                <input id="welcome-new-nombre" name="nombre" placeholder="Pedro" required>
+              </div>
+              <div class="field">
+                <label for="welcome-new-apellidos">Apellidos</label>
+                <input id="welcome-new-apellidos" name="apellidos" placeholder="Gutierrez" required>
+              </div>
+              <div class="field">
+                <label for="welcome-new-telefono">Teléfono</label>
+                <input id="welcome-new-telefono" name="telefono" placeholder="5551234567">
+              </div>
+              <div class="field">
+                <label for="welcome-new-email">Email</label>
+                <input id="welcome-new-email" name="email" type="email" placeholder="correo@iglesia.com">
+              </div>
+              <div class="field">
+                <label for="welcome-new-estado-civil">Estado civil</label>
+                <input id="welcome-new-estado-civil" name="estadoCivil" placeholder="Soltero, casado, viudo...">
+              </div>
+              <div class="field">
+                <label for="welcome-new-edad">Edad</label>
+                <input id="welcome-new-edad" name="edad" type="number" min="0" placeholder="28">
+              </div>
+              <div class="field">
+                <label for="welcome-new-fecha-nacimiento">Fecha de nacimiento</label>
+                <input id="welcome-new-fecha-nacimiento" name="fechaNacimiento" type="date">
+              </div>
+              <div class="field">
+                <label for="welcome-new-fecha">Fecha de llegada</label>
+                <input id="welcome-new-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}">
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">Registrar nuevo</button>
+              <button class="btn btn-secondary" type="button" data-action="navigate" data-view="welcome-followup">Ir a seguimientos</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>Filtro de Bienvenida</h2>
+              <p>Consulta el último mes o define manualmente el periodo de llegada.</p>
+            </div>
+          </div>
+
+          <div class="field-grid two">
+            <div class="field">
+              <label for="congregants-recent-from">Desde</label>
+              <input id="congregants-recent-from" type="date" value="${escapeHtml(state.filters.congregants.recentFrom)}">
+            </div>
+            <div class="field">
+              <label for="congregants-recent-to">Hasta</label>
+              <input id="congregants-recent-to" type="date" value="${escapeHtml(state.filters.congregants.recentTo)}">
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-secondary" data-action="set-congregants-period" data-days="30">Último mes</button>
+            <button class="btn btn-ghost" data-action="set-congregants-period" data-days="90">Últimos 3 meses</button>
+          </div>
+
+          <div class="summary-stack" style="margin-top: 18px;">
+            <div class="summary-box">
+              <span class="status-chip neutral">Pendientes de seguimiento</span>
+              <strong>${escapeHtml(String(rows.filter((row) => !row.followupsCount).length))}</strong>
+              <span>Nuevos sin bitácora todavía.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Con fecha de nacimiento</span>
+              <strong>${escapeHtml(String(withBirthDateCount))}</strong>
+              <span>Información lista para ubicar mejor el grupo ideal.</span>
+            </div>
+          </div>
+        </article>
+      </div>
 
       <article class="detail-card">
         <div class="panel-head">
           <div>
-            <h2>Consulta de nuevos congregantes</h2>
-            <p>Nombre, telefono, fecha de nacimiento, estado civil y edad de cada alta reciente.</p>
+            <h2>Listado de nuevos</h2>
+            <p>Desde aquí Bienvenida puede abrir el expediente, agregar notas y luego moverlos a Prospectos.</p>
           </div>
           <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
         </div>
@@ -1187,11 +1287,10 @@ function renderCongregantsRecentView_() {
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Telefono</th>
-                <th>Fecha nacimiento</th>
-                <th>Estado civil</th>
-                <th>Edad</th>
-                <th>Alta</th>
+                <th>Contacto</th>
+                <th>Perfil</th>
+                <th>Seguimiento</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -1201,16 +1300,29 @@ function renderCongregantsRecentView_() {
                     <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
                     <span class="row-meta">${escapeHtml(row.numero || "")} | QR ${escapeHtml(row.id || "")}</span>
                   </td>
-                  <td>${escapeHtml(row.telefono || "Sin telefono")}</td>
-                  <td>${escapeHtml(formatDate(row.fechaNacimiento) || "Sin fecha")}</td>
-                  <td>${escapeHtml(row.estadoCivil || "Sin dato")}</td>
-                  <td>${escapeHtml(String(row.edad || "Sin dato"))}</td>
-                  <td>${escapeHtml(formatDate(row.fechaIngreso) || "Sin fecha")}</td>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.telefono || "Sin teléfono")}</span>
+                    <span class="row-meta">${escapeHtml(row.email || "Sin email")}</span>
+                  </td>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.estadoCivil || "Sin dato")}</span>
+                    <span class="row-meta">Edad ${escapeHtml(String(row.edad || "Sin dato"))} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "Sin fecha")}</span>
+                  </td>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.followupsCount ? `${row.followupsCount} contacto(s)` : "Sin contactos")}</span>
+                    <span class="row-meta">${escapeHtml(row.lastFollowupResult || "Pendiente")}</span>
+                  </td>
+                  <td>
+                    <div class="inline-actions">
+                      <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Abrir expediente</button>
+                      <button class="btn btn-ghost" data-action="navigate" data-view="welcome-followup">Seguimiento</button>
+                    </div>
+                  </td>
                 </tr>
               `).join("") : `
                 <tr>
-                  <td colspan="6">
-                    <div class="empty-state">No hay congregantes nuevos en el periodo seleccionado.</div>
+                  <td colspan="5">
+                    <div class="empty-state">No hay nuevos congregantes en el periodo seleccionado.</div>
                   </td>
                 </tr>
               `}
@@ -1551,6 +1663,187 @@ function renderWelcomeFollowupView_() {
           </div>
         </article>
       ` : ""}
+    </section>
+  `;
+}
+
+function renderWelcomeProspectsView_() {
+  const rows = getWelcomeProspectPeople_();
+  const selectedProfile = state.welcomeProfile;
+  const selectedPerson = selectedProfile?.person || null;
+  const selectedMatchesView = selectedPerson && rows.some((row) => String(row.id) === String(selectedPerson.id));
+  const activePerson = selectedMatchesView ? selectedPerson : null;
+  const readyToSend = rows.filter((row) => row.suggestedGroupId && row.leaderWhatsappUrl).length;
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "assistants",
+        eyebrow: "Ministerio de Bienvenida",
+        title: "Prospectos para grupos de conexión",
+        copy: "Ubica a cada nuevo en su grupo sugerido, pásalo a prospecto y prepara el aviso para el líder.",
+        badge: {
+          label: `${rows.length} por integrar`,
+          kind: rows.length ? "warning" : "success"
+        },
+        metrics: [
+          { label: "Pendientes", value: String(rows.length) },
+          { label: "Listos", value: String(readyToSend) },
+          { label: "Con grupo", value: String(rows.filter((row) => row.suggestedGroupId).length) },
+          { label: "Con líder", value: String(rows.filter((row) => row.leader?.name).length) }
+        ],
+        actions: [
+          { label: "Seguimientos", variant: "secondary", view: "welcome-followup" },
+          { label: "Asignación", variant: "primary", view: "participants" },
+          { label: "Detalle", variant: "ghost", sectionId: "welcome-prospect-profile" }
+        ]
+      })}
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip warning">Pendientes de grupo</span>
+          <strong>${escapeHtml(String(rows.length))}</strong>
+          <span>Personas nuevas o prospectos que todavía no quedan integrados en la temporada actual.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Listos para aviso</span>
+          <strong>${escapeHtml(String(readyToSend))}</strong>
+          <span>Ya tienen grupo sugerido y líder detectado para preparar WhatsApp.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Ajuste manual</span>
+          <strong>${escapeHtml(String(rows.filter((row) => !row.suggestedGroupId).length))}</strong>
+          <span>Casos que todavía requieren revisar o corregir el grupo ideal.</span>
+        </article>
+      </div>
+
+      <div class="view-grid columns-2">
+        <article class="detail-card">
+          <div class="panel-head">
+            <div>
+              <h2>Listado de prospectos</h2>
+              <p>Selecciona el caso correcto, valida el grupo sugerido y desde ahí avisa al líder.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(String(rows.length))} casos</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Congregante</th>
+                  <th>Grupo sugerido</th>
+                  <th>Líder</th>
+                  <th>Estatus</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.length ? rows.map((row) => `
+                  <tr>
+                    <td>
+                      <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
+                      <span class="row-meta">${escapeHtml(row.telefono || "Sin teléfono")} | ${escapeHtml(row.numero || "-")}</span>
+                      <span class="row-meta">Alta ${escapeHtml(formatDate(row.fechaIngreso) || "-")} | QR ${escapeHtml(row.id || "-")}</span>
+                    </td>
+                    <td>
+                      <span class="row-title">${escapeHtml(row.suggestedGroupName || "Sin grupo sugerido")}</span>
+                      <span class="row-meta">${escapeHtml(row.estadoCivil || "Sin estado civil")} | Edad ${escapeHtml(String(row.edad || "Sin dato"))}</span>
+                    </td>
+                    <td>
+                      <span class="row-title">${escapeHtml(row.leader?.name || "Sin líder detectado")}</span>
+                      <span class="row-meta">${escapeHtml(row.leader?.phone || "Sin teléfono")}</span>
+                    </td>
+                    <td>${renderWorkflowStatusPill_(row.welcomeStatus)}</td>
+                    <td>
+                      <div class="inline-actions">
+                        <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Abrir</button>
+                        <button
+                          class="btn btn-ghost"
+                          data-action="send-welcome-prospect"
+                          data-person-id="${escapeHtml(row.id || "")}"
+                          ${row.suggestedGroupId ? "" : "disabled"}
+                        >
+                          Enviar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="5"><div class="empty-state">No hay prospectos pendientes. Cuando un nuevo pase a grupo, aquí aparecerá listo para avisar al líder.</div></td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel-card module-section-anchor" id="welcome-prospect-profile">
+          <div class="panel-head">
+            <div>
+              <h2>${activePerson ? "Preparar prospecto" : "Selecciona una persona"}</h2>
+              <p>${activePerson ? "Confirma grupo, deja notas y el sistema la moverá a PROSPECTO para preparar el WhatsApp del líder." : "Abre un caso desde el listado para definir el grupo de conexión y avisar al líder."}</p>
+            </div>
+            ${activePerson ? renderWorkflowStatusPill_(activePerson.welcomeStatus) : `<span class="pill dark">Sin selección</span>`}
+          </div>
+
+          ${activePerson ? `
+            <div class="summary-stack">
+              <div class="summary-box">
+                <span class="status-chip neutral">Congregante</span>
+                <strong>${escapeHtml(activePerson.nombreCompleto || activePerson.nombre || "Sin nombre")}</strong>
+                <span>${escapeHtml(activePerson.numero || "-")} | QR ${escapeHtml(activePerson.id || "-")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Grupo sugerido</span>
+                <strong>${escapeHtml(activePerson.suggestedGroupName || "Sin sugerencia")}</strong>
+                <span>${escapeHtml(activePerson.leader?.name || "Sin líder detectado")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Próximo paso</span>
+                <strong>${escapeHtml(formatDate(activePerson.nextFollowUpDate) || "Sin fecha")}</strong>
+                <span>${escapeHtml(activePerson.lastFollowupNotes || activePerson.notasBienvenida || "Sin notas registradas")}</span>
+              </div>
+            </div>
+
+            <form id="welcome-prospect-form" style="margin-top: 18px;">
+              <input type="hidden" name="personId" value="${escapeHtml(activePerson.id || "")}">
+              <input type="hidden" name="status" value="PROSPECTO">
+              <div class="field-grid two">
+                <div class="field">
+                  <label for="welcome-prospect-group">Grupo de conexión</label>
+                  <select id="welcome-prospect-group" name="suggestedGroupId" required>
+                    ${renderOptions(
+                      state.catalogs.groups.map((group) => ({
+                        value: String(group.id),
+                        label: `${group.name} (${group.id})`
+                      })),
+                      activePerson.suggestedGroupId,
+                      "Selecciona grupo sugerido"
+                    )}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="welcome-prospect-next">Próximo seguimiento</label>
+                  <input id="welcome-prospect-next" name="nextFollowUpDate" type="date" value="${escapeHtml(formatDateForInput_(activePerson.nextFollowUpDate) || "")}">
+                </div>
+                <div class="field" style="grid-column: 1 / -1;">
+                  <label for="welcome-prospect-notes">Notas para el líder</label>
+                  <textarea id="welcome-prospect-notes" name="notes" rows="4" placeholder="Indica edad, contexto, cómo llegó a la iglesia y lo que debe revisar el líder">${escapeHtml(activePerson.lastFollowupNotes || activePerson.notasBienvenida || "")}</textarea>
+                </div>
+              </div>
+
+              <div class="actions-row">
+                <button class="btn btn-primary" type="submit">Guardar y preparar WhatsApp</button>
+                <button class="btn btn-secondary" type="button" data-action="navigate" data-view="participants">Ir a asignación</button>
+              </div>
+            </form>
+          ` : `
+            <div class="empty-state">No hay un prospecto abierto en pantalla. Selecciona uno desde la tabla para continuar.</div>
+          `}
+        </article>
+      </div>
     </section>
   `;
 }
@@ -4453,6 +4746,8 @@ function renderAssistantsView() {
           </div>
 
           <form id="assistant-create-form">
+            <input type="hidden" name="estatusBienvenida" value="CONGREGANTE">
+            <input type="hidden" name="workflowOrigin" value="directory">
             <div class="field-grid two">
               <div class="field">
                 <label for="assistant-nombre">Nombre</label>
@@ -6560,7 +6855,7 @@ async function handleClick(event) {
       state.currentView = button.dataset.view;
       state.ui.mobileNavOpen = false;
       if (state.currentView === "dashboard" && shouldShowDashboardLoading_()) {
-        loadingMessage.textContent = "Cargando dashboard ejecutivo...";
+        loadingMessage.textContent = "Cargando Dashboard Iglesia...";
         loadingOverlay.classList.remove("hidden");
       }
       renderApp();
@@ -6620,7 +6915,7 @@ async function handleClick(event) {
     if (action === "refresh-dashboard-executive") {
       await ensureDashboardViewData_({
         force: true,
-        message: "Actualizando dashboard ejecutivo..."
+        message: "Actualizando Dashboard Iglesia..."
       });
       renderApp();
       return;
@@ -6697,6 +6992,7 @@ async function handleClick(event) {
     if (action === "refresh-assistants") {
       await withLoading(async () => {
         await refreshPeopleSources_();
+        invalidateWelcomeCache_();
       }, "Actualizando padron...");
       renderApp();
       return;
@@ -6724,8 +7020,42 @@ async function handleClick(event) {
         force: true,
         showLoading: false
       });
+
+      if (state.currentView === "congregants-new") {
+        state.currentView = "welcome-followup";
+      }
+
       renderApp();
-      scrollToSection_("welcome-profile");
+      scrollToSection_(state.currentView === "welcome-prospects" ? "welcome-prospect-profile" : "welcome-profile");
+      return;
+    }
+
+    if (action === "send-welcome-prospect") {
+      const personId = String(button.dataset.personId || "");
+      const person = state.welcomePeople.find((row) => String(row.id) === personId);
+
+      if (!personId || !person) {
+        showToast("Prospecto no disponible", "Recarga la ficha de Bienvenida e intenta de nuevo.", "warning");
+        return;
+      }
+
+      if (!person.suggestedGroupId) {
+        showToast("Falta grupo sugerido", "Antes de avisar al líder asigna un grupo de conexión sugerido.", "warning");
+        return;
+      }
+
+      await saveWelcomePerson_({
+        personId,
+        status: "PROSPECTO",
+        suggestedGroupId: person.suggestedGroupId,
+        nextFollowUpDate: person.nextFollowUpDate,
+        notes: person.lastFollowupNotes || person.notasBienvenida || ""
+      }, {
+        openLeaderWhatsapp: true,
+        loadingMessage: "Preparando prospecto para el líder...",
+        successTitle: "Prospecto preparado",
+        successMessage: "El caso quedó como PROSPECTO y se preparó el WhatsApp del líder."
+      });
       return;
     }
 
@@ -6939,6 +7269,7 @@ async function handleClick(event) {
         });
         delete state.filters.participants.moveTargets[participantId];
         invalidateDashboardSeasonMatrix_();
+        invalidateWelcomeCache_();
         await loadParticipantsData({
           force: true,
           showLoading: false
@@ -7374,6 +7705,17 @@ async function handleSubmit(event) {
       return;
     }
 
+    if (form.id === "welcome-prospect-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveWelcomePerson_(payload, {
+        openLeaderWhatsapp: true,
+        loadingMessage: "Preparando prospecto para el líder...",
+        successTitle: "Prospecto preparado",
+        successMessage: "El caso quedó como PROSPECTO y se preparó el WhatsApp del líder."
+      });
+      return;
+    }
+
     if (form.id === "welcome-followup-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
       await saveWelcomeFollowup_(payload);
@@ -7505,7 +7847,7 @@ async function handleChange(event) {
       invalidateDashboardSeasonMatrix_();
       await ensureDashboardViewData_({
         force: true,
-        message: "Cargando dashboard ejecutivo..."
+        message: "Cargando Dashboard Iglesia..."
       });
       renderApp();
       return;
@@ -7784,7 +8126,7 @@ async function bootstrapApplication(options = {}) {
   } else {
     await withLoading(
       task,
-      options.message || (state.currentView === "dashboard" ? "Cargando dashboard ejecutivo..." : "Preparando dashboard...")
+      options.message || (state.currentView === "dashboard" ? "Cargando Dashboard Iglesia..." : "Preparando dashboard...")
     );
   }
 
@@ -7803,10 +8145,11 @@ async function loadCurrentViewData(options = {}) {
       await ensureDashboardViewData_(options);
       return;
     case "assistants":
-    case "congregants-new":
       await ensureAssistantsViewData_(options);
       return;
+    case "congregants-new":
     case "welcome-followup":
+    case "welcome-prospects":
       await ensureWelcomeViewData_(options);
       return;
     case "catalogs":
@@ -8018,6 +8361,11 @@ async function refreshPeopleSources_() {
   ]);
 }
 
+function invalidateWelcomeCache_() {
+  state.loaded.welcome = false;
+  state.cacheKeys.welcomePeople = "";
+}
+
 function syncDashboardFilterState_() {
   state.filters.dashboard.seasonId = ensureValidSeasonId(state.filters.dashboard.seasonId);
 
@@ -8067,7 +8415,7 @@ async function loadDashboardExecutive_(options = {}) {
     return task();
   }
 
-  return withLoading(task, options.message || "Calculando dashboard ejecutivo...");
+  return withLoading(task, options.message || "Calculando Dashboard Iglesia...");
 }
 
 async function loadDashboardLeaderDetail_(options = {}) {
@@ -8281,8 +8629,27 @@ async function ensureWelcomeViewData_(options = {}) {
 
   await loadWelcomePeople_(options);
 
-  if ((!state.welcomeProfile || state.welcomeProfile?.person?.id !== state.ui.selectedWelcomePersonId) && state.welcomePeople.length) {
-    await loadWelcomeProfile_(state.ui.selectedWelcomePersonId || state.welcomePeople[0].id, {
+  const currentRows = state.currentView === "congregants-new"
+    ? getWelcomeNewPeople_()
+    : (state.currentView === "welcome-prospects" ? getWelcomeProspectPeople_() : getFilteredWelcomePeople_());
+  const fallbackPersonId = state.ui.selectedWelcomePersonId
+    || (currentRows[0] && currentRows[0].id)
+    || (state.welcomePeople[0] && state.welcomePeople[0].id)
+    || "";
+  const currentSelectedAvailable = currentRows.some((row) => String(row.id) === String(state.ui.selectedWelcomePersonId));
+
+  if (!currentRows.length) {
+    state.welcomeProfile = null;
+    state.ui.selectedWelcomePersonId = "";
+    return;
+  }
+
+  if (
+    !currentSelectedAvailable
+    || !state.welcomeProfile
+    || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId || fallbackPersonId)
+  ) {
+    await loadWelcomeProfile_(currentSelectedAvailable ? state.ui.selectedWelcomePersonId : fallbackPersonId, {
       showLoading: false
     });
   }
@@ -8329,7 +8696,7 @@ async function ensureDashboardViewData_(options = {}) {
     return task();
   }
 
-  return withLoading(task, options.message || "Cargando dashboard ejecutivo...");
+  return withLoading(task, options.message || "Cargando Dashboard Iglesia...");
 }
 
 async function ensureAdminViewData_() {
@@ -8739,6 +9106,8 @@ async function loadParticipantsData(options = {}) {
 async function saveAssistant(rawPayload) {
   const payload = sanitizeAssistantPayload_(rawPayload);
   const existing = findExistingPersonMatch_(payload);
+  const isWelcomeWorkflow = payload.workflowOrigin === "welcome";
+  let savedPerson = null;
 
   if (existing) {
     showToast(
@@ -8750,14 +9119,88 @@ async function saveAssistant(rawPayload) {
   }
 
   await withLoading(async () => {
-    await apiPost("servers.save", payload);
+    savedPerson = await apiPost("servers.save", payload);
     await refreshPeopleSources_();
-  }, "Guardando congregante...");
+    invalidateWelcomeCache_();
 
-  showToast("Congregante guardado", "La persona ya forma parte del padron base del sistema.", "success");
+    if (isWelcomeWorkflow && savedPerson?.id) {
+      await loadWelcomePeople_({
+        force: true,
+        showLoading: false
+      });
+      await loadWelcomeProfile_(savedPerson.id, {
+        force: true,
+        showLoading: false
+      });
+    }
+  }, isWelcomeWorkflow ? "Registrando nuevo en Bienvenida..." : "Guardando congregante...");
+
+  showToast(
+    isWelcomeWorkflow ? "Nuevo registrado" : "Congregante guardado",
+    isWelcomeWorkflow
+      ? "La persona quedó dada de alta en Bienvenida con estatus NUEVO."
+      : "La persona ya forma parte del padrón base del sistema.",
+    "success"
+  );
+
+  return savedPerson;
 }
 
-async function saveWelcomePerson_(rawPayload) {
+function prepareLeaderWhatsappWindow_(enabled) {
+  if (!enabled) {
+    return null;
+  }
+
+  try {
+    return window.open("", "_blank", "noopener,noreferrer");
+  } catch (error) {
+    return null;
+  }
+}
+
+function openLeaderWhatsappWindow_(preparedWindow, url) {
+  if (!url) {
+    if (preparedWindow && !preparedWindow.closed) {
+      preparedWindow.close();
+    }
+    return false;
+  }
+
+  try {
+    if (preparedWindow && !preparedWindow.closed) {
+      preparedWindow.location.href = url;
+      if (typeof preparedWindow.focus === "function") {
+        preparedWindow.focus();
+      }
+      return true;
+    }
+
+    const popup = window.open(url, "_blank", "noopener,noreferrer");
+    return !!popup;
+  } catch (error) {
+    return false;
+  }
+}
+
+function handleLeaderWhatsappAfterSave_(preparedWindow, profile, enabled) {
+  if (!enabled) {
+    return;
+  }
+
+  const leaderWhatsappUrl = String(profile?.person?.leaderWhatsappUrl || "");
+
+  if (!leaderWhatsappUrl) {
+    showToast("Sin WhatsApp del líder", "El caso se guardó, pero el grupo aún no tiene un líder con teléfono válido para abrir WhatsApp.", "warning");
+    openLeaderWhatsappWindow_(preparedWindow, "");
+    return;
+  }
+
+  if (!openLeaderWhatsappWindow_(preparedWindow, leaderWhatsappUrl)) {
+    showToast("WhatsApp bloqueado", "El navegador bloqueó la nueva pestaña. Usa el botón de WhatsApp dentro del expediente.", "warning");
+  }
+}
+
+async function saveWelcomePerson_(rawPayload, options = {}) {
   const payload = {
     personId: V(rawPayload.personId),
     status: V(rawPayload.status),
@@ -8765,22 +9208,39 @@ async function saveWelcomePerson_(rawPayload) {
     nextFollowUpDate: V(rawPayload.nextFollowUpDate),
     notes: V(rawPayload.notes)
   };
+  const shouldOpenLeaderWhatsapp = Boolean(
+    options.openLeaderWhatsapp
+    && String(payload.status || "").toUpperCase() === "PROSPECTO"
+  );
+  const preparedWhatsappWindow = prepareLeaderWhatsappWindow_(shouldOpenLeaderWhatsapp);
 
   if (!payload.personId) {
+    openLeaderWhatsappWindow_(preparedWhatsappWindow, "");
     showToast("Selecciona una persona", "Abre primero un expediente de Bienvenida para poder guardarlo.", "warning");
     return;
   }
 
-  await withLoading(async () => {
-    state.welcomeProfile = await apiPost("welcome.people.update", payload);
-    await loadWelcomePeople_({
-      force: true,
-      showLoading: false
-    });
-  }, "Guardando seguimiento de Bienvenida...");
+  try {
+    await withLoading(async () => {
+      state.welcomeProfile = await apiPost("welcome.people.update", payload);
+      invalidateWelcomeCache_();
+      await loadWelcomePeople_({
+        force: true,
+        showLoading: false
+      });
+    }, options.loadingMessage || "Guardando seguimiento de Bienvenida...");
+  } catch (error) {
+    openLeaderWhatsappWindow_(preparedWhatsappWindow, "");
+    throw error;
+  }
 
   state.ui.selectedWelcomePersonId = payload.personId;
-  showToast("Seguimiento guardado", "El estatus pastoral y el grupo sugerido quedaron actualizados.", "success");
+  handleLeaderWhatsappAfterSave_(preparedWhatsappWindow, state.welcomeProfile, shouldOpenLeaderWhatsapp);
+  showToast(
+    options.successTitle || "Seguimiento guardado",
+    options.successMessage || "El estatus pastoral y el grupo sugerido quedaron actualizados.",
+    "success"
+  );
   renderApp();
 }
 
@@ -8804,6 +9264,7 @@ async function saveWelcomeFollowup_(rawPayload) {
   await withLoading(async () => {
     const response = await apiPost("welcome.followups.save", payload);
     state.welcomeProfile = response.profile;
+    invalidateWelcomeCache_();
     await loadWelcomePeople_({
       force: true,
       showLoading: false
@@ -9020,6 +9481,7 @@ async function addParticipant(personId) {
   }
 
   invalidateDashboardSeasonMatrix_();
+  invalidateWelcomeCache_();
   await loadParticipantSeasonAssignments_({
     force: true,
     seasonId: filter.seasonId,
@@ -9115,6 +9577,7 @@ async function executeBulkAssign_() {
   }
 
   invalidateDashboardSeasonMatrix_();
+  invalidateWelcomeCache_();
   await loadParticipantSeasonAssignments_({
     force: true,
     seasonId: filter.seasonId,
@@ -9137,6 +9600,7 @@ async function executeDeactivateParticipant_(participantId) {
     });
     delete state.filters.participants.moveTargets[participantId];
     invalidateDashboardSeasonMatrix_();
+    invalidateWelcomeCache_();
     await loadParticipantsData({
       force: true,
       showLoading: false
@@ -10184,6 +10648,33 @@ function buildPeopleDirectorySummary_() {
   return summary;
 }
 
+function matchesWelcomePeriod_(person) {
+  const from = String(state.filters.congregants.recentFrom || "");
+  const to = String(state.filters.congregants.recentTo || "");
+  const dateValue = String(formatDateForInput_(person.fechaIngreso) || person.fechaIngreso || "");
+
+  if (!dateValue) {
+    return false;
+  }
+
+  if (from && dateValue < from) {
+    return false;
+  }
+
+  if (to && dateValue > to) {
+    return false;
+  }
+
+  return true;
+}
+
+function getWelcomeNewPeople_() {
+  return state.welcomePeople.filter((person) => {
+    const status = String(person.welcomeStatus || "").toUpperCase();
+    return status === "NUEVO" && matchesWelcomePeriod_(person);
+  });
+}
+
 function getFilteredWelcomePeople_() {
   const search = normalizeText(state.filters.welcome.search);
   const status = String(state.filters.welcome.status || "ALL").toUpperCase();
@@ -10207,6 +10698,34 @@ function getFilteredWelcomePeople_() {
       || String(person.assignedGroupId || "") === groupId;
 
     return matchesSearch && matchesStatus && matchesGroup;
+  });
+}
+
+function getWelcomeProspectPeople_() {
+  const search = normalizeText(state.filters.welcome.search);
+  const groupId = String(state.filters.welcome.groupId || "");
+
+  return state.welcomePeople.filter((person) => {
+    const status = String(person.welcomeStatus || "").toUpperCase();
+    const haystack = normalizeText([
+      person.id,
+      person.numero,
+      person.nombreCompleto || [person.nombre, person.apellidos].join(" "),
+      person.telefono,
+      person.email,
+      person.suggestedGroupName,
+      person.assignedGroupName,
+      person.leader?.name
+    ].join(" "));
+    const matchesSearch = !search || haystack.includes(search);
+    const matchesGroup = !groupId
+      || String(person.suggestedGroupId || "") === groupId
+      || String(person.assignedGroupId || "") === groupId;
+
+    return !person.assignedInLatestSeason
+      && status !== "CONGREGANTE"
+      && matchesSearch
+      && matchesGroup;
   });
 }
 
@@ -10400,8 +10919,13 @@ function sanitizeAssistantPayload_(payload) {
     email: V(payload.email),
     grupo: V(payload.grupo),
     fechaIngreso: V(payload.fechaIngreso) || formatDateForInput_(new Date()),
+    edad: V(payload.edad),
+    estadoCivil: V(payload.estadoCivil),
+    fechaNacimiento: V(payload.fechaNacimiento),
     tipoPersona: normalizePersonTypeValue_(payload.tipoPersona || "Congregante"),
-    estado: V(payload.estado) || "ACTIVO"
+    estado: V(payload.estado) || "ACTIVO",
+    estatusBienvenida: V(payload.estatusBienvenida),
+    workflowOrigin: V(payload.workflowOrigin)
   };
 
   if (!clean.nombre || !clean.apellidos) {
@@ -11463,10 +11987,11 @@ function getFilteredAdminUsers_() {
 
 function getPermissionLabel_(permission) {
   const labels = {
-    dashboard: "Dashboard Ejecutivo",
+    dashboard: "Dashboard Iglesia",
     assistants: "Congregantes",
     "congregants-new": "Nuevos congregantes",
-    "welcome-followup": "Bienvenida",
+    "welcome-followup": "Bienvenida: Seguimientos",
+    "welcome-prospects": "Bienvenida: Prospectos",
     catalogs: "Catalogos",
     seasons: "Temporadas",
     participants: "Asignacion",
@@ -11483,8 +12008,9 @@ function getPermissionDescription_(permission) {
   const descriptions = {
     dashboard: "Indicadores, consultas y exportaciones para pastor y lideres.",
     assistants: "Padron general, altas, importacion y credenciales QR.",
-    "congregants-new": "Consulta de congregantes nuevos por periodo.",
+    "congregants-new": "Alta inicial de nuevas personas registradas por Bienvenida.",
     "welcome-followup": "Seguimiento pastoral de nuevos congregantes y prospectos.",
+    "welcome-prospects": "Ubicacion al grupo ideal y preparacion de aviso para el líder.",
     catalogs: "Catalogos de grupos y ministerios.",
     seasons: "Temporadas, sesiones y estados operativos.",
     participants: "Asignacion individual y masiva a grupos.",
