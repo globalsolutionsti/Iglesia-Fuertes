@@ -8579,7 +8579,8 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   const task = async () => {
-    state.welcomePeople = await apiGet("welcome.people.list");
+    const backendRows = await apiGet("welcome.people.list");
+    state.welcomePeople = mergeWelcomePeopleSources_(backendRows);
     state.loaded.welcome = true;
     state.cacheKeys.welcomePeople = requestKey;
     return state.welcomePeople;
@@ -8594,6 +8595,140 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   return withLoading(() => runSharedLoad_("welcome", task), options.message || "Cargando seguimiento de Bienvenida...");
+}
+
+function getWelcomeLifecycleStatus_(person) {
+  const raw = String(
+    person?.welcomeStatus
+    || person?.estatusBienvenida
+    || person?.tipoPersona
+    || ""
+  ).trim().toUpperCase();
+
+  if (raw === "PROSPECTO") {
+    return "PROSPECTO GP";
+  }
+
+  return raw;
+}
+
+function buildWelcomeLeaderContactsFromGroup_(groupId) {
+  const normalizedGroupId = String(groupId || "").trim();
+  const group = state.catalogs.groups.find((item) => String(item.id) === normalizedGroupId) || null;
+  const contacts = [];
+  const addContact = (name, phone) => {
+    const cleanName = String(name || "").trim();
+    const cleanPhone = String(phone || "").trim();
+
+    if (!cleanName && !cleanPhone) {
+      return;
+    }
+
+    contacts.push({
+      id: "",
+      name: cleanName,
+      phone: cleanPhone,
+      type: "LIDER"
+    });
+  };
+
+  addContact(group?.leader1Name, group?.leader1Phone);
+  addContact(group?.leader2Name, group?.leader2Phone);
+  return contacts;
+}
+
+function buildWelcomeFallbackFromDirectory_(person) {
+  const welcomeStatus = getWelcomeLifecycleStatus_(person);
+  const suggestedGroupId = String(person?.grupoSugerido || person?.grupo || "").trim();
+  const assignedGroupId = String(person?.grupo || "").trim();
+  const leaderContacts = buildWelcomeLeaderContactsFromGroup_(suggestedGroupId);
+
+  return {
+    id: String(person?.id || "").trim(),
+    numero: String(person?.numero || "").trim(),
+    nombre: String(person?.nombre || "").trim(),
+    apellidos: String(person?.apellidos || "").trim(),
+    nombreCompleto: String(person?.nombreCompleto || "").trim(),
+    telefono: String(person?.telefono || "").trim(),
+    email: String(person?.email || "").trim(),
+    edad: person?.edad || "",
+    estadoCivil: String(person?.estadoCivil || "").trim(),
+    fechaIngreso: String(person?.fechaIngreso || "").trim(),
+    fechaNacimiento: String(person?.fechaNacimiento || "").trim(),
+    tipoPersona: String(person?.tipoPersona || "").trim(),
+    estado: String(person?.estado || "").trim(),
+    estatusBienvenida: String(person?.estatusBienvenida || "").trim(),
+    grupoSugerido: suggestedGroupId,
+    notasBienvenida: String(person?.notasBienvenida || "").trim(),
+    proximoSeguimiento: String(person?.proximoSeguimiento || "").trim(),
+    welcomeStatus,
+    latestSeasonId: "",
+    latestSeasonName: "",
+    assignedInLatestSeason: false,
+    assignedGroupId,
+    assignedGroupName: resolveGroupName_(assignedGroupId) || assignedGroupId,
+    suggestedGroupId,
+    suggestedGroupName: resolveGroupName_(suggestedGroupId) || suggestedGroupId,
+    leader: leaderContacts[0] || null,
+    leaderContacts,
+    leaderWhatsappUrl: "",
+    leaderWhatsappUrls: [],
+    lastContactAt: "",
+    lastActionType: "",
+    lastFollowupResult: "",
+    lastFollowupNotes: "",
+    nextFollowUpDate: String(person?.proximoSeguimiento || "").trim(),
+    followupsCount: 0,
+    availableForAssignment: welcomeStatus === "PROSPECTO GP" && !assignedGroupId
+  };
+}
+
+function mergeWelcomePeopleSources_(backendRows) {
+  const mergedById = new Map();
+  const sourceRows = Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [];
+
+  sourceRows.forEach((person) => {
+    const id = String(person?.id || "").trim();
+    const typeKey = getPersonTypeKey_(person?.tipoPersona || "");
+
+    if (!id || ["voluntarios", "voluntario", "lider", "coordinador", "servidor"].includes(typeKey)) {
+      return;
+    }
+
+    if (String(person?.estado || "ACTIVO").toUpperCase() !== "ACTIVO") {
+      return;
+    }
+
+    mergedById.set(id, buildWelcomeFallbackFromDirectory_(person));
+  });
+
+  (Array.isArray(backendRows) ? backendRows : []).forEach((person) => {
+    const id = String(person?.id || "").trim();
+    const fallback = mergedById.get(id) || {};
+
+    if (!id) {
+      return;
+    }
+
+    mergedById.set(id, {
+      ...fallback,
+      ...person,
+      welcomeStatus: getWelcomeLifecycleStatus_(person) || getWelcomeLifecycleStatus_(fallback),
+      suggestedGroupId: String(person?.suggestedGroupId || fallback?.suggestedGroupId || "").trim(),
+      suggestedGroupName: String(person?.suggestedGroupName || fallback?.suggestedGroupName || "").trim(),
+      assignedGroupId: String(person?.assignedGroupId || fallback?.assignedGroupId || "").trim(),
+      assignedGroupName: String(person?.assignedGroupName || fallback?.assignedGroupName || "").trim(),
+      leader: person?.leader || fallback?.leader || null,
+      leaderContacts: Array.isArray(person?.leaderContacts) && person.leaderContacts.length ? person.leaderContacts : (fallback?.leaderContacts || []),
+      leaderWhatsappUrl: String(person?.leaderWhatsappUrl || fallback?.leaderWhatsappUrl || "").trim(),
+      leaderWhatsappUrls: Array.isArray(person?.leaderWhatsappUrls) && person.leaderWhatsappUrls.length ? person.leaderWhatsappUrls : (fallback?.leaderWhatsappUrls || []),
+      followupsCount: Number(person?.followupsCount || fallback?.followupsCount || 0)
+    });
+  });
+
+  return Array.from(mergedById.values()).sort((left, right) => {
+    return parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true);
+  });
 }
 
 async function loadWelcomeProfile_(personId, options = {}) {
