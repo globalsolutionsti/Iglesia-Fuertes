@@ -285,7 +285,7 @@ const state = {
     },
     welcome: {
       search: "",
-      status: "ALL",
+      status: "NUEVO",
       groupId: ""
     },
     seasons: {
@@ -1352,11 +1352,12 @@ function renderWelcomeFollowupView_() {
   const selectedHealth = selectedPerson ? getWelcomeFollowupHealth_(selectedPerson) : null;
   const overdueCount = rows.filter((row) => getWelcomeFollowupHealth_(row).overdue).length;
   const inTimeCount = Math.max(rows.length - overdueCount, 0);
+  const withHistoryCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
   const withSuggestedGroupCount = rows.filter((row) => row.suggestedGroupId).length;
   const statusOptions = [
-    { value: "ALL", label: "Todos los estatus" },
+    { value: "ALL", label: "Todos los casos de Bienvenida" },
     { value: "NUEVO", label: "Nuevo" },
-    { value: "PROSPECTO GP", label: "Prospecto GP" },
+    { value: "PROSPECTO GP", label: "Prospecto GC" },
     { value: "CONGREGANTE", label: "Congregante" }
   ];
   const groupOptions = renderOptions(
@@ -1374,34 +1375,34 @@ function renderWelcomeFollowupView_() {
         tone: "assistants",
         eyebrow: "Ministerio de Bienvenida",
         title: "Seguimientos",
-        copy: "Consulta los nuevos, identifica casos vencidos y registra cada contacto con claridad.",
+        copy: "Abre cada nueva persona, revisa su historial completo y registra cada contacto con claridad.",
         badge: {
-          label: `${overdueCount} vencidos`,
+          label: overdueCount ? `${overdueCount} por atender` : "Bitácora al día",
           kind: overdueCount ? "warning" : "success"
         },
         metrics: [
-          { label: "Activos", value: String(rows.length) },
-          { label: "Nuevos", value: String(summary.newPeople) },
-          { label: "Prospectos", value: String(summary.prospects) },
+          { label: "En bandeja", value: String(rows.length) },
+          { label: "Con historial", value: String(withHistoryCount) },
+          { label: "Prospectos GC", value: String(summary.prospects) },
           { label: "En tiempo", value: String(inTimeCount) }
         ],
         actions: [
           { label: "Nuevos", variant: "secondary", view: "congregants-new" },
           { label: "Prospectos", variant: "primary", view: "welcome-prospects" },
-          { label: "Detalle", variant: "ghost", sectionId: "welcome-profile" }
+          { label: "Expediente", variant: "ghost", sectionId: "welcome-profile" }
         ]
       })}
 
       <div class="stats-grid assistants-stats-grid">
         <article class="stat-card">
-          <span class="status-chip neutral">Casos activos</span>
+          <span class="status-chip neutral">Nuevos por contactar</span>
           <strong>${escapeHtml(String(rows.length))}</strong>
-          <span>Nuevos y prospectos GP que siguen bajo cuidado de Bienvenida.</span>
+          <span>Listado inicial de personas NUEVO que Bienvenida debe revisar una por una.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip success">En tiempo</span>
-          <strong>${escapeHtml(String(inTimeCount))}</strong>
-          <span>Tienen seguimiento vigente y próximo contacto programado.</span>
+          <span class="status-chip success">Con bitácora</span>
+          <strong>${escapeHtml(String(withHistoryCount))}</strong>
+          <span>Ya tienen al menos un seguimiento registrado en su expediente pastoral.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip danger">Vencidos</span>
@@ -1409,9 +1410,9 @@ function renderWelcomeFollowupView_() {
           <span>Sin seguimiento o con próximo contacto ya vencido.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip neutral">Con grupo sugerido</span>
+          <span class="status-chip neutral">Listos para Prospectos</span>
           <strong>${escapeHtml(String(withSuggestedGroupCount))}</strong>
-          <span>Listos para avanzar a Prospectos y avisar al líder correcto.</span>
+          <span>Ya tienen suficiente contexto para pasar a Prospectos GC.</span>
         </article>
       </div>
 
@@ -1420,7 +1421,7 @@ function renderWelcomeFollowupView_() {
           <div class="panel-head">
             <div>
               <h2>Filtro pastoral</h2>
-              <p>Busca por nombre y localiza rápido quién necesita seguimiento hoy.</p>
+              <p>Por default ves a las personas NUEVO. Si hace falta, puedes abrir otros estatus.</p>
             </div>
             <button class="btn btn-secondary" data-action="refresh-welcome">Actualizar</button>
           </div>
@@ -1448,8 +1449,8 @@ function renderWelcomeFollowupView_() {
         <article class="panel-card module-section-anchor" id="welcome-profile">
           <div class="panel-head">
             <div>
-              <h2>${selectedPerson ? "Ficha de seguimiento" : "Selecciona una persona"}</h2>
-              <p>${selectedPerson ? "Actualiza su estatus, grupo sugerido y próximo contacto antes de registrar un nuevo evento." : "Toca Ver seguimientos desde la tabla para abrir el expediente pastoral."}</p>
+              <h2>${selectedPerson ? "Expediente pastoral" : "Selecciona una persona"}</h2>
+              <p>${selectedPerson ? "Aquí ves toda su historia de seguimientos, actualizas el estatus y decides si ya pasa a Prospectos GC." : "Abre una persona desde la tabla para revisar su expediente completo."}</p>
             </div>
             ${selectedPerson ? renderWorkflowStatusPill_(selectedPerson.welcomeStatus) : `<span class="pill dark">Sin selección</span>`}
           </div>
@@ -1462,14 +1463,14 @@ function renderWelcomeFollowupView_() {
                 <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
               </div>
               <div class="summary-box">
-                <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semaforo</span>
+                <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semáforo</span>
                 <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
-                <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Proximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Programa el siguiente contacto")}</span>
+                <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Programa el siguiente contacto")}</span>
               </div>
               <div class="summary-box">
                 <span class="status-chip neutral">Grupo sugerido</span>
                 <strong>${escapeHtml(selectedPerson.suggestedGroupName || "Sin sugerencia")}</strong>
-                <span>${escapeHtml(getWelcomeLeaderContactSummary_(selectedPerson))}</span>
+                <span>${escapeHtml(selectedPerson.suggestedGroupId ? getWelcomeLeaderContactSummary_(selectedPerson) : "Puedes definirlo aquí o terminarlo después en Prospectos.")}</span>
               </div>
             </div>
 
@@ -1519,8 +1520,8 @@ function renderWelcomeFollowupView_() {
       <article class="detail-card">
         <div class="panel-head">
           <div>
-            <h2>Listado de seguimientos</h2>
-            <p>La tabla te marca qué casos están al día y cuáles requieren atención inmediata.</p>
+            <h2>Personas nuevas en seguimiento</h2>
+            <p>Selecciona a la persona para ver sus seguimientos ordenados del más reciente al más antiguo.</p>
           </div>
           <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
         </div>
@@ -1531,7 +1532,7 @@ function renderWelcomeFollowupView_() {
               <tr>
                 <th>Congregante</th>
                 <th>Estatus</th>
-                <th>Semaforo</th>
+                <th>Semáforo</th>
                 <th>Próximo contacto</th>
                 <th>Acción</th>
               </tr>
@@ -1552,13 +1553,13 @@ function renderWelcomeFollowupView_() {
                   </td>
                   <td>
                     <div class="inline-actions">
-                      <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Ver seguimientos</button>
+                      <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Abrir historial</button>
                     </div>
                   </td>
                 </tr>
               `).join("") : `
                 <tr>
-                  <td colspan="5"><div class="empty-state">No hay personas nuevas o prospectos GP que coincidan con los filtros.</div></td>
+                  <td colspan="5"><div class="empty-state">No hay personas de Bienvenida que coincidan con los filtros actuales.</div></td>
                 </tr>
               `}
             </tbody>
@@ -1679,6 +1680,7 @@ function renderWelcomeProspectsView_() {
   const selectedPerson = selectedProfile?.person || null;
   const selectedMatchesView = selectedPerson && rows.some((row) => String(row.id) === String(selectedPerson.id));
   const activePerson = selectedMatchesView ? selectedPerson : null;
+  const withGroupCount = rows.filter((row) => row.suggestedGroupId).length;
   const readyToSend = rows.filter((row) => row.suggestedGroupId && getWelcomeLeaderWhatsappTargets_(row).length).length;
 
   return `
@@ -1687,15 +1689,15 @@ function renderWelcomeProspectsView_() {
         tone: "assistants",
         eyebrow: "Ministerio de Bienvenida",
         title: "Prospectos para grupos de conexión",
-        copy: "Ubica a cada nuevo en su grupo sugerido, pásalo a prospecto y prepara el aviso para el líder.",
+        copy: "Aquí viven los Prospectos GC en espera de ser registrados por el líder dentro del grupo de conexión.",
         badge: {
-          label: `${rows.length} por integrar`,
+          label: rows.length ? `${rows.length} en espera de registro` : "Sin pendientes",
           kind: rows.length ? "warning" : "success"
         },
         metrics: [
           { label: "Pendientes", value: String(rows.length) },
           { label: "Listos", value: String(readyToSend) },
-          { label: "Con grupo", value: String(rows.filter((row) => row.suggestedGroupId).length) },
+          { label: "Con grupo", value: String(withGroupCount) },
           { label: "Con líder", value: String(rows.filter((row) => hasWelcomeLeaderContact_(row)).length) }
         ],
         actions: [
@@ -1707,19 +1709,19 @@ function renderWelcomeProspectsView_() {
 
       <div class="stats-grid assistants-stats-grid">
         <article class="stat-card">
-          <span class="status-chip warning">Pendientes de grupo</span>
+          <span class="status-chip warning">En espera de registro</span>
           <strong>${escapeHtml(String(rows.length))}</strong>
-          <span>Personas nuevas o prospectos que todavía no quedan integrados en la temporada actual.</span>
+          <span>Prospectos GC que ya salieron de Seguimientos y esperan alta final dentro del grupo.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip neutral">Listos para aviso</span>
+          <span class="status-chip neutral">Con grupo sugerido</span>
+          <strong>${escapeHtml(String(withGroupCount))}</strong>
+          <span>Bienvenida ya definió el grupo ideal para el siguiente paso.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">WhatsApp listo</span>
           <strong>${escapeHtml(String(readyToSend))}</strong>
-          <span>Ya tienen grupo sugerido y líder detectado para preparar WhatsApp.</span>
-        </article>
-        <article class="stat-card">
-          <span class="status-chip neutral">Ajuste manual</span>
-          <strong>${escapeHtml(String(rows.filter((row) => !row.suggestedGroupId).length))}</strong>
-          <span>Casos que todavía requieren revisar o corregir el grupo ideal.</span>
+          <span>Ya tienen líder principal detectado para abrir el mensaje preparado.</span>
         </article>
       </div>
 
@@ -1728,7 +1730,7 @@ function renderWelcomeProspectsView_() {
           <div class="panel-head">
             <div>
               <h2>Listado de prospectos</h2>
-              <p>Selecciona el caso correcto, valida el grupo sugerido y desde ahí avisa al líder.</p>
+              <p>Selecciona el caso, define el grupo sugerido y deja listo el aviso para el líder principal.</p>
             </div>
             <span class="pill dark">${escapeHtml(String(rows.length))} casos</span>
           </div>
@@ -1760,7 +1762,10 @@ function renderWelcomeProspectsView_() {
                       <span class="row-title">${escapeHtml((row.leaderContacts || []).length ? `${row.leaderContacts.length} contacto(s)` : "Sin líder detectado")}</span>
                       <span class="row-meta">${escapeHtml(getWelcomeLeaderContactSummary_(row))}</span>
                     </td>
-                    <td>${renderWorkflowStatusPill_(row.welcomeStatus)}</td>
+                    <td>
+                      ${renderWorkflowStatusPill_(row.welcomeStatus)}
+                      ${renderWelcomePendingRegistrationPill_(row)}
+                    </td>
                     <td>
                       <div class="inline-actions">
                         <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Abrir</button>
@@ -1777,7 +1782,7 @@ function renderWelcomeProspectsView_() {
                   </tr>
                 `).join("") : `
                   <tr>
-                    <td colspan="5"><div class="empty-state">No hay prospectos pendientes. Cuando un nuevo pase a grupo, aquí aparecerá listo para avisar al líder.</div></td>
+                    <td colspan="5"><div class="empty-state">No hay prospectos pendientes. Cuando Bienvenida cambie un caso a Prospecto GC aparecerá aquí y desaparecerá en cuanto quede registrado en su grupo.</div></td>
                   </tr>
                 `}
               </tbody>
@@ -1789,7 +1794,7 @@ function renderWelcomeProspectsView_() {
           <div class="panel-head">
             <div>
               <h2>${activePerson ? "Preparar prospecto" : "Selecciona una persona"}</h2>
-              <p>${activePerson ? "Confirma grupo, deja notas y el sistema la moverá a PROSPECTO GP para preparar el WhatsApp del líder." : "Abre un caso desde el listado para definir el grupo de conexión y avisar al líder."}</p>
+              <p>${activePerson ? "Confirma el grupo sugerido, deja notas y prepara el WhatsApp para que el líder lo registre en su grupo." : "Abre un caso desde el listado para definir el grupo de conexión y avisar al líder."}</p>
             </div>
             ${activePerson ? renderWorkflowStatusPill_(activePerson.welcomeStatus) : `<span class="pill dark">Sin selección</span>`}
           </div>
@@ -1808,8 +1813,8 @@ function renderWelcomeProspectsView_() {
               </div>
               <div class="summary-box">
                 <span class="status-chip neutral">Próximo paso</span>
-                <strong>${escapeHtml(formatDate(activePerson.nextFollowUpDate) || "Sin fecha")}</strong>
-                <span>${escapeHtml(activePerson.lastFollowupNotes || activePerson.notasBienvenida || "Sin notas registradas")}</span>
+                <strong>En espera de registro</strong>
+                <span>${escapeHtml(activePerson.suggestedGroupId ? "El líder debe registrarlo dentro de Grupos de Conexión." : "Primero selecciona el grupo sugerido para preparar el aviso al líder.")}</span>
               </div>
             </div>
 
@@ -4851,7 +4856,7 @@ function renderAssistantsView() {
             <p>
               Usa <code>.xlsx</code>, <code>.xls</code> o <code>.csv</code>. La plantilla recomendada contiene:
               <code>NOMBRE</code>, <code>APELLIDOS</code>, <code>TELEFONO</code>, <code>EMAIL</code>, <code>GRUPO</code>, <code>FECHA</code>, <code>TIPO_PERSONA</code>.
-              Tipos validos: <code>NUEVO</code>, <code>PROSPECTO GP</code>, <code>CONGREGANTE</code>, <code>PROSPECTO GF</code>, <code>VOLUNTARIOS</code>, <code>LIDER</code> y <code>COORDINADOR</code>.
+              Tipos validos: <code>NUEVO</code>, <code>PROSPECTO GP</code> (etiqueta visual: Prospecto GC), <code>CONGREGANTE</code>, <code>PROSPECTO GF</code>, <code>VOLUNTARIOS</code>, <code>LIDER</code> y <code>COORDINADOR</code>.
             </p>
             <div class="actions-row">
               <button class="btn btn-secondary" type="button" data-action="download-people-template">Descargar plantilla</button>
@@ -6741,7 +6746,7 @@ function getPersonTypeDisplayLabel_(value, options = {}) {
   const normalizedKey = getPersonTypeKey_(canonicalValue);
   const labels = {
     nuevo: "Nuevo",
-    prospectogp: "Prospecto GP",
+    prospectogp: "Prospecto GC",
     congregante: "Congregante",
     prospectogf: "Prospecto GF",
     voluntarios: "Voluntarios",
@@ -6897,6 +6902,9 @@ async function handleClick(event) {
 
     if (action === "navigate") {
       state.currentView = button.dataset.view;
+      if (state.currentView === "welcome-followup") {
+        state.filters.welcome.status = "NUEVO";
+      }
       state.ui.mobileNavOpen = false;
       if (state.currentView === "dashboard" && shouldShowDashboardLoading_()) {
         loadingMessage.textContent = "Cargando Dashboard Iglesia...";
@@ -7113,7 +7121,7 @@ async function handleClick(event) {
         openLeaderWhatsapp: true,
         loadingMessage: "Preparando prospecto para el líder...",
         successTitle: "Prospecto preparado",
-        successMessage: "El caso quedó como PROSPECTO GP y se preparó el WhatsApp del líder."
+        successMessage: "El caso quedó como Prospecto GC y se preparó el WhatsApp del líder."
       });
       return;
     }
@@ -7773,16 +7781,18 @@ async function handleSubmit(event) {
         openLeaderWhatsapp: true,
         loadingMessage: "Preparando prospecto para el líder...",
         successTitle: "Prospecto preparado",
-        successMessage: "El caso quedó como PROSPECTO GP y se preparó el WhatsApp del líder."
+        successMessage: "El caso quedó como Prospecto GC y se preparó el WhatsApp del líder."
       });
       return;
     }
 
     if (form.id === "welcome-followup-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
-      await saveWelcomeFollowup_(payload);
-      form.reset();
-      renderApp();
+      const movedToProspects = await saveWelcomeFollowup_(payload);
+      if (!movedToProspects) {
+        form.reset();
+        renderApp();
+      }
       return;
     }
 
@@ -8880,7 +8890,9 @@ async function ensureWelcomeViewData_(options = {}) {
 
   const currentRows = state.currentView === "congregants-new"
     ? getWelcomeNewPeople_()
-    : (state.currentView === "welcome-prospects" ? getWelcomeProspectPeople_() : getFilteredWelcomePeople_());
+    : (state.currentView === "welcome-prospects"
+      ? getWelcomeProspectPeople_()
+      : (state.currentView === "welcome-followup" ? getWelcomeFollowupPeople_() : getFilteredWelcomePeople_()));
   const currentSelectedAvailable = currentRows.some((row) => String(row.id) === String(state.ui.selectedWelcomePersonId));
 
   if (!currentRows.length) {
@@ -9555,6 +9567,7 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
     options.openLeaderWhatsapp
     && String(payload.status || "").toUpperCase() === "PROSPECTO GP"
   );
+  const shouldOpenProspects = String(payload.status || "").toUpperCase() === "PROSPECTO GP";
   const preparedWhatsappWindow = prepareLeaderWhatsappWindow_(shouldOpenLeaderWhatsapp);
 
   if (!payload.personId) {
@@ -9579,13 +9592,21 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
   }
 
   state.ui.selectedWelcomePersonId = payload.personId;
+  if (shouldOpenProspects) {
+    state.currentView = "welcome-prospects";
+  }
   handleLeaderWhatsappAfterSave_(preparedWhatsappWindow, state.welcomeProfile, shouldOpenLeaderWhatsapp);
   showToast(
     options.successTitle || "Seguimiento guardado",
-    options.successMessage || "El estatus pastoral y el grupo sugerido quedaron actualizados.",
+    options.successMessage || (shouldOpenProspects
+      ? "La persona pasó a Prospectos GC y quedó lista para continuar con la asignación al grupo."
+      : "El estatus pastoral y el grupo sugerido quedaron actualizados."),
     "success"
   );
   renderApp();
+  if (shouldOpenProspects) {
+    scrollToSection_("welcome-prospect-profile");
+  }
 }
 
 async function saveWelcomeFollowup_(rawPayload) {
@@ -9606,6 +9627,8 @@ async function saveWelcomeFollowup_(rawPayload) {
     return;
   }
 
+  const movedToProspects = String(payload.status || "").toUpperCase() === "PROSPECTO GP";
+
   await withLoading(async () => {
     const response = await apiPost("welcome.followups.save", payload);
     state.welcomeProfile = response.profile;
@@ -9618,7 +9641,21 @@ async function saveWelcomeFollowup_(rawPayload) {
   }, "Registrando evento de Bienvenida...");
 
   state.ui.selectedWelcomePersonId = payload.personId;
-  showToast("Evento registrado", "La bitácora de seguimiento ya quedó actualizada.", "success");
+  if (movedToProspects) {
+    state.currentView = "welcome-prospects";
+  }
+  showToast(
+    "Evento registrado",
+    movedToProspects
+      ? "La bitácora quedó actualizada y la persona pasó a Prospectos GC."
+      : "La bitácora de seguimiento ya quedó actualizada.",
+    "success"
+  );
+  if (movedToProspects) {
+    renderApp();
+    scrollToSection_("welcome-prospect-profile");
+  }
+  return movedToProspects;
 }
 
 async function processPeopleImportFile_(file) {
@@ -11023,7 +11060,7 @@ function getWelcomeNewPeople_() {
 
 function getWelcomeFollowupPeople_() {
   const search = normalizeText(state.filters.welcome.search);
-  const requestedStatus = String(state.filters.welcome.status || "ALL").toUpperCase();
+  const requestedStatus = String(state.filters.welcome.status || "NUEVO").toUpperCase();
   const groupId = String(state.filters.welcome.groupId || "");
 
   return state.welcomePeople.filter((person) => {
@@ -11194,6 +11231,10 @@ function renderWelcomeLeaderWhatsappButtons_(person, options = {}) {
   `).join("");
 }
 
+function renderWelcomePendingRegistrationPill_(person) {
+  return `<span class="pill ${person?.assignedInLatestSeason ? "success" : "warning"}">${escapeHtml(person?.assignedInLatestSeason ? "Registrado en grupo" : "En espera de registro")}</span>`;
+}
+
 function getWelcomeProspectPeople_() {
   const search = normalizeText(state.filters.welcome.search);
   const groupId = String(state.filters.welcome.groupId || "");
@@ -11216,7 +11257,7 @@ function getWelcomeProspectPeople_() {
       || String(person.assignedGroupId || "") === groupId;
 
     return !person.assignedInLatestSeason
-      && (status === "NUEVO" || status === "PROSPECTO GP")
+      && status === "PROSPECTO GP"
       && matchesSearch
       && matchesGroup;
   });
@@ -11376,7 +11417,7 @@ function getWorkflowStatusLabel_(value) {
   const labels = {
     NUEVO: "Nuevo",
     PROSPECTO: "Prospecto",
-    "PROSPECTO GP": "Prospecto GP",
+    "PROSPECTO GP": "Prospecto GC",
     CONGREGANTE: "Congregante",
     PROSPECTO_FORMACION: "Prospecto formación",
     "PROSPECTO GF": "Prospecto GF",
@@ -12863,7 +12904,7 @@ function resetRuntimeState() {
   };
   state.filters.welcome = {
     search: "",
-    status: "ALL",
+    status: "NUEVO",
     groupId: ""
   };
   state.filters.seasons = {
