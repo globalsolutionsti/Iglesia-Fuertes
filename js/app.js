@@ -5507,11 +5507,31 @@ function renderParticipantsView() {
     const assignmentState = getPersonAssignmentState(person);
     return !assignmentState.currentSessionAssigned && !assignmentState.blockedByOtherGroup;
   }).length;
-  const pendingProspects = getPendingRegistrationWelcomePeople_({
-    groupId: filter.groupId
-  });
   const totalPendingProspects = getPendingRegistrationWelcomePeople_();
-  const visiblePendingProspects = filter.groupId ? pendingProspects : totalPendingProspects;
+  const selectedPendingGroupId = String(filter.groupId || "");
+  const visiblePendingProspects = totalPendingProspects.slice().sort((left, right) => {
+    const leftMatchesGroup = selectedPendingGroupId && (
+      String(left.suggestedGroupId || "") === selectedPendingGroupId
+      || String(left.assignedGroupId || "") === selectedPendingGroupId
+    );
+    const rightMatchesGroup = selectedPendingGroupId && (
+      String(right.suggestedGroupId || "") === selectedPendingGroupId
+      || String(right.assignedGroupId || "") === selectedPendingGroupId
+    );
+
+    if (leftMatchesGroup !== rightMatchesGroup) {
+      return leftMatchesGroup ? -1 : 1;
+    }
+
+    return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
+      - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
+  });
+  const matchingPendingProspects = selectedPendingGroupId
+    ? totalPendingProspects.filter((person) => (
+      String(person.suggestedGroupId || "") === selectedPendingGroupId
+      || String(person.assignedGroupId || "") === selectedPendingGroupId
+    ))
+    : totalPendingProspects;
   const hiddenBulkCount = Math.max(bulkMatches.length - bulkResults.length, 0);
   const serverCount = state.participants.filter((participant) => normalizeText(participant.type) === "servidor").length;
   const moveGroups = groups;
@@ -5581,6 +5601,7 @@ function renderParticipantsView() {
           <span class="context-item"><strong>Temporada activa:</strong> ${escapeHtml(resolveSeasonName_(filter.seasonId) || "Selecciona una temporada")}</span>
           <span class="context-item"><strong>Grupo en pantalla:</strong> ${escapeHtml(selectedGroupName)}</span>
           <span class="context-item"><strong>Pendientes totales:</strong> ${escapeHtml(String(totalPendingProspects.length))}</span>
+          <span class="context-item"><strong>Coinciden con este grupo:</strong> ${escapeHtml(String(matchingPendingProspects.length))}</span>
         </div>
 
         <div class="results-list participants-picker-results">
@@ -5618,8 +5639,8 @@ function renderParticipantsView() {
             </article>
           `).join("") : `
             <div class="empty-state participant-picker-empty">
-              <strong>${filter.groupId ? "Sin pendientes para este grupo" : "Sin prospectos pendientes"}</strong>
-              <span>${filter.groupId ? "Cambia de grupo o espera nuevos prospectos enviados desde Bienvenida." : "Cuando Bienvenida envíe un prospecto para registro aparecerá aquí."}</span>
+              <strong>Sin prospectos pendientes</strong>
+              <span>Cuando Bienvenida envíe un prospecto para registro aparecerá aquí.</span>
             </div>
           `}
         </div>
@@ -9254,12 +9275,17 @@ async function loadFormationProfile_(personId, options = {}) {
 }
 
 async function ensureWelcomeViewData_(options = {}) {
-  await Promise.all([
-    state.loaded.peopleDirectory ? Promise.resolve() : loadPeopleDirectory(),
-    state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_()
-  ]);
+  if (!state.loaded.peopleDirectory && !pendingResourceLoads.peopleDirectory) {
+    void loadPeopleDirectory().catch(() => {});
+  }
 
-  await loadWelcomePeople_(options);
+  const preloadTasks = [loadWelcomePeople_(options)];
+
+  if (!state.loaded.groups) {
+    preloadTasks.push(loadGroupsCatalog_());
+  }
+
+  await Promise.all(preloadTasks);
 
   const currentRows = state.currentView === "congregants-new"
     ? getWelcomeNewPeople_()
@@ -9743,6 +9769,11 @@ async function loadParticipantsData(options = {}) {
 
 async function saveAssistant(rawPayload) {
   const payload = sanitizeAssistantPayload_(rawPayload);
+
+  if (!state.loaded.peopleDirectory) {
+    await loadPeopleDirectory();
+  }
+
   const existing = findExistingPersonMatch_(payload);
   const isWelcomeWorkflow = payload.workflowOrigin === "welcome";
   let savedPerson = null;
