@@ -155,6 +155,8 @@ const ACCESSIBLE_VIEWS = [
   "admin-settings",
   "admin-users"
 ];
+const DELETE_SCRAP_PERMISSION = "delete-scrap";
+const USER_PERMISSION_OPTIONS = [...ACCESSIBLE_VIEWS, DELETE_SCRAP_PERMISSION];
 
 const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
 const PERSON_TYPE_OPTIONS = ["NUEVO", "PROSPECTO GP", "CONGREGANTE", "PROSPECTO GF", "VOLUNTARIOS", "LIDER", "COORDINADOR"];
@@ -436,8 +438,17 @@ function getUserPermissions_() {
   return basePermissions;
 }
 
+function hasUserPermission_(permission) {
+  return getUserPermissions_().includes(permission);
+}
+
 function canAccessView_(view) {
-  return getUserPermissions_().includes(view);
+  return hasUserPermission_(view);
+}
+
+function canUseScrapDelete_() {
+  const roleKey = normalizeText(state.user?.role || "");
+  return (roleKey === "admin" || roleKey === "administrador") && hasUserPermission_(DELETE_SCRAP_PERMISSION);
 }
 
 function getFirstAccessibleView_(views) {
@@ -920,6 +931,16 @@ async function confirmSystemAction_() {
 
   if (confirmation.kind === "welcome-promote-prospect") {
     await promoteWelcomePersonToProspect_(confirmation.payload.personId);
+    return;
+  }
+
+  if (confirmation.kind === "scrap-delete-season-person") {
+    await executeScrapDeleteSeasonPerson_(confirmation.payload.personId, confirmation.payload.seasonId);
+    return;
+  }
+
+  if (confirmation.kind === "scrap-delete-person") {
+    await executeScrapDeletePerson_(confirmation.payload.personId, confirmation.payload.originView);
   }
 }
 
@@ -1334,6 +1355,7 @@ function renderConnectionAttendanceView_() {
 function renderWelcomeNewView_() {
   const rows = getWelcomeNewPeople_();
   const allNewRows = state.welcomePeople.filter((person) => String(person.welcomeStatus || "").toUpperCase() === "NUEVO");
+  const canDeleteScrap = canUseScrapDelete_();
   const hiddenNewCount = Math.max(allNewRows.length - rows.length, 0);
   const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
   const withBirthDateCount = rows.filter((row) => String(row.fechaNacimiento || "").trim()).length;
@@ -1529,6 +1551,7 @@ function renderWelcomeNewView_() {
                   <td>
                     <div class="inline-actions">
                       <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Seguimientos</button>
+                      ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="congregants-new">Eliminar scrap</button>` : ""}
                     </div>
                   </td>
                 </tr>
@@ -1549,6 +1572,7 @@ function renderWelcomeNewView_() {
 
 function renderWelcomeFollowupView_() {
   const rows = getWelcomeFollowupPeople_();
+  const canDeleteScrap = canUseScrapDelete_();
   const selectedProfile = state.welcomeProfile;
   const selectedPerson = selectedProfile?.person || null;
   const mode = state.ui.welcomeWorkbenchMode || "";
@@ -1669,6 +1693,7 @@ function renderWelcomeFollowupView_() {
                       <button class="btn btn-primary" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}">Seguimientos</button>
                       <button class="btn btn-secondary" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}">Abrir historial</button>
                       <button class="btn btn-ghost" data-action="promote-welcome-pgc" data-person-id="${escapeHtml(row.id || "")}">PGC</button>
+                      ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-followup">Eliminar scrap</button>` : ""}
                     </div>
                   </td>
                 </tr>
@@ -1859,6 +1884,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
 
 function renderWelcomeProspectsView_() {
   const rows = getWelcomeProspectPeople_();
+  const canDeleteScrap = canUseScrapDelete_();
   const withGroupCount = rows.filter((row) => row.suggestedGroupId).length;
   const readyToSend = rows.filter((row) => row.suggestedGroupId && getWelcomeLeaderWhatsappTargets_(row).length).length;
 
@@ -1967,6 +1993,7 @@ function renderWelcomeProspectsView_() {
                     <td>
                       <div class="inline-actions">
                         <button class="btn btn-primary" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">Gestionar</button>
+                        ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-prospects">Eliminar scrap</button>` : ""}
                       </div>
                     </td>
                   </tr>
@@ -2826,7 +2853,7 @@ function renderAdminUsersView_() {
             <div class="field">
               <label>Fichas con acceso</label>
               <div class="permission-grid">
-                ${ACCESSIBLE_VIEWS.map((permission) => `
+                ${USER_PERMISSION_OPTIONS.map((permission) => `
                   <label class="permission-card">
                     <input type="checkbox" name="permissions" value="${escapeHtml(permission)}" ${selectedPermissions.includes(permission) ? "checked" : ""} ${usersAdminAvailable ? "" : "disabled"}>
                     <span>
@@ -4860,6 +4887,7 @@ function renderAssistantsView() {
   const filter = state.filters.assistants;
   const summary = buildPeopleDirectorySummary_();
   const rows = getFilteredPeopleDirectory_();
+  const canDeleteScrap = canUseScrapDelete_();
   const credentialPreviewRows = rows.slice(0, CREDENTIAL_PREVIEW_LIMIT);
   const importSummary = state.peopleImport.summary;
   const importProgress = state.peopleImport.progress;
@@ -5141,6 +5169,7 @@ function renderAssistantsView() {
                   <th>Grupo</th>
                   <th>Contacto</th>
                   <th>Estado</th>
+                  ${canDeleteScrap ? "<th>Acciones</th>" : ""}
                 </tr>
               </thead>
               <tbody>
@@ -5159,6 +5188,13 @@ function renderAssistantsView() {
                       <span class="row-meta">${escapeHtml(person.email || "Sin email")}</span>
                     </td>
                     <td>${renderPill(person.estado)}</td>
+                    ${canDeleteScrap ? `
+                      <td>
+                        <div class="inline-actions">
+                          <button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(person.id || "")}" data-origin-view="assistants">Eliminar scrap</button>
+                        </div>
+                      </td>
+                    ` : ""}
                   </tr>
                 `).join("")}
               </tbody>
@@ -5485,6 +5521,7 @@ function renderSeasonsView() {
 
 function renderParticipantsView() {
   const filter = state.filters.participants;
+  const canDeleteScrap = canUseScrapDelete_();
   const groups = getSessionGroups(filter.seasonId, filter.sessionId);
   const context = state.participantContext;
   const sessions = getSessions(filter.seasonId);
@@ -5992,6 +6029,9 @@ function renderParticipantsView() {
                           Mover
                         </button>
                         <button class="btn btn-danger" data-action="deactivate-participant" data-participant-id="${escapeHtml(participant.id)}">Dar de baja</button>
+                        ${canDeleteScrap ? `
+                          <button class="btn btn-danger" data-action="prompt-scrap-delete-season-person" data-person-id="${escapeHtml(participant.personId)}">Eliminar scrap</button>
+                        ` : ""}
                       </div>
                     </td>
                   </tr>
@@ -7334,6 +7374,41 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "prompt-scrap-delete-person") {
+      const personId = String(button.dataset.personId || "");
+      const originView = String(button.dataset.originView || state.currentView || "");
+      const person = state.peopleDirectory.find((item) => String(item.id || "") === personId) || getWelcomePersonById_(personId);
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!personId || !person) {
+        showToast("Persona no disponible", "Recarga el módulo e intenta nuevamente.", "warning");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-person",
+        title: "Eliminar scrap del sistema",
+        copy: "Se borrará por completo el congregante de prueba junto con su historial relacionado. Úsalo solo durante implementación.",
+        badge: "Eliminar scrap",
+        confirmLabel: "Eliminar definitivo",
+        tone: "danger",
+        notes: [
+          `${person.nombreCompleto || person.nombre || "Sin nombre"}`,
+          `QR ${person.id || "-"} | ${person.numero || "Sin número"}`,
+          `Origen: ${VIEW_META[originView]?.title || originView || "Sistema"}`
+        ],
+        payload: {
+          personId,
+          originView
+        }
+      });
+      return;
+    }
+
     if (action === "open-welcome-followup") {
       await loadWelcomeProfile_(button.dataset.personId || "", {
         force: true,
@@ -7740,6 +7815,41 @@ async function handleClick(event) {
         ],
         payload: {
           participantId
+        }
+      });
+      return;
+    }
+
+    if (action === "prompt-scrap-delete-season-person") {
+      const personId = String(button.dataset.personId || "");
+      const participant = state.participants.find((item) => String(item.personId || "") === personId);
+      const seasonName = resolveSeasonName_(state.filters.participants.seasonId) || state.filters.participants.seasonId || "Temporada";
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!personId || !participant) {
+        showToast("Participante no disponible", "Recarga la asignación e intenta nuevamente.", "warning");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-season-person",
+        title: "Eliminar scrap de la temporada",
+        copy: "Se eliminará a la persona de todas las sesiones de esta temporada y también se limpiarán sus asistencias capturadas en el ciclo.",
+        badge: seasonName,
+        confirmLabel: "Eliminar de la temporada",
+        tone: "danger",
+        notes: [
+          participant.name || "Participante seleccionado",
+          `QR ${participant.personId || "-"} | Participante ${participant.id || "-"}`,
+          resolveGroupName_(state.filters.participants.groupId) || state.filters.participants.groupId || "Grupo actual"
+        ],
+        payload: {
+          personId,
+          seasonId: state.filters.participants.seasonId
         }
       });
       return;
@@ -10550,6 +10660,108 @@ async function executeDeactivateParticipant_(participantId) {
   renderApp();
 }
 
+async function executeScrapDeleteSeasonPerson_(personId, seasonId) {
+  const cleanPersonId = String(personId || "");
+  const cleanSeasonId = String(seasonId || state.filters.participants.seasonId || "");
+  let response = null;
+
+  if (!cleanPersonId || !cleanSeasonId) {
+    showToast("Faltan datos", "Define persona y temporada antes de intentar la limpieza scrap.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteSeasonAssignments", {
+      seasonId: cleanSeasonId,
+      personId: cleanPersonId
+    });
+    invalidateDashboardSeasonMatrix_();
+    invalidateWelcomeCache_();
+    await Promise.all([
+      refreshPeopleSources_(),
+      loadWelcomePeople_({
+        force: true,
+        showLoading: false
+      }),
+      loadParticipantSeasonAssignments_({
+        force: true,
+        seasonId: cleanSeasonId,
+        showLoading: false
+      })
+    ]);
+    await loadParticipantsData({
+      force: true,
+      showLoading: false
+    });
+  }, "Eliminando scrap de la temporada...");
+
+  showToast(
+    "Scrap eliminado de la temporada",
+    `${response?.personName || "La persona"} fue retirada de ${response?.deletedParticipants || 0} registro(s) de participantes y ${response?.deletedAttendances || 0} asistencia(s) en ${response?.seasonName || cleanSeasonId}.`,
+    "success"
+  );
+  renderApp();
+}
+
+async function executeScrapDeletePerson_(personId, originView) {
+  const cleanPersonId = String(personId || "");
+  let response = null;
+
+  if (!cleanPersonId) {
+    showToast("Falta persona", "No se recibió la persona a eliminar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deletePerson", {
+      personId: cleanPersonId
+    });
+    invalidateDashboardSeasonMatrix_();
+    invalidateWelcomeCache_();
+
+    if (String(state.ui.selectedWelcomePersonId || "") === cleanPersonId) {
+      state.ui.selectedWelcomePersonId = "";
+      state.ui.welcomeWorkbenchMode = "";
+      state.welcomeProfile = null;
+      state.ui.welcomeModal = null;
+    }
+
+    await Promise.all([
+      refreshPeopleSources_(),
+      loadWelcomePeople_({
+        force: true,
+        showLoading: false
+      }),
+      state.filters.participants.seasonId
+        ? loadParticipantSeasonAssignments_({
+          force: true,
+          seasonId: state.filters.participants.seasonId,
+          showLoading: false
+        })
+        : Promise.resolve()
+    ]);
+
+    if (state.currentView === "participants") {
+      await loadParticipantsData({
+        force: true,
+        showLoading: false
+      });
+    }
+  }, "Eliminando registro scrap...");
+
+  showToast(
+    "Registro scrap eliminado",
+    `${response?.personName || "La persona"} fue borrada del padrón base y se limpiaron ${response?.deletedParticipants || 0} participante(s), ${response?.deletedAttendances || 0} asistencia(s), ${response?.deletedFollowups || 0} seguimiento(s) y ${response?.deletedFormationRecords || 0} registro(s) de formación.`,
+    "success"
+  );
+
+  renderApp();
+
+  if (originView === "welcome-followup" || originView === "welcome-prospects" || originView === "congregants-new") {
+    scrollToSection_("welcome-new-list");
+  }
+}
+
 async function loadAttendanceData(options = {}) {
   await syncFilterState("attendance");
 
@@ -13105,7 +13317,8 @@ function getPermissionLabel_(permission) {
     attendance: "Asistencias",
     formation: "Formación",
     "admin-settings": "Configuracion",
-    "admin-users": "Usuarios"
+    "admin-users": "Usuarios",
+    "delete-scrap": "Eliminar scrap"
   };
 
   return labels[permission] || permission;
@@ -13124,7 +13337,8 @@ function getPermissionDescription_(permission) {
     attendance: "Captura manual, QR asistido y kiosko.",
     formation: "Prospectos, validaciones, catálogo de niveles e historial formativo.",
     "admin-settings": "URL de API y conexion del sistema.",
-    "admin-users": "Alta de usuarios, perfiles y permisos."
+    "admin-users": "Alta de usuarios, perfiles y permisos.",
+    "delete-scrap": "Permite borrar registros de prueba en Bienvenida, Congregantes y Grupos de Conexión. Solo debe activarse a ADMIN durante implementación."
   };
 
   return descriptions[permission] || "Ficha operativa del sistema.";
