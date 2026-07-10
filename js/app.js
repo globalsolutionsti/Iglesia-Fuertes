@@ -3669,13 +3669,8 @@ function formatDashboardGlobalPercent_(value, total) {
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
 }
 
-function buildDashboardSeasonSegments_(seasonMatrix) {
-  const groups = Array.isArray(seasonMatrix?.groups) ? seasonMatrix.groups : [];
-  const totalRegistered = Number(seasonMatrix?.overall?.uniquePeople || 0);
-  const groupsByName = new Map(
-    groups.map((group) => [normalizeText(group.groupName).replace(/\s+/g, " "), group])
-  );
-  const segmentConfigs = [
+function getDashboardSegmentConfigs_() {
+  return [
     {
       id: "youth",
       label: "Jóvenes",
@@ -3695,24 +3690,60 @@ function buildDashboardSeasonSegments_(seasonMatrix) {
       groupNames: ["entre mujeres", "hombres de valor"]
     }
   ];
+}
 
-  return segmentConfigs.map((segment) => {
+function getDashboardGroupSessionSnapshot_(group, sessionId) {
+  if (!group || !sessionId) {
+    return null;
+  }
+
+  const sessions = Array.isArray(group.sessions) ? group.sessions : [];
+
+  return sessions.find((session) => String(session.sessionId || session.id || "") === String(sessionId)) || null;
+}
+
+function buildDashboardAttendanceSegments_(seasonMatrix, sessionId) {
+  const groups = Array.isArray(seasonMatrix?.groups) ? seasonMatrix.groups : [];
+  const sessionTotals = Array.isArray(seasonMatrix?.sessionTotals) ? seasonMatrix.sessionTotals : [];
+  const normalizedSessionId = String(sessionId || "");
+  const selectedSession = sessionTotals.find((session) => String(session.sessionId || session.id || "") === normalizedSessionId) || null;
+  const globalAttendance = Number(selectedSession?.presentTotal || 0);
+  const groupsByName = new Map(
+    groups.map((group) => [normalizeText(group.groupName).replace(/\s+/g, " "), group])
+  );
+
+  const segments = getDashboardSegmentConfigs_().map((segment) => {
     const segmentGroups = segment.groupNames
       .map((groupName) => groupsByName.get(normalizeText(groupName).replace(/\s+/g, " ")))
       .filter(Boolean);
-    const total = segmentGroups.reduce((sum, group) => sum + Number(group.uniquePeople || 0), 0);
+    const presentTotal = segmentGroups.reduce((sum, group) => {
+      const sessionSnapshot = getDashboardGroupSessionSnapshot_(group, normalizedSessionId);
+      return sum + Number(sessionSnapshot?.present || 0);
+    }, 0);
+    const assignedTotal = segmentGroups.reduce((sum, group) => {
+      const sessionSnapshot = getDashboardGroupSessionSnapshot_(group, normalizedSessionId);
+      return sum + Number(sessionSnapshot?.total || 0);
+    }, 0);
 
     return {
       ...segment,
-      total,
-      percent: calculateDashboardGlobalPercent_(total, totalRegistered),
+      presentTotal,
+      assignedTotal,
+      percent: calculateDashboardGlobalPercent_(presentTotal, globalAttendance),
       groups: segmentGroups
     };
   });
+
+  return {
+    session: selectedSession,
+    globalAttendance,
+    segments
+  };
 }
 
-function renderDashboardSummaryGroupButtons_(groups, selectedGroupId) {
+function renderDashboardSummaryGroupButtons_(groups, selectedGroupId, options = {}) {
   const normalizedGroups = Array.isArray(groups) ? groups : [];
+  const normalizedSessionId = String(options.sessionId || "");
 
   if (!normalizedGroups.length) {
     return `<div class="empty-state">Todavía no hay grupos con personas registradas en esta temporada.</div>`;
@@ -3720,16 +3751,27 @@ function renderDashboardSummaryGroupButtons_(groups, selectedGroupId) {
 
   return `
     <div class="actions-row dashboard-filter-actions">
-      ${normalizedGroups.map((group) => `
+      ${normalizedGroups.map((group) => {
+        const sessionSnapshot = normalizedSessionId
+          ? getDashboardGroupSessionSnapshot_(group, normalizedSessionId)
+          : null;
+        const metricLabel = sessionSnapshot
+          ? (sessionSnapshot.captured
+            ? `${sessionSnapshot.present || 0}/${sessionSnapshot.total || 0}`
+            : `${sessionSnapshot.total || 0} base`)
+          : String(group.uniquePeople || 0);
+
+        return `
         <button
           class="btn ${String(group.groupId || "") === String(selectedGroupId || "") ? "btn-primary" : "btn-secondary"}"
           data-action="open-dashboard-session-group"
           data-group-id="${escapeHtml(String(group.groupId || ""))}"
           type="button"
         >
-          ${escapeHtml(group.groupName || `Grupo ${group.groupId || ""}`)} · ${escapeHtml(String(group.uniquePeople || 0))}
+          ${escapeHtml(group.groupName || `Grupo ${group.groupId || ""}`)} · ${escapeHtml(metricLabel)}
         </button>
-      `).join("")}
+      `;
+      }).join("")}
     </div>
   `;
 }
@@ -4516,15 +4558,21 @@ function renderDashboardView() {
     "Selecciona grupo"
   );
   const hasSeasonData = Boolean(focusSeason);
-  const globalAttendanceLabel = overall.capturedBaseTotal
-    ? `${overall.presentTotal}/${overall.capturedBaseTotal}`
-    : "Sin captura";
   const selectedTrend = selectedGroupMeta?.trend || leaderSummary?.trend || null;
   const focusedSession = leaderSummary?.sessions?.find((session) => String(session.sessionId || session.id || "") === selectedSessionId) || null;
   const totalRegistered = Number(overall.uniquePeople || 0);
-  const seasonSegments = buildDashboardSeasonSegments_(seasonMatrix);
-  const segmentGroupsTotal = seasonSegments.reduce((sum, segment) => sum + Number(segment.total || 0), 0);
-  const remainingGroupsTotal = Math.max(totalRegistered - segmentGroupsTotal, 0);
+  const attendanceSegmentsState = buildDashboardAttendanceSegments_(seasonMatrix, selectedSessionId);
+  const selectedSessionSummary = attendanceSegmentsState.session || null;
+  const attendanceSegments = attendanceSegmentsState.segments || [];
+  const selectedSessionAttendance = Number(attendanceSegmentsState.globalAttendance || 0);
+  const segmentAttendanceTotal = attendanceSegments.reduce((sum, segment) => sum + Number(segment.presentTotal || 0), 0);
+  const remainingAttendanceTotal = Math.max(selectedSessionAttendance - segmentAttendanceTotal, 0);
+  const selectedSessionLabel = selectedSessionSummary
+    ? (selectedSessionSummary.shortLabel || selectedSessionSummary.name || selectedSessionId)
+    : (selectedSessionId || "Sin sesion");
+  const selectedSessionDate = selectedSessionSummary?.date ? formatDate(selectedSessionSummary.date) : "Sin fecha";
+  const selectedSessionAttendanceBase = Number(selectedSessionSummary?.capturedBaseTotal || 0);
+  const globalAttendancePercentLabel = selectedSessionAttendance > 0 ? "100%" : "S/C";
 
   return `
     <section class="view-grid dashboard-executive-flow">
@@ -4532,7 +4580,7 @@ function renderDashboardView() {
         <div class="panel-head">
           <div>
             <h2>Dashboard Iglesia</h2>
-            <p>Selecciona la temporada y consulta primero la base global, luego la asistencia por sesión y por grupo.</p>
+            <p>Selecciona primero la temporada y después la sesión para leer la asistencia global y el reparto por tipo de grupo.</p>
           </div>
           <div class="dashboard-toolbar-actions">
             <button class="btn btn-secondary" data-action="refresh-dashboard-executive">Actualizar</button>
@@ -4541,12 +4589,14 @@ function renderDashboardView() {
 
         <div class="field-grid dashboard-toolbar-season-grid">
           ${renderSeasonSelect("dashboard-season", state.filters.dashboard.seasonId)}
+          ${renderSessionSelect("dashboard-session", state.filters.dashboard.seasonId, selectedSessionId)}
         </div>
 
         <div class="summary-strip">
           <span class="context-item"><strong>Temporada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : "Sin temporada"}</span>
-          <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(sessionsCount))}</span>
+          <span class="context-item"><strong>Sesion:</strong> ${escapeHtml(selectedSessionLabel)}</span>
           <span class="context-item"><strong>Grupos:</strong> ${escapeHtml(String(groupsCount))}</span>
+          <span class="context-item"><strong>Asistencia global:</strong> ${escapeHtml(String(selectedSessionAttendance))}</span>
           <span class="context-item"><strong>Actualizado:</strong> ${escapeHtml(executive?.generatedAt ? formatDateTime_(executive.generatedAt) : "Pendiente")}</span>
         </div>
       </article>
@@ -4557,87 +4607,95 @@ function renderDashboardView() {
         <article class="detail-card dashboard-overview-card module-section-anchor" id="dashboard-overview">
           <div class="panel-head">
             <div>
-              <h2>Resumen global de la temporada</h2>
-              <p>El total inscrito es la base 100%. Desde aquí puedes brincar al detalle de cualquier grupo.</p>
+              <h2>Resumen de asistencia de la sesion</h2>
+              <p>La sesión elegida define el 100% global. Las demás fichas te muestran qué tanto representa cada segmento dentro de esa asistencia.</p>
             </div>
-            ${focusSeason ? renderPill(focusSeason.status) : `<span class="pill warning">Sin temporada</span>`}
+            <span class="pill dark">${escapeHtml(selectedSessionLabel)}</span>
           </div>
 
           <div class="summary-stack dashboard-summary-grid">
             <div class="summary-box dashboard-kpi-card dashboard-kpi-card-base">
-              <span class="status-chip success">Base global inscrita</span>
+              <span class="status-chip success">Asistencia global</span>
               <div class="dashboard-dual-metric">
                 <div class="dashboard-dual-metric-total-block">
-                  <small>Inscritos</small>
-                  <strong>${escapeHtml(String(totalRegistered))}</strong>
+                  <small>Asistentes</small>
+                  <strong>${escapeHtml(String(selectedSessionAttendance))}</strong>
                 </div>
                 <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">100%</span>
-                  <small>base global</small>
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(globalAttendancePercentLabel)}</span>
+                  <small>referencia global</small>
                 </div>
               </div>
-              <p class="dashboard-dual-metric-copy">Personas inscritas actualmente a grupos de conexión en esta temporada.</p>
+              <p class="dashboard-dual-metric-copy">
+                ${escapeHtml(selectedSessionDate)} · ${selectedSessionAttendanceBase ? `Base capturada ${selectedSessionAttendanceBase}` : "Sin captura todavia"}
+              </p>
             </div>
             <div class="summary-box dashboard-kpi-card dashboard-kpi-card-youth">
               <span class="status-chip neutral">Jóvenes</span>
               <div class="dashboard-dual-metric">
                 <div class="dashboard-dual-metric-total-block">
-                  <small>Total</small>
-                  <strong>${escapeHtml(String(seasonSegments[0]?.total || 0))}</strong>
+                  <small>Asistentes</small>
+                  <strong>${escapeHtml(String(attendanceSegments[0]?.presentTotal || 0))}</strong>
                 </div>
                 <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[0]?.total || 0, totalRegistered))}</span>
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(attendanceSegments[0]?.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
                   <small>del global</small>
                 </div>
               </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[0]?.description || "")}.</p>
+              <p class="dashboard-dual-metric-copy">${escapeHtml(attendanceSegments[0]?.description || "")}.</p>
             </div>
             <div class="summary-box dashboard-kpi-card dashboard-kpi-card-marriages">
               <span class="status-chip neutral">Matrimonios</span>
               <div class="dashboard-dual-metric">
                 <div class="dashboard-dual-metric-total-block">
-                  <small>Total</small>
-                  <strong>${escapeHtml(String(seasonSegments[1]?.total || 0))}</strong>
+                  <small>Asistentes</small>
+                  <strong>${escapeHtml(String(attendanceSegments[1]?.presentTotal || 0))}</strong>
                 </div>
                 <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[1]?.total || 0, totalRegistered))}</span>
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(attendanceSegments[1]?.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
                   <small>del global</small>
                 </div>
               </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[1]?.description || "")}.</p>
+              <p class="dashboard-dual-metric-copy">${escapeHtml(attendanceSegments[1]?.description || "")}.</p>
             </div>
             <div class="summary-box dashboard-kpi-card dashboard-kpi-card-adults">
               <span class="status-chip neutral">Hombres y Mujeres</span>
               <div class="dashboard-dual-metric">
                 <div class="dashboard-dual-metric-total-block">
-                  <small>Total</small>
-                  <strong>${escapeHtml(String(seasonSegments[2]?.total || 0))}</strong>
+                  <small>Asistentes</small>
+                  <strong>${escapeHtml(String(attendanceSegments[2]?.presentTotal || 0))}</strong>
                 </div>
                 <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[2]?.total || 0, totalRegistered))}</span>
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(attendanceSegments[2]?.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
                   <small>del global</small>
                 </div>
               </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[2]?.description || "")}.</p>
+              <p class="dashboard-dual-metric-copy">${escapeHtml(attendanceSegments[2]?.description || "")}.</p>
             </div>
           </div>
 
           <div class="view-grid columns-2 dashboard-group-focus-grid" style="margin-top: 18px;">
-            ${seasonSegments.map((segment) => `
+            ${attendanceSegments.map((segment) => `
               <article class="panel-card">
                 <div class="panel-head">
                   <div>
                     <h3>${escapeHtml(segment.label)}</h3>
                     <p>${escapeHtml(segment.description)}</p>
                   </div>
-                  <span class="pill dark">${escapeHtml(formatDashboardGlobalPercent_(segment.total || 0, totalRegistered))}</span>
+                  <span class="pill dark">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(segment.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
                 </div>
                 <div class="summary-box" style="margin-bottom: 14px;">
-                  <span class="status-chip neutral">Registrados</span>
-                  <strong>${escapeHtml(String(segment.total || 0))}</strong>
-                  <span>Sobre la base global de ${escapeHtml(String(totalRegistered))} personas.</span>
+                  <span class="status-chip neutral">Asistentes</span>
+                  <strong>${escapeHtml(String(segment.presentTotal || 0))}</strong>
+                  <span>
+                    ${selectedSessionAttendance
+                      ? `Sobre la asistencia global de ${escapeHtml(String(selectedSessionAttendance))} personas en ${escapeHtml(selectedSessionLabel)}.`
+                      : "Todavia no hay captura para esta sesion."}
+                  </span>
                 </div>
-                ${renderDashboardSummaryGroupButtons_(segment.groups, selectedGroupId)}
+                ${renderDashboardSummaryGroupButtons_(segment.groups, selectedGroupId, {
+                  sessionId: selectedSessionId
+                })}
               </article>
             `).join("")}
           </div>
@@ -4646,16 +4704,19 @@ function renderDashboardView() {
             <div class="panel-head">
               <div>
                 <h3>Todos los grupos de conexión</h3>
-                <p>Toca el nombre del grupo para abrir su detalle y ver cuántas personas están registradas.</p>
+                <p>Toca el nombre del grupo para abrir su detalle y ver cuántas personas asistieron dentro de la sesión elegida.</p>
               </div>
               <span class="pill dark">${escapeHtml(String(groupsCount))} grupos</span>
             </div>
             <div class="summary-strip">
-              <span class="context-item"><strong>Base global:</strong> ${escapeHtml(String(totalRegistered))}</span>
-              <span class="context-item"><strong>Otros grupos fuera de las categorías mostradas:</strong> ${escapeHtml(String(remainingGroupsTotal))}</span>
+              <span class="context-item"><strong>Sesion activa:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+              <span class="context-item"><strong>Asistencia global:</strong> ${escapeHtml(String(selectedSessionAttendance))}</span>
+              <span class="context-item"><strong>Otros grupos fuera de las categorías mostradas:</strong> ${escapeHtml(String(remainingAttendanceTotal))}</span>
               <span class="context-item"><strong>Acción:</strong> toca un grupo para abrir su detalle</span>
             </div>
-            ${renderDashboardSummaryGroupButtons_(seasonMatrix?.groups || [], selectedGroupId)}
+            ${renderDashboardSummaryGroupButtons_(seasonMatrix?.groups || [], selectedGroupId, {
+              sessionId: selectedSessionId
+            })}
           </article>
         </article>
 
@@ -8580,6 +8641,12 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "dashboard-session") {
+      state.filters.dashboard.sessionId = target.value;
+      renderApp();
+      return;
+    }
+
     if (target.id === "dashboard-group") {
       state.filters.dashboard.groupId = target.value;
       state.dashboardLeaderDetail = null;
@@ -9611,6 +9678,8 @@ async function ensureDashboardViewData_(options = {}) {
         showLoading: false
       })
     ]);
+
+    await ensureDashboardSessionFilterState_();
 
     if (state.filters.dashboard.groupId) {
       await loadDashboardLeaderDetail_({
