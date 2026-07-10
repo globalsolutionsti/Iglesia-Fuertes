@@ -4564,34 +4564,61 @@ function renderDashboardView() {
           </div>
 
           <div class="summary-stack dashboard-summary-grid">
-            <div class="summary-box">
+            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-base">
               <span class="status-chip success">Base global inscrita</span>
-              <strong>${escapeHtml(String(totalRegistered))}</strong>
-              <span>100% de personas inscritas actualmente a grupos de conexión en esta temporada.</span>
+              <div class="dashboard-dual-metric">
+                <div class="dashboard-dual-metric-total-block">
+                  <small>Inscritos</small>
+                  <strong>${escapeHtml(String(totalRegistered))}</strong>
+                </div>
+                <div class="dashboard-dual-metric-highlight">
+                  <span class="dashboard-dual-metric-percent">100%</span>
+                  <small>base global</small>
+                </div>
+              </div>
+              <p class="dashboard-dual-metric-copy">Personas inscritas actualmente a grupos de conexión en esta temporada.</p>
             </div>
-            <div class="summary-box">
+            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-youth">
               <span class="status-chip neutral">Jóvenes</span>
               <div class="dashboard-dual-metric">
-                <strong>${escapeHtml(String(seasonSegments[0]?.total || 0))}</strong>
-                <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[0]?.total || 0, totalRegistered))}</span>
+                <div class="dashboard-dual-metric-total-block">
+                  <small>Total</small>
+                  <strong>${escapeHtml(String(seasonSegments[0]?.total || 0))}</strong>
+                </div>
+                <div class="dashboard-dual-metric-highlight">
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[0]?.total || 0, totalRegistered))}</span>
+                  <small>del global</small>
+                </div>
               </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[0]?.description || "")} del total global.</p>
+              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[0]?.description || "")}.</p>
             </div>
-            <div class="summary-box">
+            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-marriages">
               <span class="status-chip neutral">Matrimonios</span>
               <div class="dashboard-dual-metric">
-                <strong>${escapeHtml(String(seasonSegments[1]?.total || 0))}</strong>
-                <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[1]?.total || 0, totalRegistered))}</span>
+                <div class="dashboard-dual-metric-total-block">
+                  <small>Total</small>
+                  <strong>${escapeHtml(String(seasonSegments[1]?.total || 0))}</strong>
+                </div>
+                <div class="dashboard-dual-metric-highlight">
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[1]?.total || 0, totalRegistered))}</span>
+                  <small>del global</small>
+                </div>
               </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[1]?.description || "")} del total global.</p>
+              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[1]?.description || "")}.</p>
             </div>
-            <div class="summary-box">
+            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-adults">
               <span class="status-chip neutral">Hombres y Mujeres</span>
               <div class="dashboard-dual-metric">
-                <strong>${escapeHtml(String(seasonSegments[2]?.total || 0))}</strong>
-                <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[2]?.total || 0, totalRegistered))}</span>
+                <div class="dashboard-dual-metric-total-block">
+                  <small>Total</small>
+                  <strong>${escapeHtml(String(seasonSegments[2]?.total || 0))}</strong>
+                </div>
+                <div class="dashboard-dual-metric-highlight">
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(formatDashboardGlobalPercent_(seasonSegments[2]?.total || 0, totalRegistered))}</span>
+                  <small>del global</small>
+                </div>
               </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[2]?.description || "")} del total global.</p>
+              <p class="dashboard-dual-metric-copy">${escapeHtml(seasonSegments[2]?.description || "")}.</p>
             </div>
           </div>
 
