@@ -1686,6 +1686,33 @@ tbody tr:hover {
   background: rgba(255, 255, 255, 0.88);
 }
 
+.dashboard-dual-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.dashboard-dual-metric strong {
+  display: block;
+  margin-top: 0;
+  font-size: 32px;
+}
+
+.dashboard-dual-metric-percent {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #111111;
+}
+
+.dashboard-dual-metric-copy {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .dashboard-quick-actions {
   margin-top: 18px;
 }
@@ -3447,6 +3474,10 @@ tbody tr:hover {
   .app-shell.view-dashboard .panel-head p,
   .app-shell.view-dashboard .dashboard-summary-grid .summary-box > span:not(.status-chip) {
     display: none;
+  }
+
+  .app-shell.view-dashboard .dashboard-dual-metric-copy {
+    display: block;
   }
 
   .app-shell.view-dashboard .dashboard-toolbar-card .summary-strip {
