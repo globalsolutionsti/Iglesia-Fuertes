@@ -1403,8 +1403,8 @@ function renderWelcomeNewView_() {
         </article>
       </div>
 
-      <div class="view-grid columns-2">
-        <article class="panel-card module-section-anchor" id="welcome-new-create">
+      <div class="view-grid columns-2 welcome-new-mobile-grid">
+        <article class="panel-card module-section-anchor welcome-new-create-card" id="welcome-new-create">
           <div class="panel-head">
             <div>
               <h2>Alta de nuevo congregante</h2>
@@ -1412,55 +1412,60 @@ function renderWelcomeNewView_() {
             </div>
           </div>
 
-          <form id="assistant-create-form">
+          <div class="welcome-new-chip-row" aria-label="Estado del flujo de bienvenida">
+            <span class="pill dark">Bienvenida</span>
+            <span class="pill neutral">Nuevo</span>
+            <span class="pill success">Alta rápida</span>
+          </div>
+
+          <form id="welcome-new-form">
             <input type="hidden" name="tipoPersona" value="NUEVO">
             <input type="hidden" name="estado" value="ACTIVO">
             <input type="hidden" name="estatusBienvenida" value="NUEVO">
             <input type="hidden" name="workflowOrigin" value="welcome">
 
-            <div class="field-grid two">
+            <div class="field-grid two welcome-new-form-grid">
               <div class="field">
                 <label for="welcome-new-nombre">Nombre</label>
-                <input id="welcome-new-nombre" name="nombre" placeholder="Pedro" required>
+                <input id="welcome-new-nombre" name="nombre" placeholder="Ingrese Nombre" autocomplete="given-name" required>
               </div>
               <div class="field">
                 <label for="welcome-new-apellidos">Apellidos</label>
-                <input id="welcome-new-apellidos" name="apellidos" placeholder="Gutierrez" required>
+                <input id="welcome-new-apellidos" name="apellidos" placeholder="Ingrese Apellidos" autocomplete="family-name" required>
               </div>
               <div class="field">
                 <label for="welcome-new-telefono">Teléfono</label>
-                <input id="welcome-new-telefono" name="telefono" placeholder="5551234567">
+                <input id="welcome-new-telefono" name="telefono" placeholder="Ingrese Teléfono" autocomplete="tel" inputmode="tel">
               </div>
               <div class="field">
                 <label for="welcome-new-email">Email</label>
-                <input id="welcome-new-email" name="email" type="email" placeholder="correo@iglesia.com">
+                <input id="welcome-new-email" name="email" type="email" placeholder="Ingrese Email" autocomplete="email">
               </div>
               <div class="field">
                 <label for="welcome-new-estado-civil">Estado civil</label>
-                <input id="welcome-new-estado-civil" name="estadoCivil" placeholder="Soltero, casado, viudo...">
+                <input id="welcome-new-estado-civil" name="estadoCivil" placeholder="Ingrese Estado civil">
               </div>
               <div class="field">
                 <label for="welcome-new-edad">Edad</label>
-                <input id="welcome-new-edad" name="edad" type="number" min="0" placeholder="28">
+                <input id="welcome-new-edad" name="edad" type="number" min="0" placeholder="Ingrese Edad" inputmode="numeric">
               </div>
               <div class="field">
                 <label for="welcome-new-fecha-nacimiento">Fecha de nacimiento</label>
-                <input id="welcome-new-fecha-nacimiento" name="fechaNacimiento" type="date">
+                <input id="welcome-new-fecha-nacimiento" name="fechaNacimiento" type="date" placeholder="Ingrese Fecha de nacimiento">
               </div>
               <div class="field">
                 <label for="welcome-new-fecha">Fecha de llegada</label>
-                <input id="welcome-new-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}">
+                <input id="welcome-new-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}" placeholder="Ingrese Fecha de llegada">
               </div>
             </div>
 
-            <div class="actions-row">
+            <div class="actions-row welcome-new-create-actions">
               <button class="btn btn-primary" type="submit">Registrar nuevo</button>
-              <button class="btn btn-secondary" type="button" data-action="navigate" data-view="welcome-followup">Ir a seguimientos</button>
             </div>
           </form>
         </article>
 
-        <article class="panel-card">
+        <article class="panel-card welcome-new-filter-card">
           <div class="panel-head">
             <div>
               <h2>Filtro de Bienvenida</h2>
@@ -8459,12 +8464,34 @@ async function handleSubmit(event) {
 
     if (form.id === "assistant-create-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
-      await saveAssistant(payload);
-      form.reset();
-      renderApp();
-      if (state.currentView === "congregants-new") {
-        scrollToSection_("welcome-new-list");
+      const savedPerson = await saveAssistant(payload);
+
+      if (savedPerson) {
+        form.reset();
+        renderApp();
       }
+      return;
+    }
+
+    if (form.id === "welcome-new-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      const savedPerson = await saveAssistant(payload);
+
+      if (savedPerson) {
+        form.reset();
+        const arrivalField = form.querySelector("[name=\"fechaIngreso\"]");
+
+        if (arrivalField) {
+          arrivalField.value = formatDateForInput_(new Date());
+        }
+
+        renderApp();
+        scrollToSection_("welcome-new-create");
+        setTimeout(() => {
+          document.getElementById("welcome-new-nombre")?.focus();
+        }, 0);
+      }
+
       return;
     }
 
