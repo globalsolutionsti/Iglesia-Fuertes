@@ -1682,15 +1682,27 @@ tbody tr:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.dashboard-summary-grid .summary-box {
+.dashboard-summary-grid .summary-box:not(.dashboard-kpi-card) {
   background: rgba(255, 255, 255, 0.88);
 }
 
 .dashboard-kpi-card {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
+  min-height: 188px;
+  padding: 22px;
   border: 1px solid rgba(17, 17, 17, 0.08);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.dashboard-summary-grid .summary-box.dashboard-kpi-card {
+  background: transparent;
+}
+
+.dashboard-kpi-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .dashboard-kpi-card::after {
@@ -1703,25 +1715,34 @@ tbody tr:hover {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.22);
   pointer-events: none;
+  z-index: 0;
 }
 
-.dashboard-kpi-card-base {
+.dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-base {
   background: linear-gradient(145deg, #111111 0%, #3b3b3b 100%);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 48px rgba(17, 17, 17, 0.22);
   color: #ffffff;
 }
 
-.dashboard-kpi-card-youth {
-  background: linear-gradient(145deg, #fff7eb 0%, #f6dfb2 100%);
+.dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-youth {
+  background: linear-gradient(145deg, #fff3d8 0%, #f0c978 100%);
+  border-color: rgba(184, 132, 30, 0.2);
+  box-shadow: 0 22px 42px rgba(206, 160, 66, 0.18);
   color: #1f2937;
 }
 
-.dashboard-kpi-card-marriages {
-  background: linear-gradient(145deg, #eef8f3 0%, #cde8da 100%);
+.dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-marriages {
+  background: linear-gradient(145deg, #e5f6ee 0%, #9fd3bb 100%);
+  border-color: rgba(46, 125, 85, 0.18);
+  box-shadow: 0 22px 42px rgba(60, 130, 93, 0.16);
   color: #16362b;
 }
 
-.dashboard-kpi-card-adults {
-  background: linear-gradient(145deg, #eff4f8 0%, #d8e4ed 100%);
+.dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-adults {
+  background: linear-gradient(145deg, #e8f0f7 0%, #b7cfdf 100%);
+  border-color: rgba(43, 86, 120, 0.18);
+  box-shadow: 0 22px 42px rgba(55, 93, 125, 0.16);
   color: #183244;
 }
 
@@ -1749,6 +1770,11 @@ tbody tr:hover {
 .dashboard-dual-metric-highlight {
   display: grid;
   gap: 4px;
+}
+
+.dashboard-dual-metric-highlight {
+  justify-items: end;
+  text-align: right;
 }
 
 .dashboard-dual-metric-total-block small,
@@ -1780,6 +1806,12 @@ tbody tr:hover {
   color: inherit;
   opacity: 0.82;
   line-height: 1.45;
+}
+
+.dashboard-kpi-card-base .dashboard-dual-metric-total-block small,
+.dashboard-kpi-card-base .dashboard-dual-metric-highlight small,
+.dashboard-kpi-card-base .dashboard-dual-metric-copy {
+  opacity: 0.88;
 }
 
 .dashboard-quick-actions {
