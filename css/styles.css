@@ -818,6 +818,54 @@ div {
   box-shadow: var(--shadow-md);
 }
 
+.welcome-new-create-card {
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.055), transparent 26%),
+    linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%);
+}
+
+.welcome-new-filter-card {
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.035), transparent 22%),
+    linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.welcome-new-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 2px 0 18px;
+}
+
+.welcome-new-chip-row .pill {
+  min-height: 36px;
+  padding: 8px 14px;
+}
+
+.welcome-new-form-grid {
+  gap: 18px;
+}
+
+.welcome-new-create-card .field input,
+.welcome-new-create-card .field select,
+.welcome-new-create-card .field textarea {
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.welcome-new-create-card .field input:focus,
+.welcome-new-create-card .field select:focus,
+.welcome-new-create-card .field textarea:focus {
+  box-shadow: 0 0 0 4px rgba(17, 17, 17, 0.05);
+}
+
+.welcome-new-create-actions {
+  margin-top: 10px;
+}
+
+.welcome-new-create-actions .btn {
+  min-width: 240px;
+}
+
 .dashboard-mobile-hero-head {
   display: flex;
   justify-content: space-between;
@@ -3650,6 +3698,31 @@ tbody tr:hover {
   .app-shell.view-dashboard .dashboard-group-visual-card .dashboard-trend-base {
     font-size: 13px;
   }
+
+  .app-shell.view-congregants-new .welcome-new-mobile-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-create-card,
+  .app-shell.view-congregants-new .welcome-new-filter-card {
+    border-radius: 26px;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-chip-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .app-shell.view-congregants-new .welcome-new-chip-row .pill {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-create-actions .btn {
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 
 @media (max-width: 760px) {
@@ -3828,6 +3901,42 @@ tbody tr:hover {
   .dashboard-mobile-hero {
     padding: 18px;
     border-radius: 22px;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-create-card,
+  .app-shell.view-congregants-new .welcome-new-filter-card {
+    padding-left: 18px;
+    padding-right: 18px;
+    border-radius: 24px;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-create-card .panel-head h2 {
+    font-size: clamp(28px, 8vw, 34px);
+    line-height: 0.98;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-create-card .panel-head p,
+  .app-shell.view-congregants-new .welcome-new-filter-card .panel-head p {
+    display: block;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-chip-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-chip-row .pill {
+    width: 100%;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-form-grid {
+    gap: 14px;
+  }
+
+  .app-shell.view-congregants-new .welcome-new-create-actions {
+    margin-top: 4px;
   }
 
   .dashboard-mobile-hero-head {
