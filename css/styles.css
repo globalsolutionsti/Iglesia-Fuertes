@@ -3502,6 +3502,21 @@ tbody tr:hover {
   animation: spin 0.85s linear infinite;
 }
 
+.inline-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(17, 17, 17, 0.18);
+  border-top-color: rgba(17, 17, 17, 0.82);
+  animation: spin 0.85s linear infinite;
+  flex: 0 0 auto;
+}
+
+.formation-filter-status {
+  min-width: 150px;
+  justify-content: center;
+}
+
 .toast-root {
   position: fixed;
   top: 20px;
