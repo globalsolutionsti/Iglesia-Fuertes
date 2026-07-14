@@ -2059,6 +2059,8 @@ function renderFormationView_() {
   const formationFilterDirty = isFormationFilterDirty_();
   const candidates = getFilteredFormationCandidates_();
   const records = getFilteredFormationRecords_();
+  const formationFilterFeedback = renderFormationFilterFeedback_(candidates);
+  const formationRouteContext = renderFormationRouteContext_(candidates);
   const profile = state.formationProfile;
   const selectedPersonId = state.ui.selectedFormationPersonId;
   const selectedCandidate = candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
@@ -2182,6 +2184,7 @@ function renderFormationView_() {
         </div>
 
         <p class="footer-note">El filtro de nivel se dejó fuera de esta vista operativa para no confundir el proceso de invitación a Encuentro.</p>
+        ${formationFilterFeedback}
       </article>
 
       <article class="detail-card formation-encounter-card module-section-anchor" id="formation-encounter-flow">
@@ -2199,6 +2202,8 @@ function renderFormationView_() {
           <span class="context-item"><strong>Paso 3:</strong> desde aquí se envía la invitación al congregante</span>
           <span class="context-item"><strong>Paso 4:</strong> si acepta, se registra a Encuentro</span>
         </div>
+
+        ${formationRouteContext}
 
         <div class="formation-route-list">
           ${candidates.length ? candidates.map((candidate) => renderFormationEncounterRouteCard_(candidate)).join("") : `
@@ -12789,6 +12794,129 @@ function getFormationRouteLeaderSummary_(candidate) {
   return leaderName || leaderPhone;
 }
 
+function getFormationRouteLeaderContacts_(group) {
+  const contacts = [];
+
+  if (group?.leader1Name || group?.leader1Phone) {
+    contacts.push({
+      label: "Líder 1",
+      value: [group.leader1Name, group.leader1Phone].filter(Boolean).join(" · ")
+    });
+  }
+
+  if (group?.leader2Name || group?.leader2Phone) {
+    contacts.push({
+      label: "Líder 2",
+      value: [group.leader2Name, group.leader2Phone].filter(Boolean).join(" · ")
+    });
+  }
+
+  return contacts.filter((item) => item.value);
+}
+
+function getFormationFilterStatusLabel_(status) {
+  const normalizedStatus = String(status || "ALL").toUpperCase();
+
+  if (!normalizedStatus || normalizedStatus === "ALL") {
+    return "Todos los estatus";
+  }
+
+  return getWorkflowStatusLabel_(status) || status;
+}
+
+function renderFormationFilterFeedback_(candidates) {
+  const appliedFilter = state.filters.formation;
+  const seasonId = String(appliedFilter.seasonId || getLatestSeason()?.id || "");
+  const season = state.seasons.find((item) => String(item.id) === seasonId);
+  const groupId = String(appliedFilter.groupId || "");
+  const search = String(appliedFilter.search || "").trim();
+  const summaryBits = [];
+
+  if (season?.name) {
+    summaryBits.push(season.name);
+  }
+
+  summaryBits.push(groupId ? (resolveGroupName_(groupId) || `Grupo ${groupId}`) : "Todos los grupos");
+  summaryBits.push(getFormationFilterStatusLabel_(appliedFilter.status));
+
+  if (search) {
+    summaryBits.push(`Buscar: ${search}`);
+  }
+
+  const countLabel = candidates.length === 1 ? "1 persona en ruta" : `${candidates.length} personas en ruta`;
+  const helperText = candidates.length
+    ? "El listado ya quedó listo abajo con las personas que cumplen tu filtro."
+    : "Con este filtro no hay personas en ruta a Encuentro. Prueba otro grupo o un estatus distinto.";
+
+  if (state.ui.formationFilterBusy) {
+    return `
+      <div class="formation-filter-feedback is-loading" aria-live="polite">
+        <div class="formation-filter-feedback-head">
+          <strong>${escapeHtml(state.ui.formationFilterMessage || "Aplicando filtro...")}</strong>
+          <span>Estamos preparando el listado operativo de Ruta a Encuentro.</span>
+        </div>
+        <div class="formation-filter-feedback-meta">
+          <span class="context-item"><span class="inline-spinner" aria-hidden="true"></span> Procesando</span>
+          ${summaryBits.map((bit) => `<span class="context-item">${escapeHtml(bit)}</span>`).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="formation-filter-feedback" aria-live="polite">
+      <div class="formation-filter-feedback-head">
+        <strong>${escapeHtml(countLabel)}</strong>
+        <span>${escapeHtml(helperText)}</span>
+      </div>
+      <div class="formation-filter-feedback-meta">
+        ${summaryBits.map((bit) => `<span class="context-item">${escapeHtml(bit)}</span>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderFormationRouteContext_(candidates) {
+  const appliedGroupId = String(state.filters.formation.groupId || "");
+  const uniqueGroupIds = Array.from(new Set(
+    candidates
+      .map((candidate) => String(candidate.groupId || "").trim())
+      .filter(Boolean)
+  ));
+  const effectiveGroupId = appliedGroupId || (uniqueGroupIds.length === 1 ? uniqueGroupIds[0] : "");
+
+  if (!effectiveGroupId) {
+    return "";
+  }
+
+  const group = state.catalogs.groups.find((item) => String(item.id) === effectiveGroupId);
+  const leaderContacts = getFormationRouteLeaderContacts_(group);
+  const groupName = resolveGroupName_(effectiveGroupId) || `Grupo ${effectiveGroupId}`;
+  const countLabel = candidates.length === 1 ? "1 persona en ruta" : `${candidates.length} personas en ruta`;
+
+  return `
+    <div class="formation-route-context">
+      <div class="formation-route-context-head">
+        <div>
+          <small>Grupo filtrado</small>
+          <strong>${escapeHtml(groupName)}</strong>
+          <span>El liderazgo se muestra una sola vez aquí para que las fichas queden limpias y fáciles de leer.</span>
+        </div>
+        <span class="pill neutral">${escapeHtml(countLabel)}</span>
+      </div>
+      <div class="formation-route-context-meta">
+        ${leaderContacts.length
+          ? leaderContacts.map((contact) => `
+              <span class="context-item">
+                <strong>${escapeHtml(contact.label)}:</strong> ${escapeHtml(contact.value)}
+              </span>
+            `).join("")
+          : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
+      </div>
+    </div>
+  `;
+}
+
 function getFormationRouteLeaderNotice_(candidate) {
   const status = String(candidate?.leaderTelegramStatus || "").toUpperCase();
 
@@ -12814,7 +12942,6 @@ function getFormationRouteLeaderNotice_(candidate) {
 function renderFormationEncounterRouteCard_(candidate) {
   const personName = sanitizeFormationDisplayText_(candidate.personName, "Congregante");
   const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
-  const leaderSummary = sanitizeFormationDisplayText_(getFormationRouteLeaderSummary_(candidate), "Sin líder registrado");
   const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
   const personNumber = sanitizeFormationDisplayText_(candidate.personNumber, "Sin número");
   const personPhone = sanitizeFormationDisplayText_(candidate.personPhone, "Sin teléfono registrado");
@@ -12856,7 +12983,7 @@ function renderFormationEncounterRouteCard_(candidate) {
         <div class="formation-route-block">
           <small>Grupo de conexión</small>
           <strong>${escapeHtml(groupName)}</strong>
-          <span>${escapeHtml(leaderSummary)}</span>
+          <span>El liderazgo aparece arriba del listado para mantener esta ficha más limpia.</span>
         </div>
         <div class="formation-route-block">
           <small>Avance de asistencia</small>
@@ -14318,10 +14445,18 @@ async function runFormationFilterTask_(message, task) {
   setFormationFilterBusy_(true, message);
   renderApp();
   await waitForNextPaint_();
+  const startedAt = Date.now();
 
   try {
     return await task();
   } finally {
+    const elapsed = Date.now() - startedAt;
+    const remainingMs = Math.max(0, 650 - elapsed);
+
+    if (remainingMs) {
+      await waitMs_(remainingMs);
+    }
+
     setFormationFilterBusy_(false, "");
     renderApp();
   }
@@ -14407,8 +14542,17 @@ async function applyFormationFilters_() {
   }
 
   await runFormationFilterTask_("Aplicando filtro...", async () => {
+    const previousSelectedPersonId = String(state.ui.selectedFormationPersonId || "");
     syncFormationSelectionAfterFilter_();
-    await waitMs_(180);
+
+    const nextSelectedPersonId = String(state.ui.selectedFormationPersonId || "");
+
+    if (nextSelectedPersonId && (nextSelectedPersonId !== previousSelectedPersonId || String(state.formationProfile?.person?.id || "") !== nextSelectedPersonId)) {
+      await loadFormationProfile_(nextSelectedPersonId, {
+        showLoading: false
+      });
+    }
+
     syncFormationFilterDraft_();
   });
 }
