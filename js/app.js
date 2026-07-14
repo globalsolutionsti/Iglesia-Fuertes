@@ -12712,16 +12712,80 @@ function renderFormationTimelineItem_(label, value, emptyLabel = "Pendiente") {
   `;
 }
 
+function getFormationRouteGroupName_(candidate) {
+  const resolvedGroupName = resolveGroupName_(candidate?.groupId);
+  const rawGroupName = String(candidate?.groupName || "").trim();
+  const personName = String(candidate?.personName || "").trim();
+
+  if (resolvedGroupName) {
+    return resolvedGroupName;
+  }
+
+  if (rawGroupName && normalizeText(rawGroupName) !== normalizeText(personName)) {
+    return rawGroupName;
+  }
+
+  return candidate?.groupId ? `Grupo ${candidate.groupId}` : "Sin grupo";
+}
+
+function getFormationRouteLeaderSummary_(candidate) {
+  const catalogGroup = state.catalogs.groups.find((group) => String(group.id) === String(candidate?.groupId || ""));
+  const leaderName = String(
+    candidate?.leaderName
+    || catalogGroup?.leader1Name
+    || catalogGroup?.leader2Name
+    || ""
+  ).trim();
+  const leaderPhone = String(
+    candidate?.leaderPhone
+    || catalogGroup?.leader1Phone
+    || catalogGroup?.leader2Phone
+    || ""
+  ).trim();
+
+  if (!leaderName && !leaderPhone) {
+    return "Sin líder registrado";
+  }
+
+  if (leaderName && leaderPhone) {
+    return `${leaderName} | ${leaderPhone}`;
+  }
+
+  return leaderName || leaderPhone;
+}
+
+function getFormationRouteLeaderNotice_(candidate) {
+  const status = String(candidate?.leaderTelegramStatus || "").toUpperCase();
+
+  if (candidate?.leaderNotifiedAt) {
+    return `Líder avisado el ${formatDate(candidate.leaderNotifiedAt)}.`;
+  }
+
+  if (status === "PENDIENTE_VINCULAR") {
+    return "Falta vincular Telegram del líder en Catálogos.";
+  }
+
+  if (status === "PENDIENTE_CONFIGURACION" || status === "DESACTIVADO") {
+    return "Telegram no está activo todavía; puedes continuar con el seguimiento manual.";
+  }
+
+  if (status === "ERROR") {
+    return "No se pudo avisar al líder por Telegram; continúa con el proceso manual.";
+  }
+
+  return "El sistema mantiene este caso listo para seguimiento del líder.";
+}
+
 function renderFormationEncounterRouteCard_(candidate) {
+  const groupName = getFormationRouteGroupName_(candidate);
+  const leaderSummary = getFormationRouteLeaderSummary_(candidate);
+  const leaderNotice = getFormationRouteLeaderNotice_(candidate);
   const inviteLabel = candidate.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
   const encounterLabel = candidate.encounterRegisteredAt
     ? "Encuentro registrado"
     : (candidate.invitedAt ? "Registrar a Encuentro" : "Primero envía invitación");
   const inviteDisabled = candidate.personPhone ? "" : "disabled";
   const encounterDisabled = candidate.invitedAt && !candidate.encounterRegisteredAt ? "" : "disabled";
-  const leaderSummary = candidate.leaderName
-    ? `${candidate.leaderName}${candidate.leaderPhone ? ` | ${candidate.leaderPhone}` : ""}`
-    : "Sin líder asignado";
   const routeHelper = candidate.encounterRegisteredAt
     ? `Esta persona ya quedó registrada a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
     : (candidate.invitedAt
@@ -12736,8 +12800,11 @@ function renderFormationEncounterRouteCard_(candidate) {
         <div class="formation-route-identity">
           <span class="status-chip dark">Ruta a Encuentro</span>
           <h3>${escapeHtml(candidate.personName)}</h3>
-          <span class="row-meta">${escapeHtml(candidate.personNumber || "-")} | QR ${escapeHtml(candidate.personId)}</span>
-          <span class="row-meta">${escapeHtml(candidate.personPhone || "Sin teléfono registrado")}</span>
+          <div class="formation-route-meta-row">
+            <span class="row-meta">${escapeHtml(candidate.personNumber || "Sin número")}</span>
+            <span class="row-meta">QR ${escapeHtml(candidate.personId)}</span>
+            <span class="row-meta">${escapeHtml(candidate.personPhone || "Sin teléfono registrado")}</span>
+          </div>
         </div>
         <div class="formation-route-pill-stack">
           ${renderWorkflowStatusPill_(candidate.formationStatus || "SIN_PROCESO")}
@@ -12747,22 +12814,25 @@ function renderFormationEncounterRouteCard_(candidate) {
 
       <div class="formation-route-grid">
         <div class="formation-route-block">
-          <small>Grupo y liderazgo</small>
-          <strong>${escapeHtml(candidate.groupName || "Sin grupo")}</strong>
+          <small>Grupo de conexión</small>
+          <strong>${escapeHtml(groupName)}</strong>
           <span>${escapeHtml(leaderSummary)}</span>
-          <span>${escapeHtml(candidate.leaderTelegramDetail || (candidate.leaderNotifiedAt ? `Avisado el ${formatDate(candidate.leaderNotifiedAt)}` : "Aviso al líder en proceso automático"))}</span>
         </div>
         <div class="formation-route-block">
-          <small>Regla de asistencia</small>
+          <small>Avance de asistencia</small>
           <strong>${escapeHtml(String(candidate.consecutiveAttendances || 0))} asistencias consecutivas</strong>
           <span>${escapeHtml(String(candidate.attendanceCount || 0))}/${escapeHtml(String(candidate.sessionsCount || 0))} asistencias capturadas</span>
           <span>${candidate.triggerSessions?.length ? escapeHtml(candidate.triggerSessions.join(" • ")) : "Sin detalle de sesiones"}</span>
         </div>
       </div>
 
+      <div class="formation-route-note">
+        <strong>Seguimiento automático</strong>
+        <span>${escapeHtml(leaderNotice)}</span>
+      </div>
+
       <div class="formation-timeline-grid formation-route-timeline">
         ${renderFormationTimelineItem_("Detectado", candidate.requestedAt)}
-        ${renderFormationTimelineItem_("Aviso líder", candidate.leaderNotifiedAt)}
         ${renderFormationTimelineItem_("Invitación", candidate.invitedAt)}
         ${renderFormationTimelineItem_("Encuentro", candidate.encounterRegisteredAt)}
       </div>
