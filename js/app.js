@@ -12712,6 +12712,23 @@ function renderFormationTimelineItem_(label, value, emptyLabel = "Pendiente") {
   `;
 }
 
+function sanitizeFormationDisplayText_(value, fallback = "") {
+  let text = String(value || "").trim();
+
+  if (!text) {
+    return fallback;
+  }
+
+  text = text.replace(/https?:\/\/\S+/gi, " ").trim();
+
+  if ((text.match(/%[0-9A-F]{2}/gi) || []).length >= 3) {
+    text = text.replace(/(?:^|\s)%[0-9A-F]{2}.*$/i, " ").trim();
+  }
+
+  text = text.replace(/\s+/g, " ").trim();
+  return text || fallback;
+}
+
 function getFormationRouteGroupName_(candidate) {
   const resolvedGroupName = resolveGroupName_(candidate?.groupId);
   const rawGroupName = String(candidate?.groupName || "").trim();
@@ -12777,9 +12794,15 @@ function getFormationRouteLeaderNotice_(candidate) {
 }
 
 function renderFormationEncounterRouteCard_(candidate) {
-  const groupName = getFormationRouteGroupName_(candidate);
-  const leaderSummary = getFormationRouteLeaderSummary_(candidate);
-  const leaderNotice = getFormationRouteLeaderNotice_(candidate);
+  const personName = sanitizeFormationDisplayText_(candidate.personName, "Congregante");
+  const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
+  const leaderSummary = sanitizeFormationDisplayText_(getFormationRouteLeaderSummary_(candidate), "Sin líder registrado");
+  const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
+  const personNumber = sanitizeFormationDisplayText_(candidate.personNumber, "Sin número");
+  const personPhone = sanitizeFormationDisplayText_(candidate.personPhone, "Sin teléfono registrado");
+  const triggerSessionsLabel = candidate.triggerSessions?.length
+    ? sanitizeFormationDisplayText_(candidate.triggerSessions.join(" • "), "Sin detalle de sesiones")
+    : "Sin detalle de sesiones";
   const inviteLabel = candidate.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
   const encounterLabel = candidate.encounterRegisteredAt
     ? "Encuentro registrado"
@@ -12787,11 +12810,11 @@ function renderFormationEncounterRouteCard_(candidate) {
   const inviteDisabled = candidate.personPhone ? "" : "disabled";
   const encounterDisabled = candidate.invitedAt && !candidate.encounterRegisteredAt ? "" : "disabled";
   const routeHelper = candidate.encounterRegisteredAt
-    ? `Esta persona ya quedó registrada a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
+    ? `Registrado a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
     : (candidate.invitedAt
-      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si la persona ya confirmó, registra ahora su Encuentro.`
+      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, registra su Encuentro.`
       : (candidate.personPhone
-        ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, usa el botón Registrar a Encuentro."
+        ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, registra su Encuentro."
         : "Falta teléfono del congregante para poder abrir la invitación por WhatsApp."));
 
   return `
@@ -12799,16 +12822,15 @@ function renderFormationEncounterRouteCard_(candidate) {
       <div class="formation-route-head">
         <div class="formation-route-identity">
           <span class="status-chip dark">Ruta a Encuentro</span>
-          <h3>${escapeHtml(candidate.personName)}</h3>
+          <h3>${escapeHtml(personName)}</h3>
           <div class="formation-route-meta-row">
-            <span class="row-meta">${escapeHtml(candidate.personNumber || "Sin número")}</span>
+            <span class="row-meta">${escapeHtml(personNumber)}</span>
             <span class="row-meta">QR ${escapeHtml(candidate.personId)}</span>
-            <span class="row-meta">${escapeHtml(candidate.personPhone || "Sin teléfono registrado")}</span>
+            <span class="row-meta">${escapeHtml(personPhone)}</span>
           </div>
         </div>
         <div class="formation-route-pill-stack">
           ${renderWorkflowStatusPill_(candidate.formationStatus || "SIN_PROCESO")}
-          ${renderTelegramDeliveryPill_(candidate.leaderTelegramStatus)}
         </div>
       </div>
 
@@ -12822,7 +12844,7 @@ function renderFormationEncounterRouteCard_(candidate) {
           <small>Avance de asistencia</small>
           <strong>${escapeHtml(String(candidate.consecutiveAttendances || 0))} asistencias consecutivas</strong>
           <span>${escapeHtml(String(candidate.attendanceCount || 0))}/${escapeHtml(String(candidate.sessionsCount || 0))} asistencias capturadas</span>
-          <span>${candidate.triggerSessions?.length ? escapeHtml(candidate.triggerSessions.join(" • ")) : "Sin detalle de sesiones"}</span>
+          <span>${escapeHtml(triggerSessionsLabel)}</span>
         </div>
       </div>
 
@@ -12831,13 +12853,14 @@ function renderFormationEncounterRouteCard_(candidate) {
         <span>${escapeHtml(leaderNotice)}</span>
       </div>
 
-      <div class="formation-timeline-grid formation-route-timeline">
-        ${renderFormationTimelineItem_("Detectado", candidate.requestedAt)}
-        ${renderFormationTimelineItem_("Invitación", candidate.invitedAt)}
-        ${renderFormationTimelineItem_("Encuentro", candidate.encounterRegisteredAt)}
-      </div>
-
       <div class="formation-route-actions">
+        <button
+          class="btn btn-ghost"
+          data-action="open-formation-profile"
+          data-person-id="${escapeHtml(candidate.personId)}"
+        >
+          Ver detalle
+        </button>
         <button
           class="btn btn-secondary"
           data-action="formation-send-encounter-invite"
