@@ -939,9 +939,21 @@ div {
 
 .formation-route-identity h3 {
   margin: 0;
-  font-size: 28px;
-  line-height: 0.96;
+  font-size: 22px;
+  line-height: 1.02;
   letter-spacing: -0.04em;
+}
+
+.formation-route-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.formation-route-meta-row .row-meta {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.04);
 }
 
 .formation-route-pill-stack {
@@ -982,10 +994,32 @@ div {
 .formation-route-block span {
   color: var(--text-soft);
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.formation-route-note {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(17, 17, 17, 0.04);
+}
+
+.formation-route-note strong {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.formation-route-note span {
+  color: var(--text-soft);
+  line-height: 1.55;
 }
 
 .formation-route-timeline {
   margin-top: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .formation-route-actions {
@@ -4113,7 +4147,7 @@ tbody tr:hover {
   }
 
   .app-shell.view-formation .formation-route-identity h3 {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .app-shell.view-formation .formation-timeline-item {
