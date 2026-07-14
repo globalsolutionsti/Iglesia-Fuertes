@@ -272,6 +272,7 @@ const state = {
     selectedFormationPersonId: "",
     formationFilterBusy: false,
     formationFilterMessage: "",
+    formationFilterDraft: null,
     confirmation: null
   },
   filters: {
@@ -2054,6 +2055,8 @@ function renderWelcomeProspectsView_() {
 }
 
 function renderFormationView_() {
+  const formationDraft = getFormationFilterDraft_();
+  const formationFilterDirty = isFormationFilterDirty_();
   const candidates = getFilteredFormationCandidates_();
   const records = getFilteredFormationRecords_();
   const profile = state.formationProfile;
@@ -2127,16 +2130,22 @@ function renderFormationView_() {
         <div class="panel-head">
           <div>
             <h2>Filtro operativo</h2>
-            <p>Temporada recarga la ruta completa. Grupo, Estatus y Buscar se aplican al instante.</p>
+            <p>Selecciona los filtros y luego usa el botón para aplicarlos. Temporada tarda más porque recarga toda la ruta.</p>
           </div>
           <div class="actions-row">
-            <span class="status-chip neutral">${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : "Filtro listo")}</span>
+            <span class="status-chip neutral formation-filter-status">
+              ${state.ui.formationFilterBusy ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}
+              ${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : (formationFilterDirty ? "Cambios pendientes" : "Filtro listo"))}
+            </span>
+            <button class="btn btn-primary" data-action="apply-formation-filters" ${state.ui.formationFilterBusy ? "disabled" : ""}>
+              ${state.ui.formationFilterBusy ? "Aplicando..." : "Aplicar filtro"}
+            </button>
             <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
           </div>
         </div>
 
         <div class="field-grid two">
-          ${renderSeasonSelect("formation-season", state.filters.formation.seasonId || seasonId)}
+          ${renderSeasonSelect("formation-season", formationDraft.seasonId || seasonId)}
           <div class="field">
             <label for="formation-group">Grupo</label>
             <select id="formation-group">
@@ -2145,7 +2154,7 @@ function renderFormationView_() {
                   value: String(group.id),
                   label: `${group.name} (${group.id})`
                 })),
-                state.filters.formation.groupId,
+                formationDraft.groupId,
                 "Todos los grupos"
               )}
             </select>
@@ -2163,12 +2172,12 @@ function renderFormationView_() {
                 { value: "EN_CURSO", label: "En curso" },
                 { value: "ACREDITADO", label: "Acreditado" },
                 { value: "NO_ACREDITADO", label: "No acreditado" }
-              ], state.filters.formation.status, "Todos los estatus")}
+              ], formationDraft.status, "Todos los estatus")}
             </select>
           </div>
           <div class="field" style="grid-column: 1 / -1;">
             <label for="formation-search">Buscar</label>
-            <input id="formation-search" value="${escapeHtml(state.filters.formation.search)}" placeholder="Nombre, QR ID, grupo o nivel">
+            <input id="formation-search" value="${escapeHtml(formationDraft.search)}" placeholder="Nombre, QR ID, grupo o nivel">
           </div>
         </div>
 
@@ -8473,7 +8482,13 @@ async function handleClick(event) {
             showLoading: false
           });
         }
+        syncFormationFilterDraft_();
       });
+      return;
+    }
+
+    if (action === "apply-formation-filters") {
+      await applyFormationFilters_();
       return;
     }
 
@@ -8959,26 +8974,13 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-season") {
-      state.filters.formation.seasonId = target.value;
-      state.ui.editingFormationRecordId = "";
-      state.formationProfile = null;
-      await runFormationFilterTask_("Aplicando temporada...", async () => {
-        await ensureFormationViewData_({
-          force: true,
-          message: "Aplicando temporada de formación..."
-        });
-        if (state.ui.selectedFormationPersonId) {
-          await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-            force: true,
-            showLoading: false
-          });
-        }
-      });
+      getFormationFilterDraft_().seasonId = target.value;
+      renderApp();
       return;
     }
 
     if (target.id === "formation-group") {
-      state.filters.formation.groupId = target.value;
+      getFormationFilterDraft_().groupId = target.value;
       renderApp();
       return;
     }
@@ -8990,7 +8992,7 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-status-filter") {
-      state.filters.formation.status = target.value;
+      getFormationFilterDraft_().status = target.value;
       renderApp();
       return;
     }
@@ -9050,7 +9052,7 @@ function handleInput(event) {
   }
 
   if (target.id === "formation-search") {
-    state.filters.formation.search = target.value;
+    getFormationFilterDraft_().search = target.value;
     rerenderPreservingInput_(target);
     return;
   }
@@ -9722,6 +9724,8 @@ async function syncFormationFilterState_() {
   if (state.filters.formation.levelId && !state.formationCatalog.some((level) => String(level.id) === String(state.filters.formation.levelId))) {
     state.filters.formation.levelId = "";
   }
+
+  state.filters.formation.levelId = "";
 }
 
 async function loadFormationData_(options = {}) {
@@ -14299,6 +14303,12 @@ function waitForNextPaint_() {
   });
 }
 
+function waitMs_(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, Math.max(0, Number(ms) || 0));
+  });
+}
+
 function setFormationFilterBusy_(busy, message = "") {
   state.ui.formationFilterBusy = Boolean(busy);
   state.ui.formationFilterMessage = busy ? String(message || "Aplicando filtro...") : "";
@@ -14315,6 +14325,92 @@ async function runFormationFilterTask_(message, task) {
     setFormationFilterBusy_(false, "");
     renderApp();
   }
+}
+
+function syncFormationFilterDraft_() {
+  state.ui.formationFilterDraft = {
+    seasonId: String(state.filters.formation.seasonId || ""),
+    groupId: String(state.filters.formation.groupId || ""),
+    status: String(state.filters.formation.status || "ALL"),
+    search: String(state.filters.formation.search || "")
+  };
+}
+
+function getFormationFilterDraft_() {
+  if (!state.ui.formationFilterDraft) {
+    syncFormationFilterDraft_();
+  }
+
+  return state.ui.formationFilterDraft;
+}
+
+function isFormationFilterDirty_() {
+  const draft = getFormationFilterDraft_();
+  const applied = state.filters.formation;
+
+  return String(draft.seasonId || "") !== String(applied.seasonId || "")
+    || String(draft.groupId || "") !== String(applied.groupId || "")
+    || String(draft.status || "ALL") !== String(applied.status || "ALL")
+    || String(draft.search || "") !== String(applied.search || "");
+}
+
+function syncFormationSelectionAfterFilter_() {
+  const filteredCandidates = getFilteredFormationCandidates_();
+  const selectedPersonId = String(state.ui.selectedFormationPersonId || "");
+  const selectedVisible = filteredCandidates.some((candidate) => String(candidate.personId || "") === selectedPersonId);
+
+  if (selectedVisible) {
+    return;
+  }
+
+  state.ui.editingFormationRecordId = "";
+
+  if (!filteredCandidates.length) {
+    state.ui.selectedFormationPersonId = "";
+    state.formationProfile = null;
+    return;
+  }
+
+  state.ui.selectedFormationPersonId = String(filteredCandidates[0].personId || "");
+  state.formationProfile = null;
+}
+
+async function applyFormationFilters_() {
+  const draft = getFormationFilterDraft_();
+  const previousSeasonId = String(state.filters.formation.seasonId || "");
+  const nextSeasonId = String(draft.seasonId || "");
+  const seasonChanged = nextSeasonId !== previousSeasonId;
+
+  state.filters.formation.seasonId = nextSeasonId;
+  state.filters.formation.groupId = String(draft.groupId || "");
+  state.filters.formation.status = String(draft.status || "ALL");
+  state.filters.formation.search = String(draft.search || "");
+  state.filters.formation.levelId = "";
+
+  if (seasonChanged) {
+    state.ui.editingFormationRecordId = "";
+    state.formationProfile = null;
+    await runFormationFilterTask_("Aplicando temporada...", async () => {
+      await ensureFormationViewData_({
+        force: true,
+        showLoading: false
+      });
+      if (state.ui.selectedFormationPersonId) {
+        await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+          force: true,
+          showLoading: false
+        });
+      }
+      syncFormationFilterDraft_();
+    });
+    return;
+  }
+
+  await runFormationFilterTask_("Aplicando filtro...", async () => {
+    syncFormationSelectionAfterFilter_();
+    await waitMs_(180);
+    syncFormationFilterDraft_();
+  });
 }
 
 function filterPeople(people, searchTerm) {
