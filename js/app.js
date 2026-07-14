@@ -189,6 +189,7 @@ const state = {
   formationRecords: [],
   formationCandidates: [],
   formationProfile: null,
+  telegramConfig: null,
   adminUsers: [],
   adminUsersSupport: {
     available: true,
@@ -218,6 +219,7 @@ const state = {
     peopleDirectory: false,
     activeSession: false,
     users: false,
+    telegramConfig: false,
     welcome: false,
     formationCatalog: false,
     formationRecords: false,
@@ -346,6 +348,7 @@ const pendingResourceLoads = {
   peopleDirectory: null,
   activeSession: null,
   users: null,
+  telegramConfig: null,
   welcome: null,
   welcomeProfile: null,
   formationCatalog: null,
@@ -2076,7 +2079,7 @@ function renderFormationView_() {
         tone: "participants",
         eyebrow: "Proceso de Formación",
         title: "Ruta simple hacia Encuentro",
-        copy: "El sistema detecta 3 asistencias consecutivas, avisa al líder y te deja dos pasos claros: invitar y registrar a Encuentro.",
+        copy: "El sistema detecta 3 asistencias consecutivas, avisa al líder por Telegram y te deja dos pasos claros: invitar y registrar a Encuentro.",
         badge: {
           label: `${summary.pending} por validar`,
           kind: summary.pending ? "warning" : "dark"
@@ -2187,9 +2190,10 @@ function renderFormationView_() {
         </div>
 
         <div class="summary-strip">
-          <span class="context-item"><strong>Paso 1:</strong> el sistema avisa al líder</span>
-          <span class="context-item"><strong>Paso 2:</strong> el líder envía invitación</span>
-          <span class="context-item"><strong>Paso 3:</strong> si acepta, se registra a Encuentro</span>
+          <span class="context-item"><strong>Paso 1:</strong> el sistema lo detecta por 3 asistencias consecutivas</span>
+          <span class="context-item"><strong>Paso 2:</strong> Telegram avisa automáticamente al líder</span>
+          <span class="context-item"><strong>Paso 3:</strong> desde aquí se envía la invitación al congregante</span>
+          <span class="context-item"><strong>Paso 4:</strong> si acepta, se registra a Encuentro</span>
         </div>
 
         <div class="table-wrap">
@@ -2214,6 +2218,7 @@ function renderFormationView_() {
                   <td>
                     <span class="row-title">${escapeHtml(candidate.groupName || "Sin grupo")}</span>
                     <span class="row-meta">${escapeHtml(candidate.leaderName || "Sin líder")} ${candidate.leaderPhone ? `| ${escapeHtml(candidate.leaderPhone)}` : ""}</span>
+                    <span class="row-meta">${escapeHtml(candidate.leaderTelegramDetail || (candidate.triggerSessionLabel ? `Regla activada en ${candidate.triggerSessionLabel}` : "Listo para enviar invitación"))}</span>
                   </td>
                   <td>
                     <span class="row-title">${escapeHtml(String(candidate.consecutiveAttendances || 0))} consecutivas</span>
@@ -2222,7 +2227,9 @@ function renderFormationView_() {
                   </td>
                   <td>
                     ${renderWorkflowStatusPill_(candidate.formationStatus || "SIN_PROCESO")}
+                    ${renderTelegramDeliveryPill_(candidate.leaderTelegramStatus)}
                     <div class="formation-timeline-grid">
+                      ${renderFormationTimelineItem_("Detectado", candidate.requestedAt)}
                       ${renderFormationTimelineItem_("Aviso líder", candidate.leaderNotifiedAt)}
                       ${renderFormationTimelineItem_("Invitación", candidate.invitedAt)}
                       ${renderFormationTimelineItem_("Encuentro", candidate.encounterRegisteredAt)}
@@ -2230,6 +2237,14 @@ function renderFormationView_() {
                   </td>
                   <td>
                     <div class="formation-action-stack">
+                      <button
+                        class="btn btn-ghost"
+                        data-action="formation-notify-leader"
+                        data-person-id="${escapeHtml(candidate.personId)}"
+                        ${candidate.leaderTelegramAvailable || candidate.leaderNotifiedAt ? "" : "disabled"}
+                      >
+                        ${candidate.leaderNotifiedAt ? "Reenviar Telegram" : "Avisar por Telegram"}
+                      </button>
                       <button class="btn btn-secondary" data-action="formation-send-encounter-invite" data-person-id="${escapeHtml(candidate.personId)}">
                         ${candidate.invitedAt ? "Reenviar invitación" : "Enviar invitación"}
                       </button>
@@ -2461,7 +2476,7 @@ function renderFormationView_() {
         <div class="panel-head">
           <div>
             <h2>${profile?.person ? "Perfil formativo" : "Selecciona un congregante"}</h2>
-            <p>${profile?.person ? "Aquí ves el seguimiento pastoral completo: aviso al líder, invitación, registro a Encuentro y avance posterior." : "La ficha se carga automáticamente cuando usas las acciones de la Ruta a Encuentro o cuando abres un caso del historial."}</p>
+            <p>${profile?.person ? "Aquí ves el seguimiento pastoral completo: detección, aviso al líder, invitación, registro a Encuentro y avance posterior." : "La ficha se carga automáticamente cuando usas las acciones de la Ruta a Encuentro o cuando abres un caso del historial."}</p>
           </div>
           ${profile?.person ? renderWorkflowStatusPill_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO") : `<span class="pill dark">Sin perfil</span>`}
         </div>
@@ -2492,6 +2507,7 @@ function renderFormationView_() {
 
           ${profile.records?.length ? `
             <div class="formation-profile-timeline">
+              ${renderFormationTimelineItem_("Detectado", profile.records[0]?.requestedAt)}
               ${renderFormationTimelineItem_("Aviso líder", profile.records[0]?.leaderNotifiedAt)}
               ${renderFormationTimelineItem_("Invitación enviada", profile.records[0]?.invitedAt)}
               ${renderFormationTimelineItem_("Registro a Encuentro", profile.records[0]?.encounterRegisteredAt)}
@@ -2512,7 +2528,7 @@ function renderFormationView_() {
               <tbody>
                 ${(profile.records || []).length ? profile.records.map((record) => `
                   <tr>
-                    <td>${escapeHtml(formatDate(record.encounterRegisteredAt || record.invitedAt || record.leaderNotifiedAt || record.requestedAt) || "-")}</td>
+                    <td>${escapeHtml(formatDate(record.encounterRegisteredAt || record.invitedAt || record.requestedAt) || "-")}</td>
                     <td>
                       <span class="row-title">${escapeHtml(record.levelName || "Sin nivel")}</span>
                       <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
@@ -2520,7 +2536,7 @@ function renderFormationView_() {
                     <td>${renderWorkflowStatusPill_(record.status)}</td>
                     <td>
                       <span class="row-title">${escapeHtml(record.result || record.reason || "Sin resultado")}</span>
-                      <span class="row-meta">Aviso: ${escapeHtml(formatDate(record.leaderNotifiedAt) || "-")} | Invitación: ${escapeHtml(formatDate(record.invitedAt) || "-")} | Encuentro: ${escapeHtml(formatDate(record.encounterRegisteredAt) || "-")}</span>
+                      <span class="row-meta">Detectado: ${escapeHtml(formatDate(record.requestedAt) || "-")} | Aviso: ${escapeHtml(formatDate(record.leaderNotifiedAt) || "-")} | Invitación: ${escapeHtml(formatDate(record.invitedAt) || "-")} | Encuentro: ${escapeHtml(formatDate(record.encounterRegisteredAt) || "-")}</span>
                     </td>
                     <td>${escapeHtml(record.notes || "Sin notas")}</td>
                   </tr>
@@ -2543,6 +2559,13 @@ function renderFormationView_() {
 function renderCatalogsView_() {
   const groupSearch = normalizeText(state.filters.admin.groupSearch);
   const ministrySearch = normalizeText(state.filters.admin.ministrySearch);
+  const telegramConfig = state.telegramConfig || {
+    enabled: false,
+    configured: false,
+    botUsername: "",
+    startBaseUrl: ""
+  };
+  const telegramStats = getTelegramLeaderStats_();
   const groups = state.catalogs.groups.filter((group) => {
     const haystack = `${group.id} ${group.name} ${group.leader1Name || ""} ${group.leader2Name || ""}`.toLowerCase();
     return !groupSearch || haystack.includes(groupSearch);
@@ -2560,7 +2583,7 @@ function renderCatalogsView_() {
         tone: "participants",
         eyebrow: "Base operativa",
         title: "Catalogos de grupos y ministerios",
-        copy: "Mantiene alineados los grupos de conexion y las areas de servicio.",
+        copy: "Mantiene alineados los grupos, los líderes y la vinculación de Telegram para avisos automáticos.",
         badge: {
           label: `${state.catalogs.groups.length} grupos`,
           kind: "dark"
@@ -2580,9 +2603,15 @@ function renderCatalogsView_() {
           <div class="panel-head">
             <div>
               <h2>Catalogo de grupos</h2>
-              <p>Agrega grupos y deja capturados sus dos líderes con WhatsApp.</p>
+              <p>Agrega grupos, captura a sus dos líderes y deja lista la vinculación de Telegram.</p>
             </div>
             <span class="pill dark">${escapeHtml(String(groups.length))} visibles</span>
+          </div>
+
+          <div class="summary-strip">
+            <span class="context-item"><strong>Bot:</strong> ${escapeHtml(telegramConfig.botUsername ? `@${telegramConfig.botUsername}` : "Sin configurar")}</span>
+            <span class="context-item"><strong>Vinculados:</strong> ${escapeHtml(`${telegramStats.linked}/${telegramStats.total || 0}`)} líderes</span>
+            <span class="context-item"><strong>Acción:</strong> comparte enlace y luego sincroniza</span>
           </div>
 
           <form id="catalog-group-form">
@@ -2605,6 +2634,10 @@ function renderCatalogsView_() {
                 <input id="catalog-group-leader1-phone" name="leader1Phone" value="${escapeHtml(editingGroup?.leader1Phone || "")}" placeholder="5215551234567">
               </div>
               <div class="field">
+                <label for="catalog-group-leader1-telegram">Chat ID Telegram líder 1</label>
+                <input id="catalog-group-leader1-telegram" name="leader1TelegramChatId" value="${escapeHtml(editingGroup?.leader1TelegramChatId || "")}" placeholder="Se llena solo al sincronizar o puedes pegarlo manualmente">
+              </div>
+              <div class="field">
                 <label for="catalog-group-leader2-name">Líder 2</label>
                 <input id="catalog-group-leader2-name" name="leader2Name" value="${escapeHtml(editingGroup?.leader2Name || "")}" placeholder="Nombre del segundo líder">
               </div>
@@ -2612,12 +2645,41 @@ function renderCatalogsView_() {
                 <label for="catalog-group-leader2-phone">WhatsApp líder 2</label>
                 <input id="catalog-group-leader2-phone" name="leader2Phone" value="${escapeHtml(editingGroup?.leader2Phone || "")}" placeholder="5215559876543">
               </div>
+              <div class="field">
+                <label for="catalog-group-leader2-telegram">Chat ID Telegram líder 2</label>
+                <input id="catalog-group-leader2-telegram" name="leader2TelegramChatId" value="${escapeHtml(editingGroup?.leader2TelegramChatId || "")}" placeholder="Se llena solo al sincronizar o puedes pegarlo manualmente">
+              </div>
             </div>
 
             <div class="actions-row">
               <button class="btn btn-primary" type="submit">${editingGroup ? "Guardar grupo" : "Crear grupo"}</button>
               <button class="btn btn-ghost" type="button" data-action="clear-catalog-group-form" ${editingGroup ? "" : "disabled"}>Limpiar</button>
+              <button class="btn btn-secondary" type="button" data-action="sync-telegram-links">Sincronizar Telegram</button>
             </div>
+
+            ${editingGroup ? `
+              <div class="summary-stack dashboard-summary-grid" style="margin-top: 18px;">
+                <div class="summary-box">
+                  <span class="status-chip ${editingGroup.leader1TelegramLinked ? "success" : "warning"}">Líder 1</span>
+                  <strong>${escapeHtml(editingGroup.leader1TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
+                  <span>${escapeHtml(editingGroup.leader1TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip ${editingGroup.leader2TelegramLinked ? "success" : "warning"}">Líder 2</span>
+                  <strong>${escapeHtml(editingGroup.leader2TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
+                  <span>${escapeHtml(editingGroup.leader2TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
+                </div>
+              </div>
+
+              ${telegramConfig.botUsername ? `
+                <div class="actions-row" style="margin-top: 12px;">
+                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(editingGroup.leader1TelegramStartLink || "")}" ${editingGroup.leader1TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 1</button>
+                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(editingGroup.leader2TelegramStartLink || "")}" ${editingGroup.leader2TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 2</button>
+                </div>
+              ` : `
+                <p class="footer-note">Primero configura Telegram en Administración para generar los enlaces de vinculación.</p>
+              `}
+            ` : ""}
           </form>
 
           <div class="field catalog-search-field">
@@ -2643,6 +2705,7 @@ function renderCatalogsView_() {
                     <td>
                       <span class="row-title">${escapeHtml([group.leader1Name, group.leader2Name].filter(Boolean).join(" / ") || "Sin líderes")}</span>
                       <span class="row-meta">${escapeHtml([group.leader1Phone, group.leader2Phone].filter(Boolean).join(" / ") || "Sin teléfonos")}</span>
+                      <span class="row-meta">${escapeHtml(`Telegram: ${group.leader1TelegramLinked ? "L1 OK" : "L1 pendiente"} | ${group.leader2TelegramLinked ? "L2 OK" : "L2 pendiente"}`)}</span>
                     </td>
                     <td><button class="btn btn-secondary" data-action="edit-group-catalog" data-group-id="${escapeHtml(String(group.id))}">Editar</button></td>
                   </tr>
@@ -2723,6 +2786,16 @@ function renderAdminSettingsView_() {
   const permissions = getUserPermissions_();
   const currentModule = getCurrentModule_();
   const usersSupport = state.adminUsersSupport;
+  const telegramConfig = state.telegramConfig || {
+    enabled: false,
+    configured: false,
+    hasToken: false,
+    tokenMasked: "",
+    botUsername: "",
+    botName: "",
+    startBaseUrl: ""
+  };
+  const telegramStats = getTelegramLeaderStats_();
 
   return `
     <section class="view-grid">
@@ -2777,12 +2850,71 @@ function renderAdminSettingsView_() {
         <article class="panel-card">
           <div class="panel-head">
             <div>
-              <h2>Resumen administrativo</h2>
-              <p>Te recuerda rapidamente que partes del sistema estan listas para operar.</p>
+              <h2>Canal Telegram</h2>
+              <p>Activa el bot, comparte los enlaces a los líderes y luego pulsa sincronizar.</p>
             </div>
           </div>
 
-          <div class="summary-stack dashboard-summary-grid">
+          <form id="telegram-config-form">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="telegram-enabled">Estado del canal</label>
+                <select id="telegram-enabled" name="enabled">
+                  ${renderOptions([
+                    { value: "true", label: "ACTIVO" },
+                    { value: "false", label: "INACTIVO" }
+                  ], telegramConfig.enabled ? "true" : "false", "Selecciona estado")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="telegram-bot-token">Token del bot</label>
+                <input id="telegram-bot-token" name="botToken" type="password" placeholder="${telegramConfig.hasToken ? "Token ya guardado. Escribe solo si deseas reemplazarlo." : "123456:ABC-DEF..."}">
+              </div>
+            </div>
+
+            <div class="summary-stack dashboard-summary-grid" style="margin-top: 12px;">
+              <div class="summary-box">
+                <span class="status-chip neutral">Bot</span>
+                <strong>${escapeHtml(telegramConfig.botName || "Sin configurar")}</strong>
+                <span>${escapeHtml(telegramConfig.botUsername ? `@${telegramConfig.botUsername}` : "Guarda el token para detectar el usuario del bot.")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip dark">Líderes vinculados</span>
+                <strong>${escapeHtml(`${telegramStats.linked}/${telegramStats.total || 0}`)}</strong>
+                <span>Solo los líderes vinculados recibirán el aviso automático.</span>
+              </div>
+            </div>
+
+            <div class="actions-row">
+              <button class="btn btn-primary" type="submit">Guardar Telegram</button>
+              <button class="btn btn-secondary" type="button" data-action="test-telegram-config">Probar bot</button>
+              <button class="btn btn-ghost" type="button" data-action="sync-telegram-links">Sincronizar líderes</button>
+            </div>
+          </form>
+
+          <div class="summary-strip" style="margin-top: 18px;">
+            <span class="context-item"><strong>Paso 1:</strong> guarda aquí el token del bot</span>
+            <span class="context-item"><strong>Paso 2:</strong> comparte el enlace del líder desde Catálogos</span>
+            <span class="context-item"><strong>Paso 3:</strong> cuando el líder pulse Iniciar, vuelve y sincroniza</span>
+          </div>
+
+          ${telegramConfig.startBaseUrl ? `
+            <p class="footer-note">Bot listo: <strong>@${escapeHtml(telegramConfig.botUsername || "")}</strong></p>
+          ` : `
+            <p class="footer-note">Todavía no hay bot configurado. Sin esto no se enviarán avisos automáticos.</p>
+          `}
+        </article>
+      </div>
+
+      <article class="panel-card">
+        <div class="panel-head">
+          <div>
+            <h2>Resumen administrativo</h2>
+            <p>Te recuerda rapidamente que partes del sistema estan listas para operar.</p>
+          </div>
+        </div>
+
+        <div class="summary-stack dashboard-summary-grid">
             <div class="summary-box">
               <span class="status-chip neutral">Usuarios</span>
               <strong>${escapeHtml(String(state.adminUsers.length))}</strong>
@@ -2803,9 +2935,13 @@ function renderAdminSettingsView_() {
               <strong>${escapeHtml(String(state.seasons.length))}</strong>
               <span>Ciclos disponibles en la V2.</span>
             </div>
+            <div class="summary-box">
+              <span class="status-chip ${telegramConfig.enabled ? "success" : "warning"}">Telegram</span>
+              <strong>${telegramConfig.enabled ? "Activo" : "Inactivo"}</strong>
+              <span>${telegramConfig.configured ? "Bot listo para avisos automáticos." : "Falta guardar el token del bot."}</span>
+            </div>
           </div>
         </article>
-      </div>
     </section>
   `;
 }
@@ -7434,6 +7570,29 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "test-telegram-config") {
+      await testTelegramBot_();
+      return;
+    }
+
+    if (action === "sync-telegram-links") {
+      await syncTelegramLinks_();
+      return;
+    }
+
+    if (action === "copy-telegram-link") {
+      const url = String(button.dataset.url || "");
+
+      if (!url) {
+        showToast("Enlace no disponible", "Primero configura Telegram y guarda el grupo para generar el enlace.", "warning");
+        return;
+      }
+
+      await copyTextToClipboard_(url);
+      showToast("Enlace copiado", "Ahora puedes enviarlo al líder para que pulse Iniciar en Telegram.", "success");
+      return;
+    }
+
     if (action === "scroll-to-section") {
       scrollToSection_(button.dataset.sectionId || "");
       return;
@@ -8398,6 +8557,13 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "formation-notify-leader") {
+      const candidate = state.formationCandidates.find((item) => String(item.personId) === String(button.dataset.personId || ""));
+      await notifyFormationLeaderTelegram_(candidate || null);
+      scrollToSection_("formation-profile");
+      return;
+    }
+
     if (action === "formation-register-encounter") {
       const candidate = state.formationCandidates.find((item) => String(item.personId) === String(button.dataset.personId || ""));
       await registerFormationEncounter_(candidate || null);
@@ -8614,6 +8780,12 @@ async function handleSubmit(event) {
     if (form.id === "formation-record-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
       await saveFormationRecord_(payload);
+      return;
+    }
+
+    if (form.id === "telegram-config-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveTelegramConfig_(payload);
       return;
     }
 
@@ -9273,6 +9445,24 @@ async function loadAdminUsers_(options = {}) {
   });
 }
 
+async function loadTelegramConfig_(options = {}) {
+  if (!options.force && state.loaded.telegramConfig && state.telegramConfig) {
+    return state.telegramConfig;
+  }
+
+  const task = async () => {
+    state.telegramConfig = await apiGet("telegram.config.get");
+    state.loaded.telegramConfig = true;
+    return state.telegramConfig;
+  };
+
+  if (options.force) {
+    return task();
+  }
+
+  return runSharedLoad_("telegramConfig", task);
+}
+
 async function refreshPeopleSources_() {
   await Promise.all([
     loadPeople({
@@ -9738,6 +9928,7 @@ async function ensureCatalogsViewData_() {
   await loadCatalogs({
     includeMinistries: true
   });
+  await loadTelegramConfig_();
 }
 
 async function ensureParticipantsViewData_(options = {}) {
@@ -9787,6 +9978,7 @@ async function ensureAdminViewData_() {
   await loadCatalogs({
     includeMinistries: true
   });
+  await loadTelegramConfig_();
   await loadAdminUsers_({
     silentUnsupported: true
   });
@@ -13963,6 +14155,164 @@ function V(value) {
   return String(value || "").trim();
 }
 
+function getTelegramLeaderStats_() {
+  return state.catalogs.groups.reduce((summary, group) => {
+    if (group?.leader1Name || group?.leader1Phone) {
+      summary.total += 1;
+      if (group?.leader1TelegramChatId) {
+        summary.linked += 1;
+      }
+    }
+
+    if (group?.leader2Name || group?.leader2Phone) {
+      summary.total += 1;
+      if (group?.leader2TelegramChatId) {
+        summary.linked += 1;
+      }
+    }
+
+    return summary;
+  }, {
+    total: 0,
+    linked: 0
+  });
+}
+
+function renderTelegramDeliveryPill_(status) {
+  const normalized = String(status || "").toUpperCase();
+
+  if (normalized === "ENVIADO") {
+    return `<span class="pill success">Telegram enviado</span>`;
+  }
+
+  if (normalized === "PENDIENTE_ENVIO") {
+    return `<span class="pill warning">Listo para enviar</span>`;
+  }
+
+  if (normalized === "PENDIENTE_VINCULAR") {
+    return `<span class="pill warning">Falta vincular</span>`;
+  }
+
+  if (normalized === "PENDIENTE_CONFIGURACION") {
+    return `<span class="pill danger">Falta configurar bot</span>`;
+  }
+
+  if (normalized === "DESACTIVADO") {
+    return `<span class="pill">Telegram desactivado</span>`;
+  }
+
+  if (normalized === "ERROR") {
+    return `<span class="pill danger">Error Telegram</span>`;
+  }
+
+  return `<span class="pill">${escapeHtml(status || "Sin Telegram")}</span>`;
+}
+
+async function copyTextToClipboard_(text) {
+  const value = String(text || "");
+
+  if (!value) {
+    return false;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return true;
+  }
+
+  const helper = document.createElement("textarea");
+  helper.value = value;
+  helper.setAttribute("readonly", "readonly");
+  helper.style.position = "fixed";
+  helper.style.left = "-9999px";
+  document.body.appendChild(helper);
+  helper.select();
+  document.execCommand("copy");
+  document.body.removeChild(helper);
+  return true;
+}
+
+async function saveTelegramConfig_(payload) {
+  await withLoading(async () => {
+    state.telegramConfig = await apiPost("telegram.config.save", payload);
+    state.loaded.telegramConfig = true;
+    await loadGroupsCatalog_({
+      force: true
+    });
+  }, "Guardando Telegram...");
+
+  showToast("Telegram actualizado", "La configuración del bot quedó guardada.", "success");
+  renderApp();
+}
+
+async function testTelegramBot_() {
+  let response = null;
+  const draftToken = document.getElementById("telegram-bot-token")?.value?.trim() || "";
+
+  await withLoading(async () => {
+    response = await apiPost("telegram.config.test", {
+      botToken: draftToken
+    });
+  }, "Probando bot de Telegram...");
+
+  showToast("Telegram OK", `${response.botName || "Bot"} (${response.botUsername || "sin usuario"}) respondió correctamente.`, "success");
+}
+
+async function syncTelegramLinks_() {
+  let response = null;
+
+  await withLoading(async () => {
+    response = await apiPost("telegram.links.sync", {});
+    await loadTelegramConfig_({
+      force: true
+    });
+    await loadGroupsCatalog_({
+      force: true
+    });
+  }, "Sincronizando líderes desde Telegram...");
+
+  if (response.linkedCount) {
+    showToast("Telegram sincronizado", `Se vincularon ${response.linkedCount} líder(es) en ${response.scannedCount} actualización(es).`, "success");
+  } else {
+    showToast("Sin cambios", "No llegaron nuevos inicios del bot para vincular líderes.", "warning");
+  }
+
+  renderApp();
+}
+
+async function notifyFormationLeaderTelegram_(candidate) {
+  if (!candidate?.personId) {
+    showToast("Sin candidato", "No fue posible ubicar a la persona para reenviar el aviso.", "warning");
+    return;
+  }
+
+  let response = null;
+
+  await withLoading(async () => {
+    response = await apiPost("formation.encounter.notifyLeader", {
+      personId: candidate.personId,
+      seasonId: candidate.seasonId,
+      notifiedBy: state.user?.name || ""
+    });
+
+    state.formationProfile = response.profile;
+  }, "Enviando aviso Telegram al líder...");
+
+  state.ui.selectedFormationPersonId = candidate.personId;
+  await loadFormationData_({
+    force: true,
+    showLoading: false
+  });
+  renderApp();
+
+  if (String(response?.notification?.status || "").toUpperCase() === "ENVIADO") {
+    showToast("Aviso enviado", response?.notification?.detail || "El líder recibió el aviso por Telegram.", "success");
+    return;
+  }
+
+  showToast("Telegram pendiente", response?.notification?.detail || "No se pudo enviar el aviso al líder todavía.", "warning");
+}
+
 async function testConnection() {
   const apiUrlInput = document.getElementById("api-url-input");
   const nextApiUrl = apiUrlInput ? apiUrlInput.value.trim() : state.apiUrl.trim();
@@ -13999,6 +14349,7 @@ function resetRuntimeState() {
   state.formationRecords = [];
   state.formationCandidates = [];
   state.formationProfile = null;
+  state.telegramConfig = null;
   state.adminUsers = [];
   state.adminUsersSupport = {
     available: true,
@@ -14028,6 +14379,7 @@ function resetRuntimeState() {
     peopleDirectory: false,
     activeSession: false,
     users: false,
+    telegramConfig: false,
     welcome: false,
     formationCatalog: false,
     formationRecords: false,
