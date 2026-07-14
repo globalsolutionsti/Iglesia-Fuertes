@@ -2652,7 +2652,7 @@ function renderCatalogsView_() {
             </div>
 
             <div class="actions-row">
-              <button class="btn btn-primary" type="submit">${editingGroup ? "Guardar grupo" : "Crear grupo"}</button>
+              <button class="btn btn-primary" type="submit" data-action="save-catalog-group">${editingGroup ? "Guardar grupo" : "Crear grupo"}</button>
               <button class="btn btn-ghost" type="button" data-action="clear-catalog-group-form" ${editingGroup ? "" : "disabled"}>Limpiar</button>
               <button class="btn btn-secondary" type="button" data-action="sync-telegram-links">Sincronizar Telegram</button>
             </div>
@@ -7575,6 +7575,19 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "save-catalog-group") {
+      event.preventDefault();
+      const form = button.closest("form");
+
+      if (!(form instanceof HTMLFormElement)) {
+        showToast("Formulario no disponible", "Recarga el catálogo e intenta guardar nuevamente.", "warning");
+        return;
+      }
+
+      await saveCatalogGroupForm_(form);
+      return;
+    }
+
     if (action === "sync-telegram-links") {
       await syncTelegramLinks_();
       return;
@@ -8738,18 +8751,7 @@ async function handleSubmit(event) {
     }
 
     if (form.id === "catalog-group-form") {
-      const payload = Object.fromEntries(new FormData(form).entries());
-
-      await withLoading(async () => {
-        await apiPost("catalog.groups.save", payload);
-        await loadGroupsCatalog_({
-          force: true
-        });
-      }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
-
-      state.ui.editingGroupId = "";
-      showToast("Catalogo actualizado", "El grupo quedo guardado correctamente.", "success");
-      renderApp();
+      await saveCatalogGroupForm_(form);
       return;
     }
 
@@ -10748,6 +10750,36 @@ async function saveWelcomeFollowup_(rawPayload) {
   state.ui.selectedWelcomePersonId = payload.personId;
   showToast("Evento registrado", "La bitácora de seguimiento ya quedó actualizada.", "success");
   return false;
+}
+
+async function saveCatalogGroupForm_(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    showToast("Formulario no disponible", "Recarga el catálogo de grupos e intenta nuevamente.", "warning");
+    return;
+  }
+
+  const payload = Object.fromEntries(new FormData(form).entries());
+  const name = String(payload.name || "").trim();
+
+  if (!name) {
+    const nameField = form.querySelector("[name=\"name\"]");
+    showToast("Falta el nombre", "Escribe el nombre del grupo antes de guardar.", "warning");
+    nameField?.focus();
+    return;
+  }
+
+  payload.name = name;
+
+  await withLoading(async () => {
+    await apiPost("catalog.groups.save", payload);
+    await loadGroupsCatalog_({
+      force: true
+    });
+  }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
+
+  state.ui.editingGroupId = "";
+  showToast("Catalogo actualizado", "El grupo quedo guardado correctamente.", "success");
+  renderApp();
 }
 
 async function processPeopleImportFile_(file) {
