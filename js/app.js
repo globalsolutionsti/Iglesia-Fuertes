@@ -270,6 +270,8 @@ const state = {
     welcomeWorkbenchMode: "",
     welcomeModal: null,
     selectedFormationPersonId: "",
+    formationFilterBusy: false,
+    formationFilterMessage: "",
     confirmation: null
   },
   filters: {
@@ -2057,6 +2059,7 @@ function renderFormationView_() {
   const profile = state.formationProfile;
   const selectedPersonId = state.ui.selectedFormationPersonId;
   const selectedCandidate = candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
+    || candidates[0]
     || profile?.currentCandidate
     || (profile?.person ? {
       personId: profile.person.id,
@@ -2124,9 +2127,12 @@ function renderFormationView_() {
         <div class="panel-head">
           <div>
             <h2>Filtro operativo</h2>
-            <p>Selecciona la temporada y el grupo para revisar quién ya puede ser prospectado.</p>
+            <p>Temporada recarga la ruta completa. Grupo, Estatus y Buscar se aplican al instante.</p>
           </div>
-          <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
+          <div class="actions-row">
+            <span class="status-chip neutral">${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : "Filtro listo")}</span>
+            <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
+          </div>
         </div>
 
         <div class="field-grid two">
@@ -2141,19 +2147,6 @@ function renderFormationView_() {
                 })),
                 state.filters.formation.groupId,
                 "Todos los grupos"
-              )}
-            </select>
-          </div>
-          <div class="field">
-            <label for="formation-level-filter">Nivel</label>
-            <select id="formation-level-filter">
-              ${renderOptions(
-                state.formationCatalog.map((level) => ({
-                  value: level.id,
-                  label: `${level.name} (${level.order})`
-                })),
-                state.filters.formation.levelId,
-                "Todos los niveles"
               )}
             </select>
           </div>
@@ -2178,6 +2171,8 @@ function renderFormationView_() {
             <input id="formation-search" value="${escapeHtml(state.filters.formation.search)}" placeholder="Nombre, QR ID, grupo o nivel">
           </div>
         </div>
+
+        <p class="footer-note">El filtro de nivel se dejó fuera de esta vista operativa para no confundir el proceso de invitación a Encuentro.</p>
       </article>
 
       <article class="detail-card formation-encounter-card module-section-anchor" id="formation-encounter-flow">
@@ -8467,17 +8462,18 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-formation") {
-      await ensureFormationViewData_({
-        force: true,
-        message: "Actualizando proceso de formación..."
-      });
-      if (state.ui.selectedFormationPersonId) {
-        await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+      await runFormationFilterTask_("Actualizando prospectos...", async () => {
+        await ensureFormationViewData_({
           force: true,
-          showLoading: false
+          message: "Actualizando proceso de formación..."
         });
-      }
-      renderApp();
+        if (state.ui.selectedFormationPersonId) {
+          await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+            force: true,
+            showLoading: false
+          });
+        }
+      });
       return;
     }
 
@@ -8966,46 +8962,35 @@ async function handleChange(event) {
       state.filters.formation.seasonId = target.value;
       state.ui.editingFormationRecordId = "";
       state.formationProfile = null;
-      await ensureFormationViewData_({
-        force: true,
-        showLoading: false
-      });
-      if (state.ui.selectedFormationPersonId) {
-        await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+      await runFormationFilterTask_("Aplicando temporada...", async () => {
+        await ensureFormationViewData_({
           force: true,
-          showLoading: false
+          message: "Aplicando temporada de formación..."
         });
-      }
-      renderApp();
+        if (state.ui.selectedFormationPersonId) {
+          await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+            force: true,
+            showLoading: false
+          });
+        }
+      });
       return;
     }
 
     if (target.id === "formation-group") {
       state.filters.formation.groupId = target.value;
-      await loadFormationData_({
-        force: true,
-        showLoading: false
-      });
       renderApp();
       return;
     }
 
     if (target.id === "formation-level-filter") {
       state.filters.formation.levelId = target.value;
-      await loadFormationData_({
-        force: true,
-        showLoading: false
-      });
       renderApp();
       return;
     }
 
     if (target.id === "formation-status-filter") {
       state.filters.formation.status = target.value;
-      await loadFormationData_({
-        force: true,
-        showLoading: false
-      });
       renderApp();
       return;
     }
@@ -9747,8 +9732,8 @@ async function loadFormationData_(options = {}) {
   await syncFormationFilterState_();
 
   const filter = state.filters.formation;
-  const recordsKey = `${filter.seasonId}::${filter.groupId}::${filter.levelId}::${filter.status}`;
-  const candidatesKey = `${filter.seasonId}::${filter.groupId}`;
+  const recordsKey = `${filter.seasonId}`;
+  const candidatesKey = `${filter.seasonId}`;
 
   if (
     !options.force &&
@@ -9762,8 +9747,7 @@ async function loadFormationData_(options = {}) {
 
   const task = async () => {
     await apiPost("formation.candidates.sync", {
-      seasonId: filter.seasonId,
-      groupId: filter.groupId
+      seasonId: filter.seasonId
     });
     await loadFormationCatalog_({
       force: true,
@@ -9772,14 +9756,10 @@ async function loadFormationData_(options = {}) {
 
     const [records, candidates] = await Promise.all([
       apiGet("formation.records.list", {
-        seasonId: filter.seasonId,
-        groupId: filter.groupId,
-        levelId: filter.levelId,
-        status: filter.status === "ALL" ? "" : filter.status
+        seasonId: filter.seasonId
       }),
       apiGet("formation.candidates.list", {
-        seasonId: filter.seasonId,
-        groupId: filter.groupId
+        seasonId: filter.seasonId
       })
     ]);
 
@@ -12622,8 +12602,15 @@ function buildWelcomeSummary_() {
 
 function getFilteredFormationCandidates_() {
   const search = normalizeText(state.filters.formation.search);
+  const groupId = String(state.filters.formation.groupId || "");
+  const status = String(state.filters.formation.status || "ALL").toUpperCase();
+  const selectedLevelName = normalizeText(
+    state.formationCatalog.find((level) => String(level.id) === String(state.filters.formation.levelId || ""))?.name || ""
+  );
 
   return state.formationCandidates.filter((candidate) => {
+    const candidateStatus = String(candidate.formationStatus || "").toUpperCase();
+    const candidateLevel = normalizeText(candidate.currentLevel || "");
     const haystack = normalizeText([
       candidate.personId,
       candidate.personName,
@@ -12633,12 +12620,27 @@ function getFilteredFormationCandidates_() {
       candidate.formationStatus
     ].join(" "));
 
+    if (groupId && String(candidate.groupId || "") !== groupId) {
+      return false;
+    }
+
+    if (status !== "ALL" && candidateStatus !== status) {
+      return false;
+    }
+
+    if (selectedLevelName && candidateLevel !== selectedLevelName) {
+      return false;
+    }
+
     return !search || haystack.includes(search);
   });
 }
 
 function getFilteredFormationRecords_() {
   const search = normalizeText(state.filters.formation.search);
+  const groupId = String(state.filters.formation.groupId || "");
+  const levelId = String(state.filters.formation.levelId || "");
+  const status = String(state.filters.formation.status || "ALL").toUpperCase();
 
   return state.formationRecords.filter((record) => {
     const haystack = normalizeText([
@@ -12650,6 +12652,18 @@ function getFilteredFormationRecords_() {
       record.result,
       record.reason
     ].join(" "));
+
+    if (groupId && String(record.groupId || "") !== groupId) {
+      return false;
+    }
+
+    if (levelId && String(record.levelId || "") !== levelId) {
+      return false;
+    }
+
+    if (status !== "ALL" && String(record.status || "").toUpperCase() !== status) {
+      return false;
+    }
 
     return !search || haystack.includes(search);
   });
@@ -14277,6 +14291,30 @@ function toOptionalNumber_(value) {
 
 function normalizeInlineText_(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function waitForNextPaint_() {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function setFormationFilterBusy_(busy, message = "") {
+  state.ui.formationFilterBusy = Boolean(busy);
+  state.ui.formationFilterMessage = busy ? String(message || "Aplicando filtro...") : "";
+}
+
+async function runFormationFilterTask_(message, task) {
+  setFormationFilterBusy_(true, message);
+  renderApp();
+  await waitForNextPaint_();
+
+  try {
+    return await task();
+  } finally {
+    setFormationFilterBusy_(false, "");
+    renderApp();
+  }
 }
 
 function filterPeople(people, searchTerm) {
