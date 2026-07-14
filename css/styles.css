@@ -908,6 +908,99 @@ div {
   gap: 10px;
 }
 
+.formation-route-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.formation-route-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 32px rgba(17, 17, 17, 0.05);
+}
+
+.formation-route-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.formation-route-identity {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.formation-route-identity h3 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.formation-route-pill-stack {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.formation-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.formation-route-block {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.06);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.formation-route-block small {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-route-block strong {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.formation-route-block span {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.formation-route-timeline {
+  margin-top: 0;
+}
+
+.formation-route-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.formation-route-helper {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .formation-profile-timeline {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3778,6 +3871,19 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .app-shell.view-formation .formation-route-head {
+    flex-direction: column;
+  }
+
+  .app-shell.view-formation .formation-route-pill-stack {
+    justify-content: flex-start;
+  }
+
+  .app-shell.view-formation .formation-route-grid,
+  .app-shell.view-formation .formation-route-actions {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell.view-formation .formation-action-stack .btn {
     width: 100%;
   }
@@ -3999,6 +4105,15 @@ tbody tr:hover {
 
   .app-shell.view-formation .formation-encounter-card {
     border-radius: 24px;
+  }
+
+  .app-shell.view-formation .formation-route-card {
+    padding: 16px;
+    border-radius: 22px;
+  }
+
+  .app-shell.view-formation .formation-route-identity h3 {
+    font-size: 24px;
   }
 
   .app-shell.view-formation .formation-timeline-item {
