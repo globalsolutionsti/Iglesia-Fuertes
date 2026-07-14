@@ -2576,6 +2576,10 @@ function renderCatalogsView_() {
   });
   const editingGroup = state.catalogs.groups.find((group) => String(group.id) === String(state.ui.editingGroupId || "")) || null;
   const editingMinistry = state.catalogs.ministries.find((ministry) => String(ministry.id) === String(state.ui.editingMinistryId || "")) || null;
+  const telegramActionGroup = editingGroup || (groups.length === 1 ? groups[0] : null);
+  const telegramActionLabel = editingGroup
+    ? `${editingGroup.name} (modo edición)`
+    : (telegramActionGroup ? `${telegramActionGroup.name} (grupo filtrado)` : "");
 
   return `
     <section class="view-grid">
@@ -2657,28 +2661,31 @@ function renderCatalogsView_() {
               <button class="btn btn-secondary" type="button" data-action="sync-telegram-links">Sincronizar Telegram</button>
             </div>
 
-            ${editingGroup ? `
+            ${telegramActionGroup ? `
               <div class="summary-stack dashboard-summary-grid" style="margin-top: 18px;">
                 <div class="summary-box">
-                  <span class="status-chip ${editingGroup.leader1TelegramLinked ? "success" : "warning"}">Líder 1</span>
-                  <strong>${escapeHtml(editingGroup.leader1TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
-                  <span>${escapeHtml(editingGroup.leader1TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
+                  <span class="status-chip ${telegramActionGroup.leader1TelegramLinked ? "success" : "warning"}">Líder 1</span>
+                  <strong>${escapeHtml(telegramActionGroup.leader1TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
+                  <span>${escapeHtml(telegramActionGroup.leader1TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
                 </div>
                 <div class="summary-box">
-                  <span class="status-chip ${editingGroup.leader2TelegramLinked ? "success" : "warning"}">Líder 2</span>
-                  <strong>${escapeHtml(editingGroup.leader2TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
-                  <span>${escapeHtml(editingGroup.leader2TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
+                  <span class="status-chip ${telegramActionGroup.leader2TelegramLinked ? "success" : "warning"}">Líder 2</span>
+                  <strong>${escapeHtml(telegramActionGroup.leader2TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
+                  <span>${escapeHtml(telegramActionGroup.leader2TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
                 </div>
               </div>
 
               ${telegramConfig.botUsername ? `
+                <p class="footer-note">Grupo activo para compartir: <strong>${escapeHtml(telegramActionLabel)}</strong>.</p>
                 <div class="actions-row" style="margin-top: 12px;">
-                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(editingGroup.leader1TelegramStartLink || "")}" ${editingGroup.leader1TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 1</button>
-                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(editingGroup.leader2TelegramStartLink || "")}" ${editingGroup.leader2TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 2</button>
+                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(telegramActionGroup.leader1TelegramStartLink || "")}" ${telegramActionGroup.leader1TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 1</button>
+                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(telegramActionGroup.leader2TelegramStartLink || "")}" ${telegramActionGroup.leader2TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 2</button>
                 </div>
               ` : `
                 <p class="footer-note">Primero configura Telegram en Administración para generar los enlaces de vinculación.</p>
               `}
+            ` : telegramConfig.botUsername ? `
+              <p class="footer-note">Busca un grupo hasta dejar solo 1 visible para habilitar aquí los enlaces rápidos de Telegram sin entrar a editar.</p>
             ` : ""}
           </form>
 
