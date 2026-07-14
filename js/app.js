@@ -2196,76 +2196,10 @@ function renderFormationView_() {
           <span class="context-item"><strong>Paso 4:</strong> si acepta, se registra a Encuentro</span>
         </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Congregante</th>
-                <th>Grupo</th>
-                <th>Regla de asistencia</th>
-                <th>Seguimiento</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${candidates.length ? candidates.map((candidate) => `
-                <tr>
-                  <td>
-                    <span class="row-title">${escapeHtml(candidate.personName)}</span>
-                    <span class="row-meta">${escapeHtml(candidate.personNumber || "-")} | QR ${escapeHtml(candidate.personId)}</span>
-                    <span class="row-meta">${escapeHtml(candidate.personPhone || "Sin teléfono")}</span>
-                  </td>
-                  <td>
-                    <span class="row-title">${escapeHtml(candidate.groupName || "Sin grupo")}</span>
-                    <span class="row-meta">${escapeHtml(candidate.leaderName || "Sin líder")} ${candidate.leaderPhone ? `| ${escapeHtml(candidate.leaderPhone)}` : ""}</span>
-                    <span class="row-meta">${escapeHtml(candidate.leaderTelegramDetail || (candidate.triggerSessionLabel ? `Regla activada en ${candidate.triggerSessionLabel}` : "Listo para enviar invitación"))}</span>
-                  </td>
-                  <td>
-                    <span class="row-title">${escapeHtml(String(candidate.consecutiveAttendances || 0))} consecutivas</span>
-                    <span class="row-meta">${escapeHtml(String(candidate.attendanceCount || 0))}/${escapeHtml(String(candidate.sessionsCount || 0))} asistencias capturadas</span>
-                    <span class="row-meta">${candidate.triggerSessions?.length ? escapeHtml(candidate.triggerSessions.join(" • ")) : "Sin detalle de sesiones"}</span>
-                  </td>
-                  <td>
-                    ${renderWorkflowStatusPill_(candidate.formationStatus || "SIN_PROCESO")}
-                    ${renderTelegramDeliveryPill_(candidate.leaderTelegramStatus)}
-                    <div class="formation-timeline-grid">
-                      ${renderFormationTimelineItem_("Detectado", candidate.requestedAt)}
-                      ${renderFormationTimelineItem_("Aviso líder", candidate.leaderNotifiedAt)}
-                      ${renderFormationTimelineItem_("Invitación", candidate.invitedAt)}
-                      ${renderFormationTimelineItem_("Encuentro", candidate.encounterRegisteredAt)}
-                    </div>
-                  </td>
-                  <td>
-                    <div class="formation-action-stack">
-                      <button
-                        class="btn btn-ghost"
-                        data-action="formation-notify-leader"
-                        data-person-id="${escapeHtml(candidate.personId)}"
-                        ${candidate.leaderTelegramAvailable || candidate.leaderNotifiedAt ? "" : "disabled"}
-                      >
-                        ${candidate.leaderNotifiedAt ? "Reenviar Telegram" : "Avisar por Telegram"}
-                      </button>
-                      <button class="btn btn-secondary" data-action="formation-send-encounter-invite" data-person-id="${escapeHtml(candidate.personId)}">
-                        ${candidate.invitedAt ? "Reenviar invitación" : "Enviar invitación"}
-                      </button>
-                      <button
-                        class="btn btn-primary"
-                        data-action="formation-register-encounter"
-                        data-person-id="${escapeHtml(candidate.personId)}"
-                        ${candidate.invitedAt ? "" : "disabled"}
-                      >
-                        Prospecto para Encuentro
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              `).join("") : `
-                <tr>
-                  <td colspan="5"><div class="empty-state">Todavía no hay personas con 3 asistencias consecutivas en la temporada seleccionada.</div></td>
-                </tr>
-              `}
-            </tbody>
-          </table>
+        <div class="formation-route-list">
+          ${candidates.length ? candidates.map((candidate) => renderFormationEncounterRouteCard_(candidate)).join("") : `
+            <div class="empty-state">Todavía no hay personas con 3 asistencias consecutivas en la temporada seleccionada.</div>
+          `}
         </div>
       </article>
 
@@ -12775,6 +12709,85 @@ function renderFormationTimelineItem_(label, value, emptyLabel = "Pendiente") {
       <small>${escapeHtml(label)}</small>
       <strong>${escapeHtml(value ? formatDate(value) : emptyLabel)}</strong>
     </div>
+  `;
+}
+
+function renderFormationEncounterRouteCard_(candidate) {
+  const inviteLabel = candidate.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
+  const encounterLabel = candidate.encounterRegisteredAt
+    ? "Encuentro registrado"
+    : (candidate.invitedAt ? "Registrar a Encuentro" : "Primero envía invitación");
+  const inviteDisabled = candidate.personPhone ? "" : "disabled";
+  const encounterDisabled = candidate.invitedAt && !candidate.encounterRegisteredAt ? "" : "disabled";
+  const leaderSummary = candidate.leaderName
+    ? `${candidate.leaderName}${candidate.leaderPhone ? ` | ${candidate.leaderPhone}` : ""}`
+    : "Sin líder asignado";
+  const routeHelper = candidate.encounterRegisteredAt
+    ? `Esta persona ya quedó registrada a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
+    : (candidate.invitedAt
+      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si la persona ya confirmó, registra ahora su Encuentro.`
+      : (candidate.personPhone
+        ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, usa el botón Registrar a Encuentro."
+        : "Falta teléfono del congregante para poder abrir la invitación por WhatsApp."));
+
+  return `
+    <article class="formation-route-card">
+      <div class="formation-route-head">
+        <div class="formation-route-identity">
+          <span class="status-chip dark">Ruta a Encuentro</span>
+          <h3>${escapeHtml(candidate.personName)}</h3>
+          <span class="row-meta">${escapeHtml(candidate.personNumber || "-")} | QR ${escapeHtml(candidate.personId)}</span>
+          <span class="row-meta">${escapeHtml(candidate.personPhone || "Sin teléfono registrado")}</span>
+        </div>
+        <div class="formation-route-pill-stack">
+          ${renderWorkflowStatusPill_(candidate.formationStatus || "SIN_PROCESO")}
+          ${renderTelegramDeliveryPill_(candidate.leaderTelegramStatus)}
+        </div>
+      </div>
+
+      <div class="formation-route-grid">
+        <div class="formation-route-block">
+          <small>Grupo y liderazgo</small>
+          <strong>${escapeHtml(candidate.groupName || "Sin grupo")}</strong>
+          <span>${escapeHtml(leaderSummary)}</span>
+          <span>${escapeHtml(candidate.leaderTelegramDetail || (candidate.leaderNotifiedAt ? `Avisado el ${formatDate(candidate.leaderNotifiedAt)}` : "Aviso al líder en proceso automático"))}</span>
+        </div>
+        <div class="formation-route-block">
+          <small>Regla de asistencia</small>
+          <strong>${escapeHtml(String(candidate.consecutiveAttendances || 0))} asistencias consecutivas</strong>
+          <span>${escapeHtml(String(candidate.attendanceCount || 0))}/${escapeHtml(String(candidate.sessionsCount || 0))} asistencias capturadas</span>
+          <span>${candidate.triggerSessions?.length ? escapeHtml(candidate.triggerSessions.join(" • ")) : "Sin detalle de sesiones"}</span>
+        </div>
+      </div>
+
+      <div class="formation-timeline-grid formation-route-timeline">
+        ${renderFormationTimelineItem_("Detectado", candidate.requestedAt)}
+        ${renderFormationTimelineItem_("Aviso líder", candidate.leaderNotifiedAt)}
+        ${renderFormationTimelineItem_("Invitación", candidate.invitedAt)}
+        ${renderFormationTimelineItem_("Encuentro", candidate.encounterRegisteredAt)}
+      </div>
+
+      <div class="formation-route-actions">
+        <button
+          class="btn btn-secondary"
+          data-action="formation-send-encounter-invite"
+          data-person-id="${escapeHtml(candidate.personId)}"
+          ${inviteDisabled}
+        >
+          ${inviteLabel}
+        </button>
+        <button
+          class="btn btn-primary"
+          data-action="formation-register-encounter"
+          data-person-id="${escapeHtml(candidate.personId)}"
+          ${encounterDisabled}
+        >
+          ${encounterLabel}
+        </button>
+      </div>
+
+      <p class="formation-route-helper">${escapeHtml(routeHelper)}</p>
+    </article>
   `;
 }
 
