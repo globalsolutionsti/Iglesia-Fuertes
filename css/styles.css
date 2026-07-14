@@ -914,6 +914,90 @@ div {
   margin-top: 18px;
 }
 
+.formation-filter-feedback {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 246, 246, 0.98) 100%);
+}
+
+.formation-filter-feedback.is-loading {
+  border-color: rgba(17, 17, 17, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.03);
+}
+
+.formation-filter-feedback-head {
+  display: grid;
+  gap: 4px;
+}
+
+.formation-filter-feedback-head strong {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.formation-filter-feedback-head span {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.formation-filter-feedback-meta,
+.formation-route-context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formation-filter-feedback-meta .context-item,
+.formation-route-context-meta .context-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.formation-route-context {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.formation-route-context-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.formation-route-context-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.formation-route-context-head small {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-route-context-head strong {
+  font-size: 20px;
+  line-height: 1.08;
+}
+
+.formation-route-context-head span {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
 .formation-route-card {
   display: grid;
   gap: 14px;
@@ -3925,6 +4009,10 @@ tbody tr:hover {
     flex-direction: column;
   }
 
+  .app-shell.view-formation .formation-route-context-head {
+    flex-direction: column;
+  }
+
   .app-shell.view-formation .formation-route-pill-stack {
     justify-content: flex-start;
   }
@@ -4160,6 +4248,12 @@ tbody tr:hover {
   .app-shell.view-formation .formation-route-card {
     padding: 16px;
     border-radius: 22px;
+  }
+
+  .app-shell.view-formation .formation-filter-feedback,
+  .app-shell.view-formation .formation-route-context {
+    padding: 14px 16px;
+    border-radius: 20px;
   }
 
   .app-shell.view-formation .formation-route-identity h3 {
