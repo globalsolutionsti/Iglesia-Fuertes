@@ -3337,7 +3337,6 @@ function renderFormationLevelsWorkspace_(context) {
 }
 
 function renderFormationOperationsWorkspace_(context) {
-  const seasonId = context.seasonId || state.filters.formation.seasonId || getLatestSeason()?.id || "";
   const summary = buildFormationOperationsSummary_();
   const filteredOfferings = getFilteredFormationOfferings_();
   const selectedOffering = getSelectedFormationOffering_();
@@ -3360,17 +3359,16 @@ function renderFormationOperationsWorkspace_(context) {
     label: `Sesion ${index + 1}`
   }));
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
-  const seasonRecord = state.seasons.find((item) => String(item.id) === String(seasonId)) || null;
 
   return `
     <article class="panel-card module-section-anchor" id="formation-operations-workspace">
       <div class="panel-head">
         <div>
           <h2>Operación formativa</h2>
-          <p>Desde aquí creas el curso programado, inscribes asistentes, capturas asistencia del nivel y evalúas si se desbloquea el siguiente paso.</p>
+          <p>Desde aquí creas el curso programado, inscribes asistentes, capturas asistencia del nivel y evalúas si se desbloquea el siguiente paso sin depender de la temporada de grupos.</p>
         </div>
         <div class="actions-row">
-          <span class="status-chip neutral">${escapeHtml(seasonRecord?.name || "Sin temporada")}</span>
+          <span class="status-chip neutral">Temporada de origen solo informativa</span>
           <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar operación</button>
         </div>
       </div>
@@ -3384,7 +3382,7 @@ function renderFormationOperationsWorkspace_(context) {
         <article class="stat-card">
           <span class="status-chip neutral">Inscritos</span>
           <strong>${escapeHtml(String(summary.enrollments))}</strong>
-          <span>Asistentes ya vinculados a un curso programado dentro de esta temporada.</span>
+          <span>Asistentes vinculados a cursos programados; la temporada solo se conserva como referencia de origen.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip success">Acreditados</span>
@@ -3398,8 +3396,12 @@ function renderFormationOperationsWorkspace_(context) {
         </article>
       </div>
 
+      <div class="summary-strip">
+        <span class="context-item"><strong>Regla operativa:</strong> los cursos de formación no dependen de la temporada de grupos.</span>
+        <span class="context-item"><strong>Temporada de origen:</strong> queda guardada solo para referencia pastoral e histórica del asistente.</span>
+      </div>
+
       <div class="field-grid two formation-ops-toolbar">
-        ${renderSeasonSelect("formation-ops-season", seasonId)}
         <div class="field">
           <label for="formation-ops-level">Nivel</label>
           <select id="formation-ops-level">
@@ -3642,6 +3644,7 @@ function renderFormationOperationsWorkspace_(context) {
                     <strong>${escapeHtml(enrollment.personName || "Congregante")}</strong>
                     <span>${escapeHtml(enrollment.personNumber || "-")} | QR ${escapeHtml(enrollment.personId || "-")}</span>
                     <span>${escapeHtml(enrollment.personPhone || "Sin teléfono")}</span>
+                    <span>${escapeHtml(`Temporada origen: ${resolveSeasonName_(enrollment.seasonId) || enrollment.seasonId || "Sin referencia"}`)}</span>
                   </div>
                   <div class="formation-ledger-cell">
                     <small>Nivel</small>
@@ -10760,24 +10763,6 @@ async function handleChange(event) {
       return;
     }
 
-    if (target.id === "formation-ops-season") {
-      state.filters.formation.seasonId = target.value;
-      syncFormationFilterDraft_();
-      clearFormationProfileCache_();
-      await Promise.all([
-        loadFormationData_({
-          force: true,
-          showLoading: false
-        }),
-        ensureFormationOperationsViewData_({
-          force: true,
-          showLoading: false
-        })
-      ]);
-      renderApp();
-      return;
-    }
-
     if (target.id === "formation-ops-level") {
       state.filters.formationOps.levelId = target.value;
       state.filters.formationOps.offeringId = "";
@@ -11844,12 +11829,11 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
 }
 
 async function loadFormationOperationsData_(options = {}) {
-  const seasonId = String(state.filters.formation.seasonId || getLatestSeason()?.id || "");
   const requestedLevelId = String(options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""));
   const requestedOfferingId = String(options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""));
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
   const offeringsKey = `level::${requestedLevelId || "ALL"}`;
-  const enrollmentsKey = `${seasonId}::${requestedLevelId || "ALL"}::${requestedOfferingId || "ALL"}`;
+  const enrollmentsKey = `${requestedLevelId || "ALL"}::${requestedOfferingId || "ALL"}`;
 
   if (
     !options.force
@@ -11872,9 +11856,7 @@ async function loadFormationOperationsData_(options = {}) {
 
   const task = async () => {
     const offeringsParams = {};
-    const enrollmentsParams = {
-      seasonId
-    };
+    const enrollmentsParams = {};
 
     if (requestedLevelId) {
       offeringsParams.levelId = requestedLevelId;
@@ -13151,6 +13133,7 @@ async function assignFormationEnrollment_(personId) {
   const cleanPersonId = String(personId || "").trim();
   const selectedOffering = getSelectedFormationOffering_();
   const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || null;
+  const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId);
   let response = null;
 
   if (!cleanPersonId || !person) {
@@ -13168,7 +13151,7 @@ async function assignFormationEnrollment_(personId) {
       response = await apiPost("formation.enrollment.assign", {
         personId: cleanPersonId,
         offeringId: selectedOffering.id,
-        seasonId: state.filters.formation.seasonId || getLatestSeason()?.id || "",
+        seasonId: originSeasonId,
         enrolledBy: state.user?.name || ""
       });
     }, "Inscribiendo al nivel...");
@@ -15288,6 +15271,52 @@ function getSelectedFormationOffering_() {
 
   return filteredOfferings[0]
     || (!state.filters.formationOps.levelId ? (allOfferings[0] || null) : null);
+}
+
+function resolveFormationOriginSeasonIdForPerson_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return "";
+  }
+
+  const candidate = state.formationCandidates.find((item) => {
+    return String(item?.personId || "").trim() === cleanPersonId && String(item?.seasonId || "").trim();
+  }) || null;
+
+  if (candidate?.seasonId) {
+    return String(candidate.seasonId || "").trim();
+  }
+
+  const latestRecord = state.formationRecords
+    .filter((record) => String(record?.personId || "").trim() === cleanPersonId && String(record?.seasonId || "").trim())
+    .slice()
+    .sort((left, right) => {
+      const leftTimestamp = parseDateToTimestamp_(
+        left?.encounterRegisteredAt || left?.invitedAt || left?.requestedAt || left?.updatedAt || left?.createdAt,
+        true
+      );
+      const rightTimestamp = parseDateToTimestamp_(
+        right?.encounterRegisteredAt || right?.invitedAt || right?.requestedAt || right?.updatedAt || right?.createdAt,
+        true
+      );
+      return rightTimestamp - leftTimestamp;
+    })[0] || null;
+
+  if (latestRecord?.seasonId) {
+    return String(latestRecord.seasonId || "").trim();
+  }
+
+  const latestEnrollment = state.formationEnrollments
+    .filter((enrollment) => String(enrollment?.personId || "").trim() === cleanPersonId && String(enrollment?.seasonId || "").trim())
+    .slice()
+    .sort((left, right) => {
+      const leftTimestamp = parseDateToTimestamp_(left?.enrolledAt || left?.startDate || left?.endDate, true);
+      const rightTimestamp = parseDateToTimestamp_(right?.enrolledAt || right?.startDate || right?.endDate, true);
+      return rightTimestamp - leftTimestamp;
+    })[0] || null;
+
+  return latestEnrollment?.seasonId ? String(latestEnrollment.seasonId || "").trim() : "";
 }
 
 function getFilteredFormationOperationEnrollments_(offeringId) {
