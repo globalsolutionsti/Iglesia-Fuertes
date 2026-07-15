@@ -928,6 +928,19 @@ function buildBackendRouteMissingError_(actionName, label) {
   );
 }
 
+function isFormationPortalRepositoryMissingError_(error) {
+  const message = String(error?.message || "");
+  const code = String(error?.code || "").toUpperCase();
+
+  if (code === "FORMATION_PORTAL_REPOSITORY_MISSING") {
+    return true;
+  }
+
+  return message.includes("reading 'listOfferings'")
+    || message.includes("reading 'listEnrollments'")
+    || message.includes("V2_44_FormationPortalRepository.gs");
+}
+
 function shouldShowDashboardLoading_() {
   const seasonId = String(state.filters.dashboard.seasonId || getLatestSeason()?.id || "");
   const executiveSeasonId = String(state.dashboardExecutive?.seasonFocus?.id || "");
@@ -11873,10 +11886,31 @@ async function loadFormationOperationsData_(options = {}) {
       enrollmentsParams.levelId = requestedLevelId;
     }
 
-    const [offerings, enrollments] = await Promise.all([
-      apiGet("formation.offerings.list", offeringsParams),
-      apiGet("formation.enrollments.list", enrollmentsParams)
-    ]);
+    let offerings;
+    let enrollments;
+
+    try {
+      [offerings, enrollments] = await Promise.all([
+        apiGet("formation.offerings.list", offeringsParams),
+        apiGet("formation.enrollments.list", enrollmentsParams)
+      ]);
+    } catch (error) {
+      if (isUnknownActionError_(error, "formation.offerings.list") || isUnknownActionError_(error, "formation.enrollments.list")) {
+        throw buildBackendRouteMissingError_("formation.offerings.list", "las rutas de operación de Proceso de Formación");
+      }
+
+      if (isFormationPortalRepositoryMissingError_(error)) {
+        throw new ApiError(
+          "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+          "BACKEND_OUTDATED",
+          {
+            file: "V2_44_FormationPortalRepository.gs"
+          }
+        );
+      }
+
+      throw error;
+    }
 
     state.formationOfferings = Array.isArray(offerings) ? offerings : [];
     state.formationEnrollments = Array.isArray(enrollments) ? enrollments : [];
