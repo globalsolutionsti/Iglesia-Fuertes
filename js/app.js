@@ -749,6 +749,22 @@ function isUnknownActionError_(error, actionName = "") {
   return message.includes("Unknown action:") && (!actionName || message.includes(actionName));
 }
 
+function extractUnknownActionName_(error) {
+  if (!(error instanceof ApiError)) {
+    return "";
+  }
+
+  const code = String(error.code || "").toUpperCase();
+  const message = String(error.message || "");
+
+  if (code === "UNKNOWN_ACTION") {
+    return String(error.details?.action || "").trim();
+  }
+
+  const match = message.match(/Unknown action:\s*([A-Za-z0-9._-]+)/i);
+  return match ? String(match[1] || "").trim() : "";
+}
+
 function buildBackendRouteMissingError_(actionName, label) {
   return new ApiError(
     `Tu backend publicado aun no incluye ${label || actionName}. Actualiza los archivos .gs y vuelve a desplegar la Web App.`,
@@ -9849,9 +9865,32 @@ async function loadTelegramConfig_(options = {}) {
   }
 
   const task = async () => {
-    state.telegramConfig = await apiGet("telegram.config.get");
-    state.loaded.telegramConfig = true;
-    return state.telegramConfig;
+    try {
+      state.telegramConfig = await apiGet("telegram.config.get");
+      state.loaded.telegramConfig = true;
+      return state.telegramConfig;
+    } catch (error) {
+      if (!isUnknownActionError_(error, "telegram.config.get")) {
+        throw error;
+      }
+
+      state.telegramConfig = {
+        enabled: false,
+        configured: false,
+        botName: "",
+        botUsername: "",
+        startBaseUrl: "",
+        hasToken: false,
+        unsupported: true
+      };
+      state.loaded.telegramConfig = true;
+
+      if (options.silentUnsupported) {
+        return state.telegramConfig;
+      }
+
+      throw buildBackendRouteMissingError_("telegram.config.get", "la ruta telegram.config.get");
+    }
   };
 
   if (options.force) {
@@ -10166,9 +10205,17 @@ async function loadFormationCatalog_(options = {}) {
   }
 
   const task = () => runSharedLoad_("formationCatalog", async () => {
-    state.formationCatalog = await apiGet("formation.catalog.list");
-    state.loaded.formationCatalog = true;
-    return state.formationCatalog;
+    try {
+      state.formationCatalog = await apiGet("formation.catalog.list");
+      state.loaded.formationCatalog = true;
+      return state.formationCatalog;
+    } catch (error) {
+      if (!isUnknownActionError_(error, "formation.catalog.list")) {
+        throw error;
+      }
+
+      throw buildBackendRouteMissingError_("formation.catalog.list", "la ruta formation.catalog.list");
+    }
   });
 
   if (options.showLoading === false) {
@@ -10218,20 +10265,47 @@ async function loadFormationData_(options = {}) {
   }
 
   const task = async () => {
-    const syncResponse = await apiPost("formation.candidates.sync", {
-      seasonId: filter.seasonId
-    });
+    let syncResponse;
+
+    try {
+      syncResponse = await apiPost("formation.candidates.sync", {
+        seasonId: filter.seasonId
+      });
+    } catch (error) {
+      if (!isUnknownActionError_(error, "formation.candidates.sync")) {
+        throw error;
+      }
+
+      throw buildBackendRouteMissingError_("formation.candidates.sync", "la ruta formation.candidates.sync");
+    }
+
     let records = Array.isArray(syncResponse?.records) ? syncResponse.records : null;
     let candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
 
     if (!records || !candidates) {
       const fallbackResponses = await Promise.all([
-        records ? Promise.resolve(records) : apiGet("formation.records.list", {
-          seasonId: filter.seasonId
-        }),
-        candidates ? Promise.resolve(candidates) : apiGet("formation.candidates.list", {
-          seasonId: filter.seasonId
-        })
+        records
+          ? Promise.resolve(records)
+          : apiGet("formation.records.list", {
+            seasonId: filter.seasonId
+          }).catch((error) => {
+            if (!isUnknownActionError_(error, "formation.records.list")) {
+              throw error;
+            }
+
+            throw buildBackendRouteMissingError_("formation.records.list", "la ruta formation.records.list");
+          }),
+        candidates
+          ? Promise.resolve(candidates)
+          : apiGet("formation.candidates.list", {
+            seasonId: filter.seasonId
+          }).catch((error) => {
+            if (!isUnknownActionError_(error, "formation.candidates.list")) {
+              throw error;
+            }
+
+            throw buildBackendRouteMissingError_("formation.candidates.list", "la ruta formation.candidates.list");
+          })
       ]);
 
       records = fallbackResponses[0];
@@ -15603,7 +15677,10 @@ function handleError(error) {
     : "Ocurrio un error inesperado";
 
   if (isUnknownActionError_(error)) {
-    message = "La API publicada todavia no incluye esa accion. Actualiza los archivos .gs y vuelve a desplegar la Web App.";
+    const actionName = extractUnknownActionName_(error);
+    message = actionName
+      ? `La API publicada todavia no incluye ${actionName}. Actualiza los archivos .gs y vuelve a desplegar la Web App.`
+      : "La API publicada todavia no incluye esa accion. Actualiza los archivos .gs y vuelve a desplegar la Web App.";
   }
 
   if (isParticipantSeasonConflictError_(error)) {
