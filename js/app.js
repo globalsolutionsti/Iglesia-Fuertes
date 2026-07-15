@@ -878,7 +878,7 @@ function buildEncounterInviteWhatsappUrlClient_(candidate) {
   const leaderName = String(candidate?.leaderName || "tu líder").trim();
   const message = [
     `Hola ${personName}.`,
-    "Queremos invitarte a ENCUENTRO como siguiente paso de tu crecimiento en Iglesia Fuertes.",
+    "Queremos invitarte al ENCUENTRO como siguiente paso de tu crecimiento en Iglesia Fuertes.",
     `Grupo de conexión: ${groupName}`,
     `Tu líder: ${leaderName}`,
     "Si aceptas participar, responde este mensaje para continuar con tu registro."
