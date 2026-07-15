@@ -525,6 +525,15 @@ function getActiveFormationSection_() {
   return state.ui.formationSection;
 }
 
+function clearFormationProfileSelection_(options = {}) {
+  state.ui.selectedFormationPersonId = "";
+  state.formationProfile = null;
+
+  if (!options.keepRecord) {
+    state.ui.editingFormationRecordId = "";
+  }
+}
+
 function isUnknownActionError_(error, actionName = "") {
   if (!(error instanceof ApiError)) {
     return false;
@@ -2076,9 +2085,10 @@ function renderFormationView_() {
   const formationRouteContext = renderFormationRouteContext_(candidates);
   const profile = state.formationProfile;
   const selectedPersonId = state.ui.selectedFormationPersonId;
-  const selectedCandidate = candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
-    || state.formationCandidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
-    || candidates[0]
+  const selectedCandidate = (selectedPersonId
+    ? (candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
+      || state.formationCandidates.find((item) => String(item.personId) === String(selectedPersonId || "")))
+    : null)
     || profile?.currentCandidate
     || (profile?.person ? {
       personId: profile.person.id,
@@ -2386,7 +2396,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
           data-action="open-formation-profile"
           data-person-id="${escapeHtml(candidate?.personId || "")}"
         >
-          Ver detalle
+          Ver perfil
         </button>
         <button
           class="btn btn-secondary"
@@ -2541,7 +2551,7 @@ function renderFormationCasesWorkspace_(context) {
                 <td>
                   <div class="inline-actions">
                     <button class="btn btn-secondary" data-action="edit-formation-record" data-record-id="${escapeHtml(record.id)}" data-person-id="${escapeHtml(record.personId)}">Editar</button>
-                    <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(record.personId)}">Perfil</button>
+                    <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(record.personId)}">Ver perfil</button>
                   </div>
                 </td>
               </tr>
@@ -7793,6 +7803,9 @@ async function handleClick(event) {
 
     if (action === "set-formation-section") {
       state.ui.formationSection = normalizeFormationSection_(button.dataset.sectionKey || "");
+      if (state.ui.formationSection === "route") {
+        clearFormationProfileSelection_();
+      }
       renderApp();
       scrollViewportToTop_();
       return;
@@ -7812,6 +7825,10 @@ async function handleClick(event) {
       if (state.currentView === "welcome-prospects") {
         state.welcomeProfile = null;
         state.ui.selectedWelcomePersonId = "";
+      }
+      if (state.currentView === "formation") {
+        state.ui.formationSection = "route";
+        clearFormationProfileSelection_();
       }
       state.ui.mobileNavOpen = false;
       if (state.currentView === "dashboard" && shouldShowDashboardLoading_()) {
@@ -8737,9 +8754,12 @@ async function handleClick(event) {
     if (action === "select-formation-person") {
       state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       state.ui.editingFormationRecordId = "";
+      state.formationProfile = null;
+      renderApp();
+      scrollToSection_("formation-profile");
       await loadFormationProfile_(state.ui.selectedFormationPersonId, {
         force: true,
-        showLoading: false
+        message: "Cargando perfil formativo..."
       });
       renderApp();
       scrollToSection_("formation-profile");
@@ -8749,9 +8769,12 @@ async function handleClick(event) {
     if (action === "open-formation-profile") {
       state.ui.formationSection = "route";
       state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
+      state.formationProfile = null;
+      renderApp();
+      scrollToSection_("formation-profile");
       await loadFormationProfile_(state.ui.selectedFormationPersonId, {
         force: true,
-        showLoading: false
+        message: "Cargando perfil formativo..."
       });
       renderApp();
       scrollToSection_("formation-profile");
@@ -10175,15 +10198,15 @@ async function ensureFormationViewData_(options = {}) {
 
   await loadFormationData_(options);
 
-  if (!state.formationProfile || state.formationProfile?.person?.id !== state.ui.selectedFormationPersonId) {
-    const selectedCandidate = state.formationCandidates.find((candidate) => String(candidate.personId) === String(state.ui.selectedFormationPersonId || ""))
-      || state.formationCandidates[0];
+  if (!state.ui.selectedFormationPersonId) {
+    state.formationProfile = null;
+    return;
+  }
 
-    if (selectedCandidate) {
-      await loadFormationProfile_(selectedCandidate.personId, {
-        showLoading: false
-      });
-    }
+  if (!state.formationProfile || state.formationProfile?.person?.id !== state.ui.selectedFormationPersonId) {
+    await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+      showLoading: false
+    });
   }
 }
 
@@ -14744,22 +14767,19 @@ function isFormationFilterDirty_() {
 function syncFormationSelectionAfterFilter_() {
   const filteredCandidates = getFilteredFormationCandidates_();
   const selectedPersonId = String(state.ui.selectedFormationPersonId || "");
+
+  if (!selectedPersonId) {
+    state.formationProfile = null;
+    return;
+  }
+
   const selectedVisible = filteredCandidates.some((candidate) => String(candidate.personId || "") === selectedPersonId);
 
   if (selectedVisible) {
     return;
   }
 
-  state.ui.editingFormationRecordId = "";
-
-  if (!filteredCandidates.length) {
-    state.ui.selectedFormationPersonId = "";
-    state.formationProfile = null;
-    return;
-  }
-
-  state.ui.selectedFormationPersonId = String(filteredCandidates[0].personId || "");
-  state.formationProfile = null;
+  clearFormationProfileSelection_();
 }
 
 async function applyFormationFilters_() {
