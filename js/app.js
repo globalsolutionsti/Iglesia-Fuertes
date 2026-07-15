@@ -266,6 +266,7 @@ const state = {
     editingUserEmail: "",
     editingFormationLevelId: "",
     editingFormationRecordId: "",
+    formationSection: "route",
     selectedWelcomePersonId: "",
     welcomeWorkbenchMode: "",
     welcomeModal: null,
@@ -512,6 +513,16 @@ function renderModuleTabButton_(tab) {
       <small>${escapeHtml(tab.description || "")}</small>
     </button>
   `;
+}
+
+function normalizeFormationSection_(value) {
+  const cleanValue = String(value || "").trim().toLowerCase();
+  return ["route", "cases", "levels"].includes(cleanValue) ? cleanValue : "route";
+}
+
+function getActiveFormationSection_() {
+  state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
+  return state.ui.formationSection;
 }
 
 function isUnknownActionError_(error, actionName = "") {
@@ -1197,12 +1208,13 @@ function renderModuleMobileAction_(action) {
   const variant = action.variant || "secondary";
   const actionName = action.action || (action.view ? "navigate" : "scroll-to-section");
   const sectionIdAttribute = action.sectionId ? ` data-section-id="${escapeHtml(action.sectionId)}"` : "";
+  const sectionKeyAttribute = action.sectionKey ? ` data-section-key="${escapeHtml(action.sectionKey)}"` : "";
   const viewAttribute = action.view ? ` data-view="${escapeHtml(action.view)}"` : "";
 
   return `
     <button
       class="btn btn-${escapeHtml(variant)}"
-      data-action="${escapeHtml(actionName)}"${sectionIdAttribute}${viewAttribute}
+      data-action="${escapeHtml(actionName)}"${sectionIdAttribute}${sectionKeyAttribute}${viewAttribute}
     >
       ${escapeHtml(action.label || "Abrir")}
     </button>
@@ -2055,15 +2067,17 @@ function renderWelcomeProspectsView_() {
 }
 
 function renderFormationView_() {
+  const activeSection = getActiveFormationSection_();
   const formationDraft = getFormationFilterDraft_();
   const formationFilterDirty = isFormationFilterDirty_();
   const candidates = getFilteredFormationCandidates_();
-  const records = getFilteredFormationRecords_();
+  const allRecords = state.formationRecords;
   const formationFilterFeedback = renderFormationFilterFeedback_(candidates);
   const formationRouteContext = renderFormationRouteContext_(candidates);
   const profile = state.formationProfile;
   const selectedPersonId = state.ui.selectedFormationPersonId;
   const selectedCandidate = candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
+    || state.formationCandidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
     || candidates[0]
     || profile?.currentCandidate
     || (profile?.person ? {
@@ -2077,7 +2091,7 @@ function renderFormationView_() {
       currentLevel: profile.person.nivelFormacionActual || ""
     } : null);
   const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
-  const editingRecord = records.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || profile?.records?.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || null;
+  const editingRecord = allRecords.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || profile?.records?.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || null;
   const summary = buildFormationSummary_();
   const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
 
@@ -2097,11 +2111,6 @@ function renderFormationView_() {
           { label: "Invitados", value: String(summary.invited) },
           { label: "Prospectos", value: String(summary.prospects) },
           { label: "Acreditados", value: String(summary.approved) }
-        ],
-        actions: [
-          { label: "Asistencias", variant: "primary", view: "attendance" },
-          { label: "Asignacion", variant: "secondary", view: "participants" },
-          { label: "Historial", variant: "ghost", sectionId: "formation-profile" }
         ]
       })}
 
@@ -2122,380 +2131,601 @@ function renderFormationView_() {
           <span>Ya aceptaron y quedaron registrados hacia Encuentro.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip success">En curso / historial</span>
-          <strong>${escapeHtml(String(summary.inProgress + records.length))}</strong>
-          <span>Combina el avance vivo con el historial completo del discipulado.</span>
+          <span class="status-chip success">Historial formativo</span>
+          <strong>${escapeHtml(String(allRecords.length))}</strong>
+          <span>Casos registrados dentro del proceso de formación y discipulado.</span>
         </article>
       </div>
 
-      <article class="panel-card">
-        <div class="panel-head">
+      ${renderFormationWorkspaceTabs_(activeSection, {
+        routeCount: candidates.length,
+        recordsCount: allRecords.length,
+        levelsCount: state.formationCatalog.length
+      })}
+
+      ${activeSection === "route" ? renderFormationRouteWorkspace_({
+        seasonId,
+        formationDraft,
+        formationFilterDirty,
+        candidates,
+        formationFilterFeedback,
+        formationRouteContext,
+        profile,
+        activePersonId: selectedCandidate?.personId || profile?.person?.id || ""
+      }) : ""}
+
+      ${activeSection === "cases" ? renderFormationCasesWorkspace_({
+        seasonId,
+        selectedCandidate,
+        profile,
+        editingRecord,
+        records: allRecords
+      }) : ""}
+
+      ${activeSection === "levels" ? renderFormationLevelsWorkspace_({
+        editingLevel
+      }) : ""}
+    </section>
+  `;
+}
+
+function renderFormationWorkspaceTabs_(activeSection, counts) {
+  const tabs = [
+    {
+      key: "route",
+      label: "Ruta a Encuentro",
+      description: `${counts.routeCount || 0} en ruta`
+    },
+    {
+      key: "cases",
+      label: "Casos formativos",
+      description: `${counts.recordsCount || 0} registros`
+    },
+    {
+      key: "levels",
+      label: "Catálogo de niveles",
+      description: `${counts.levelsCount || 0} niveles`
+    }
+  ];
+
+  return `
+    <div class="module-tabs formation-workspace-tabs" role="tablist" aria-label="Subfichas de Proceso de Formación">
+      ${tabs.map((tab) => `
+        <button
+          class="module-tab-button ${activeSection === tab.key ? "active" : ""}"
+          data-action="set-formation-section"
+          data-section-key="${escapeHtml(tab.key)}"
+          role="tab"
+          aria-selected="${activeSection === tab.key ? "true" : "false"}"
+        >
+          <strong>${escapeHtml(tab.label)}</strong>
+          <small>${escapeHtml(tab.description)}</small>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderFormationRouteWorkspace_(context) {
+  const {
+    seasonId,
+    formationDraft,
+    formationFilterDirty,
+    candidates,
+    formationFilterFeedback,
+    formationRouteContext,
+    profile,
+    activePersonId
+  } = context;
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-route-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>Filtro operativo</h2>
+          <p>Elige temporada, grupo, estatus y luego aplica el filtro para ver solo los casos que debes trabajar ahora.</p>
+        </div>
+        <div class="actions-row">
+          <span class="status-chip neutral formation-filter-status">
+            ${state.ui.formationFilterBusy ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}
+            ${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : (formationFilterDirty ? "Cambios pendientes" : "Filtro listo"))}
+          </span>
+          <button class="btn btn-primary" data-action="apply-formation-filters" ${state.ui.formationFilterBusy ? "disabled" : ""}>
+            ${state.ui.formationFilterBusy ? "Aplicando..." : "Aplicar filtro"}
+          </button>
+          <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
+        </div>
+      </div>
+
+      <div class="field-grid two">
+        ${renderSeasonSelect("formation-season", formationDraft.seasonId || seasonId)}
+        <div class="field">
+          <label for="formation-group">Grupo</label>
+          <select id="formation-group">
+            ${renderOptions(
+              state.catalogs.groups.map((group) => ({
+                value: String(group.id),
+                label: `${group.name} (${group.id})`
+              })),
+              formationDraft.groupId,
+              "Todos los grupos"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-status-filter">Estatus</label>
+          <select id="formation-status-filter">
+            ${renderOptions([
+              { value: "ALL", label: "Todos los estatus" },
+              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Encuentro" },
+              { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
+              { value: "PROSPECTO GF", label: "Prospecto GF" },
+              { value: "ACEPTADO_FORMACION", label: "Aceptado" },
+              { value: "RECHAZADO_FORMACION", label: "Rechazado" },
+              { value: "EN_CURSO", label: "En curso" },
+              { value: "ACREDITADO", label: "Acreditado" },
+              { value: "NO_ACREDITADO", label: "No acreditado" }
+            ], formationDraft.status, "Todos los estatus")}
+          </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="formation-search">Buscar</label>
+          <input id="formation-search" value="${escapeHtml(formationDraft.search)}" placeholder="Nombre, QR ID, grupo o nivel">
+        </div>
+      </div>
+
+      <p class="footer-note">El filtro de nivel se dejó fuera de esta vista operativa para que el líder solo vea lo necesario para invitar y registrar.</p>
+      ${formationFilterFeedback}
+    </article>
+
+    <article class="detail-card formation-encounter-card module-section-anchor" id="formation-encounter-flow">
+      <div class="panel-head">
+        <div>
+          <h2>Primer apartado: Ruta a Encuentro</h2>
+          <p>Primero filtras, luego revisas el listado y desde el mismo renglón puedes abrir el perfil, enviar la invitación o registrar el Encuentro.</p>
+        </div>
+        <span class="pill dark">${escapeHtml(String(candidates.length))} en ruta</span>
+      </div>
+
+      <div class="summary-strip">
+        <span class="context-item"><strong>Paso 1:</strong> el sistema lo detecta por 3 asistencias consecutivas</span>
+        <span class="context-item"><strong>Paso 2:</strong> Telegram avisa automáticamente al líder</span>
+        <span class="context-item"><strong>Paso 3:</strong> desde aquí se envía la invitación al congregante</span>
+        <span class="context-item"><strong>Paso 4:</strong> si acepta, se registra a Encuentro</span>
+      </div>
+
+      ${formationRouteContext}
+
+      <div class="formation-ledger-card">
+        <div class="panel-head formation-ledger-card-head">
           <div>
-            <h2>Filtro operativo</h2>
-            <p>Selecciona los filtros y luego usa el botón para aplicarlos. Temporada tarda más porque recarga toda la ruta.</p>
+            <h3>Listado operativo</h3>
+            <p>Cada renglón concentra la información justa para trabajar rápido sin abrir pantallas innecesarias.</p>
           </div>
-          <div class="actions-row">
-            <span class="status-chip neutral formation-filter-status">
-              ${state.ui.formationFilterBusy ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}
-              ${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : (formationFilterDirty ? "Cambios pendientes" : "Filtro listo"))}
-            </span>
-            <button class="btn btn-primary" data-action="apply-formation-filters" ${state.ui.formationFilterBusy ? "disabled" : ""}>
-              ${state.ui.formationFilterBusy ? "Aplicando..." : "Aplicar filtro"}
-            </button>
-            <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
-          </div>
+          <span class="pill neutral">${escapeHtml(String(candidates.length))} casos</span>
         </div>
 
+        ${candidates.length ? `
+          <div class="formation-ledger">
+            <div class="formation-ledger-head" aria-hidden="true">
+              <span>Congregante</span>
+              <span>Nivel</span>
+              <span>Estatus</span>
+              <span>Seguimiento</span>
+              <span>Acción</span>
+            </div>
+            ${candidates.map((candidate) => renderFormationRouteResultRow_(candidate, activePersonId)).join("")}
+          </div>
+        ` : `
+          <div class="empty-state">Todavía no hay personas con 3 asistencias consecutivas dentro del filtro actual.</div>
+        `}
+      </div>
+    </article>
+
+    ${renderFormationProfileSection_(profile)}
+  `;
+}
+
+function renderFormationRouteResultRow_(candidate, activePersonId) {
+  const isActive = String(candidate?.personId || "") === String(activePersonId || "");
+  const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
+  const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
+  const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
+  const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
+  const levelName = sanitizeFormationDisplayText_(candidate?.currentLevel, getFormationDefaultLevelName_());
+  const seasonName = resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada";
+  const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
+  const inviteLabel = candidate?.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
+  const encounterLabel = candidate?.encounterRegisteredAt
+    ? "Encuentro registrado"
+    : (candidate?.invitedAt ? "Registrar a Encuentro" : "Primero envía invitación");
+  const inviteDisabled = candidate?.personPhone ? "" : "disabled";
+  const encounterDisabled = candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled";
+  const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
+  const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
+  const followupTitle = candidate?.encounterRegisteredAt
+    ? `Encuentro registrado ${formatDate(candidate.encounterRegisteredAt)}`
+    : (candidate?.invitedAt
+      ? `Invitación enviada ${formatDate(candidate.invitedAt)}`
+      : (candidate?.leaderNotifiedAt
+        ? `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`
+        : "Pendiente de invitación"));
+  const followupMeta = candidate?.encounterRegisteredAt
+    ? "La persona ya quedó registrada para continuar su proceso."
+    : (candidate?.invitedAt
+      ? "Solo falta confirmar y registrar el Encuentro."
+      : leaderNotice);
+
+  return `
+    <article class="formation-ledger-row ${isActive ? "is-active" : ""}">
+      <div class="formation-ledger-cell formation-ledger-cell-main">
+        <small>Congregante</small>
+        <strong>${escapeHtml(personName)}</strong>
+        <span>${escapeHtml(personNumber)} | QR ${escapeHtml(candidate?.personId || "-")} | ${escapeHtml(personPhone)}</span>
+        <span>${escapeHtml(groupName)} | ${escapeHtml(seasonName)}</span>
+      </div>
+      <div class="formation-ledger-cell">
+        <small>Nivel</small>
+        <strong>${escapeHtml(levelName)}</strong>
+        <span>${escapeHtml(attendanceSummary)}</span>
+      </div>
+      <div class="formation-ledger-cell">
+        <small>Estatus</small>
+        <div>${renderWorkflowStatusPill_(candidate?.formationStatus || "SIN_PROCESO")}</div>
+        <span>${escapeHtml(consecutiveSummary)}</span>
+      </div>
+      <div class="formation-ledger-cell">
+        <small>Seguimiento</small>
+        <strong>${escapeHtml(followupTitle)}</strong>
+        <span>${escapeHtml(followupMeta)}</span>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-actions">
+        <small>Acción</small>
+        <button
+          class="btn btn-ghost"
+          data-action="open-formation-profile"
+          data-person-id="${escapeHtml(candidate?.personId || "")}"
+        >
+          Ver detalle
+        </button>
+        <button
+          class="btn btn-secondary"
+          data-action="formation-send-encounter-invite"
+          data-person-id="${escapeHtml(candidate?.personId || "")}"
+          ${inviteDisabled}
+        >
+          ${escapeHtml(inviteLabel)}
+        </button>
+        <button
+          class="btn btn-primary"
+          data-action="formation-register-encounter"
+          data-person-id="${escapeHtml(candidate?.personId || "")}"
+          ${encounterDisabled}
+        >
+          ${escapeHtml(encounterLabel)}
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderFormationCasesWorkspace_(context) {
+  const {
+    seasonId,
+    selectedCandidate,
+    profile,
+    editingRecord,
+    records
+  } = context;
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-cases-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>${editingRecord ? "Actualizar caso formativo" : "Actualizar caso formativo"}</h2>
+          <p>Esta subficha sirve para registrar resultados pastorales, fechas, observaciones y decisiones de avance por nivel.</p>
+        </div>
+        ${selectedCandidate ? renderWorkflowStatusPill_(selectedCandidate.formationStatus || "SIN_PROCESO") : `<span class="pill dark">Sin selección</span>`}
+      </div>
+
+      <div class="summary-strip">
+        <span class="context-item"><strong>Persona activa:</strong> ${escapeHtml(selectedCandidate?.personName || editingRecord?.personName || profile?.person?.nombreCompleto || "Selecciona un congregante")}</span>
+        <span class="context-item"><strong>Grupo:</strong> ${escapeHtml(selectedCandidate?.groupName || editingRecord?.groupName || profile?.currentCandidate?.groupName || resolveGroupName_(profile?.person?.grupo) || "Sin grupo")}</span>
+        <span class="context-item"><strong>Tip:</strong> si necesitas cambiar a otra persona, abre su perfil desde Ruta a Encuentro o desde el historial.</span>
+      </div>
+
+      <form id="formation-record-form">
+        <input type="hidden" name="id" value="${escapeHtml(editingRecord?.id || "")}">
+        <input type="hidden" name="personId" value="${escapeHtml(selectedCandidate?.personId || editingRecord?.personId || profile?.person?.id || "")}">
+        <input type="hidden" name="seasonId" value="${escapeHtml(selectedCandidate?.seasonId || editingRecord?.seasonId || seasonId || "")}">
+        <input type="hidden" name="groupId" value="${escapeHtml(selectedCandidate?.groupId || editingRecord?.groupId || profile?.currentCandidate?.groupId || "")}">
+
         <div class="field-grid two">
-          ${renderSeasonSelect("formation-season", formationDraft.seasonId || seasonId)}
           <div class="field">
-            <label for="formation-group">Grupo</label>
-            <select id="formation-group">
+            <label for="formation-level">Nivel</label>
+            <select id="formation-level" name="levelId">
               ${renderOptions(
-                state.catalogs.groups.map((group) => ({
-                  value: String(group.id),
-                  label: `${group.name} (${group.id})`
+                state.formationCatalog.map((level) => ({
+                  value: level.id,
+                  label: `${level.name} (${level.order})`
                 })),
-                formationDraft.groupId,
-                "Todos los grupos"
+                editingRecord?.levelId || profile?.nextLevel?.id || "",
+                "Selecciona nivel"
               )}
             </select>
           </div>
           <div class="field">
-            <label for="formation-status-filter">Estatus</label>
-            <select id="formation-status-filter">
+            <label for="formation-status">Estatus</label>
+            <select id="formation-status" name="status">
               ${renderOptions([
-                { value: "ALL", label: "Todos los estatus" },
-                { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Encuentro" },
-                { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
                 { value: "PROSPECTO GF", label: "Prospecto GF" },
-                { value: "ACEPTADO_FORMACION", label: "Aceptado" },
-                { value: "RECHAZADO_FORMACION", label: "Rechazado" },
+                { value: "ACEPTADO_FORMACION", label: "Aceptado formación" },
+                { value: "RECHAZADO_FORMACION", label: "Rechazado formación" },
                 { value: "EN_CURSO", label: "En curso" },
                 { value: "ACREDITADO", label: "Acreditado" },
                 { value: "NO_ACREDITADO", label: "No acreditado" }
-              ], formationDraft.status, "Todos los estatus")}
+              ], editingRecord?.status || "PROSPECTO GF", "Selecciona estatus")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="formation-requested-by">Solicitado por</label>
+            <input id="formation-requested-by" name="requestedBy" value="${escapeHtml(editingRecord?.requestedBy || state.user?.name || "")}" placeholder="Líder o responsable">
+          </div>
+          <div class="field">
+            <label for="formation-reviewed-by">Revisado por</label>
+            <input id="formation-reviewed-by" name="reviewedBy" value="${escapeHtml(editingRecord?.reviewedBy || "")}" placeholder="Coordinación">
+          </div>
+          <div class="field">
+            <label for="formation-start-date">Inicio</label>
+            <input id="formation-start-date" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingRecord?.startDate) || "")}">
+          </div>
+          <div class="field">
+            <label for="formation-end-date">Fin</label>
+            <input id="formation-end-date" name="endDate" type="date" value="${escapeHtml(formatDateForInput_(editingRecord?.endDate) || "")}">
+          </div>
+          <div class="field">
+            <label for="formation-result">Resultado</label>
+            <input id="formation-result" name="result" value="${escapeHtml(editingRecord?.result || "")}" placeholder="Aprobado, por iniciar, reagendado...">
+          </div>
+          <div class="field">
+            <label for="formation-reason">Motivo / observación</label>
+            <input id="formation-reason" name="reason" value="${escapeHtml(editingRecord?.reason || "")}" placeholder="Usa este campo si fue rechazado o reagendado">
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <label for="formation-notes">Notas</label>
+            <textarea id="formation-notes" name="notes" rows="3" placeholder="Seguimiento del líder, validación de coordinación o acuerdos pastorales">${escapeHtml(editingRecord?.notes || "")}</textarea>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" type="submit" ${selectedCandidate || profile?.person ? "" : "disabled"}>${editingRecord ? "Guardar cambios" : "Registrar caso"}</button>
+          <button class="btn btn-ghost" type="button" data-action="clear-formation-record-form" ${editingRecord || selectedCandidate ? "" : "disabled"}>Limpiar</button>
+          ${profile?.records?.[0]?.coordinatorWhatsappUrl ? `<a class="btn btn-secondary" href="${escapeHtml(profile.records[0].coordinatorWhatsappUrl)}" target="_blank" rel="noreferrer">Preparar WhatsApp coordinación</a>` : ""}
+        </div>
+      </form>
+    </article>
+
+    <article class="detail-card">
+      <div class="panel-head">
+        <div>
+          <h2>Historial de casos</h2>
+          <p>Consulta quién fue prospectado, quién fue aceptado y quién ya acreditó. Desde aquí también puedes editar o abrir el perfil.</p>
+        </div>
+        <span class="pill dark">${escapeHtml(String(records.length))} registros</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Congregante</th>
+              <th>Nivel</th>
+              <th>Estatus</th>
+              <th>Seguimiento</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${records.length ? records.map((record) => `
+              <tr>
+                <td>
+                  <span class="row-title">${escapeHtml(record.personName)}</span>
+                  <span class="row-meta">${escapeHtml(record.groupName || "Sin grupo")} | ${escapeHtml(resolveSeasonName_(record.seasonId) || record.seasonId || "Sin temporada")}</span>
+                </td>
+                <td>${escapeHtml(record.levelName || "Sin nivel")}</td>
+                <td>${renderWorkflowStatusPill_(record.status)}</td>
+                <td>
+                  <span class="row-title">${escapeHtml(formatDate(record.requestedAt) || "Sin fecha")}</span>
+                  <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
+                </td>
+                <td>
+                  <div class="inline-actions">
+                    <button class="btn btn-secondary" data-action="edit-formation-record" data-record-id="${escapeHtml(record.id)}" data-person-id="${escapeHtml(record.personId)}">Editar</button>
+                    <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(record.personId)}">Perfil</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("") : `
+              <tr>
+                <td colspan="5"><div class="empty-state">Todavía no hay casos formativos registrados.</div></td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  `;
+}
+
+function renderFormationLevelsWorkspace_(context) {
+  const { editingLevel } = context;
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-levels-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>${editingLevel ? "Editar nivel" : "Catálogo de niveles"}</h2>
+          <p>Deja ordenada la escalera de formación para que el proceso sea claro tanto para líderes como para congregantes.</p>
+        </div>
+      </div>
+
+      <form id="formation-level-form">
+        <input type="hidden" name="id" value="${escapeHtml(editingLevel?.id || "")}">
+        <div class="field-grid two">
+          <div class="field">
+            <label for="formation-level-name">Nombre</label>
+            <input id="formation-level-name" name="name" value="${escapeHtml(editingLevel?.name || "")}" placeholder="Encuentro" required>
+          </div>
+          <div class="field">
+            <label for="formation-level-order">Orden</label>
+            <input id="formation-level-order" name="order" type="number" min="0" value="${escapeHtml(String(editingLevel?.order || state.formationCatalog.length + 1))}" required>
+          </div>
+          <div class="field">
+            <label for="formation-level-status">Estado</label>
+            <select id="formation-level-status" name="status">
+              ${renderOptions([
+                { value: "ACTIVO", label: "ACTIVO" },
+                { value: "INACTIVO", label: "INACTIVO" }
+              ], editingLevel?.status || "ACTIVO", "Selecciona estado")}
             </select>
           </div>
           <div class="field" style="grid-column: 1 / -1;">
-            <label for="formation-search">Buscar</label>
-            <input id="formation-search" value="${escapeHtml(formationDraft.search)}" placeholder="Nombre, QR ID, grupo o nivel">
+            <label for="formation-level-description">Descripción</label>
+            <input id="formation-level-description" name="description" value="${escapeHtml(editingLevel?.description || "")}" placeholder="Objetivo pastoral o alcance del nivel">
           </div>
         </div>
 
-        <p class="footer-note">El filtro de nivel se dejó fuera de esta vista operativa para no confundir el proceso de invitación a Encuentro.</p>
-        ${formationFilterFeedback}
-      </article>
-
-      <article class="detail-card formation-encounter-card module-section-anchor" id="formation-encounter-flow">
-        <div class="panel-head">
-          <div>
-            <h2>Primer apartado: Ruta a Encuentro</h2>
-            <p>Este listado aparece solo cuando la persona ya cumplió 3 asistencias consecutivas o ya está en seguimiento hacia Encuentro.</p>
-          </div>
-          <span class="pill dark">${escapeHtml(String(candidates.length))} en ruta</span>
+        <div class="actions-row">
+          <button class="btn btn-primary" type="submit">${editingLevel ? "Guardar nivel" : "Crear nivel"}</button>
+          <button class="btn btn-ghost" type="button" data-action="clear-formation-level-form" ${editingLevel ? "" : "disabled"}>Limpiar</button>
         </div>
+      </form>
+    </article>
 
-        <div class="summary-strip">
-          <span class="context-item"><strong>Paso 1:</strong> el sistema lo detecta por 3 asistencias consecutivas</span>
-          <span class="context-item"><strong>Paso 2:</strong> Telegram avisa automáticamente al líder</span>
-          <span class="context-item"><strong>Paso 3:</strong> desde aquí se envía la invitación al congregante</span>
-          <span class="context-item"><strong>Paso 4:</strong> si acepta, se registra a Encuentro</span>
+    <article class="detail-card">
+      <div class="panel-head">
+        <div>
+          <h2>Listado de niveles</h2>
+          <p>Confirma el orden, la vigencia y la descripción pastoral de cada etapa del discipulado.</p>
         </div>
-
-        ${formationRouteContext}
-
-        <div class="formation-route-list">
-          ${candidates.length ? candidates.map((candidate) => renderFormationEncounterRouteCard_(candidate)).join("") : `
-            <div class="empty-state">Todavía no hay personas con 3 asistencias consecutivas en la temporada seleccionada.</div>
-          `}
-        </div>
-      </article>
-
-      <div class="view-grid columns-2">
-        <article class="panel-card">
-          <div class="panel-head">
-            <div>
-              <h2>${editingRecord ? "Actualizar caso formativo" : "Prospectar o validar congregante"}</h2>
-              <p>${selectedCandidate ? `${selectedCandidate.personName} | ${selectedCandidate.groupName || "Sin grupo"}` : "Selecciona un congregante desde la tabla para cargarlo en el formulario."}</p>
-            </div>
-            ${selectedCandidate ? renderWorkflowStatusPill_(selectedCandidate.formationStatus || "SIN_PROCESO") : `<span class="pill dark">Sin selección</span>`}
-          </div>
-
-          <form id="formation-record-form">
-            <input type="hidden" name="id" value="${escapeHtml(editingRecord?.id || "")}">
-            <input type="hidden" name="personId" value="${escapeHtml(selectedCandidate?.personId || profile?.person?.id || "")}">
-            <input type="hidden" name="seasonId" value="${escapeHtml(selectedCandidate?.seasonId || seasonId || "")}">
-            <input type="hidden" name="groupId" value="${escapeHtml(selectedCandidate?.groupId || profile?.currentCandidate?.groupId || "")}">
-
-            <div class="field-grid two">
-              <div class="field">
-                <label for="formation-level">Nivel</label>
-                <select id="formation-level" name="levelId">
-                  ${renderOptions(
-                    state.formationCatalog.map((level) => ({
-                      value: level.id,
-                      label: `${level.name} (${level.order})`
-                    })),
-                    editingRecord?.levelId || profile?.nextLevel?.id || "",
-                    "Selecciona nivel"
-                  )}
-                </select>
-              </div>
-              <div class="field">
-                <label for="formation-status">Estatus</label>
-                <select id="formation-status" name="status">
-                  ${renderOptions([
-                    { value: "PROSPECTO GF", label: "Prospecto GF" },
-                    { value: "ACEPTADO_FORMACION", label: "Aceptado formación" },
-                    { value: "RECHAZADO_FORMACION", label: "Rechazado formación" },
-                    { value: "EN_CURSO", label: "En curso" },
-                    { value: "ACREDITADO", label: "Acreditado" },
-                    { value: "NO_ACREDITADO", label: "No acreditado" }
-                  ], editingRecord?.status || "PROSPECTO GF", "Selecciona estatus")}
-                </select>
-              </div>
-              <div class="field">
-                <label for="formation-requested-by">Solicitado por</label>
-                <input id="formation-requested-by" name="requestedBy" value="${escapeHtml(editingRecord?.requestedBy || state.user?.name || "")}" placeholder="Líder o responsable">
-              </div>
-              <div class="field">
-                <label for="formation-reviewed-by">Revisado por</label>
-                <input id="formation-reviewed-by" name="reviewedBy" value="${escapeHtml(editingRecord?.reviewedBy || "")}" placeholder="Coordinación">
-              </div>
-              <div class="field">
-                <label for="formation-start-date">Inicio</label>
-                <input id="formation-start-date" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingRecord?.startDate) || "")}">
-              </div>
-              <div class="field">
-                <label for="formation-end-date">Fin</label>
-                <input id="formation-end-date" name="endDate" type="date" value="${escapeHtml(formatDateForInput_(editingRecord?.endDate) || "")}">
-              </div>
-              <div class="field">
-                <label for="formation-result">Resultado</label>
-                <input id="formation-result" name="result" value="${escapeHtml(editingRecord?.result || "")}" placeholder="Aprobado, por iniciar, reagendado...">
-              </div>
-              <div class="field">
-                <label for="formation-reason">Motivo / observación</label>
-                <input id="formation-reason" name="reason" value="${escapeHtml(editingRecord?.reason || "")}" placeholder="Usa este campo si fue rechazado o reagendado">
-              </div>
-              <div class="field" style="grid-column: 1 / -1;">
-                <label for="formation-notes">Notas</label>
-                <textarea id="formation-notes" name="notes" rows="3" placeholder="Seguimiento del líder, validación de coordinación o acuerdos pastorales">${escapeHtml(editingRecord?.notes || "")}</textarea>
-              </div>
-            </div>
-
-            <div class="actions-row">
-              <button class="btn btn-primary" type="submit" ${selectedCandidate || profile?.person ? "" : "disabled"}>${editingRecord ? "Guardar cambios" : "Registrar caso"}</button>
-              <button class="btn btn-ghost" type="button" data-action="clear-formation-record-form" ${editingRecord || selectedCandidate ? "" : "disabled"}>Limpiar</button>
-              ${profile?.records?.[0]?.coordinatorWhatsappUrl ? `<a class="btn btn-secondary" href="${escapeHtml(profile.records[0].coordinatorWhatsappUrl)}" target="_blank" rel="noreferrer">Preparar WhatsApp coordinación</a>` : ""}
-            </div>
-          </form>
-        </article>
-
-        <article class="panel-card">
-          <div class="panel-head">
-            <div>
-              <h2>${editingLevel ? "Editar nivel" : "Catálogo de niveles"}</h2>
-              <p>Ordena la ruta de formación y deja listo el siguiente paso cuando alguien acredite.</p>
-            </div>
-          </div>
-
-          <form id="formation-level-form">
-            <input type="hidden" name="id" value="${escapeHtml(editingLevel?.id || "")}">
-            <div class="field-grid two">
-              <div class="field">
-                <label for="formation-level-name">Nombre</label>
-                <input id="formation-level-name" name="name" value="${escapeHtml(editingLevel?.name || "")}" placeholder="Encuentro" required>
-              </div>
-              <div class="field">
-                <label for="formation-level-order">Orden</label>
-                <input id="formation-level-order" name="order" type="number" min="0" value="${escapeHtml(String(editingLevel?.order || state.formationCatalog.length + 1))}" required>
-              </div>
-              <div class="field">
-                <label for="formation-level-status">Estado</label>
-                <select id="formation-level-status" name="status">
-                  ${renderOptions([
-                    { value: "ACTIVO", label: "ACTIVO" },
-                    { value: "INACTIVO", label: "INACTIVO" }
-                  ], editingLevel?.status || "ACTIVO", "Selecciona estado")}
-                </select>
-              </div>
-              <div class="field" style="grid-column: 1 / -1;">
-                <label for="formation-level-description">Descripción</label>
-                <input id="formation-level-description" name="description" value="${escapeHtml(editingLevel?.description || "")}" placeholder="Objetivo pastoral o alcance del nivel">
-              </div>
-            </div>
-
-            <div class="actions-row">
-              <button class="btn btn-primary" type="submit">${editingLevel ? "Guardar nivel" : "Crear nivel"}</button>
-              <button class="btn btn-ghost" type="button" data-action="clear-formation-level-form" ${editingLevel ? "" : "disabled"}>Limpiar</button>
-            </div>
-          </form>
-
-          <div class="table-wrap" style="margin-top: 18px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Orden</th>
-                  <th>Nivel</th>
-                  <th>Estado</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${state.formationCatalog.length ? state.formationCatalog.map((level) => `
-                  <tr>
-                    <td>${escapeHtml(String(level.order || 0))}</td>
-                    <td>
-                      <span class="row-title">${escapeHtml(level.name)}</span>
-                      <span class="row-meta">${escapeHtml(level.description || "Sin descripción")}</span>
-                    </td>
-                    <td>${renderPill(level.status)}</td>
-                    <td><button class="btn btn-secondary" data-action="edit-formation-level" data-level-id="${escapeHtml(level.id)}">Editar</button></td>
-                  </tr>
-                `).join("") : `
-                  <tr>
-                    <td colspan="4"><div class="empty-state">Crea el catálogo inicial de niveles para activar este módulo.</div></td>
-                  </tr>
-                `}
-              </tbody>
-            </table>
-          </div>
-        </article>
+        <span class="pill dark">${escapeHtml(String(state.formationCatalog.length))} niveles</span>
       </div>
 
-      <article class="detail-card">
-        <div class="panel-head">
-          <div>
-            <h2>Casos de formación</h2>
-            <p>Consulta el historial operativo: quién fue prospectado, quién fue aceptado y quién ya acreditó.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Orden</th>
+              <th>Nivel</th>
+              <th>Estado</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.formationCatalog.length ? state.formationCatalog.map((level) => `
+              <tr>
+                <td>${escapeHtml(String(level.order || 0))}</td>
+                <td>
+                  <span class="row-title">${escapeHtml(level.name)}</span>
+                  <span class="row-meta">${escapeHtml(level.description || "Sin descripción")}</span>
+                </td>
+                <td>${renderPill(level.status)}</td>
+                <td><button class="btn btn-secondary" data-action="edit-formation-level" data-level-id="${escapeHtml(level.id)}">Editar</button></td>
+              </tr>
+            `).join("") : `
+              <tr>
+                <td colspan="4"><div class="empty-state">Crea el catálogo inicial de niveles para activar este módulo.</div></td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  `;
+}
+
+function renderFormationProfileSection_(profile) {
+  return `
+    <article class="detail-card module-section-anchor" id="formation-profile">
+      <div class="panel-head">
+        <div>
+          <h2>${profile?.person ? "Perfil formativo" : "Selecciona un congregante"}</h2>
+          <p>${profile?.person ? "Aquí ves el seguimiento pastoral completo: detección, aviso al líder, invitación, registro a Encuentro y avance posterior." : "La ficha se carga automáticamente cuando abres Ver detalle desde la Ruta a Encuentro o cuando consultas un caso del historial."}</p>
+        </div>
+        ${profile?.person ? renderWorkflowStatusPill_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO") : `<span class="pill dark">Sin perfil</span>`}
+      </div>
+
+      ${profile?.person ? `
+        <div class="summary-stack dashboard-summary-grid">
+          <div class="summary-box">
+            <span class="status-chip neutral">Congregante</span>
+            <strong>${escapeHtml(profile.person.nombreCompleto || profile.person.nombre || "-")}</strong>
+            <span>${escapeHtml(profile.person.numero || "-")} | QR ${escapeHtml(profile.person.id || "-")}</span>
           </div>
-          <span class="pill dark">${escapeHtml(String(records.length))} registros</span>
+          <div class="summary-box">
+            <span class="status-chip neutral">Grupo actual</span>
+            <strong>${escapeHtml(profile.currentCandidate?.groupName || resolveGroupName_(profile.person.grupo) || "Sin grupo")}</strong>
+            <span>${escapeHtml(profile.currentCandidate ? `${profile.currentCandidate.attendanceCount}/${profile.currentCandidate.sessionsCount} asistencias | ${profile.currentCandidate.consecutiveAttendances || 0} consecutivas` : "Sin resumen de asistencia")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Etapa actual</span>
+            <strong>${escapeHtml(profile.currentCandidate?.currentLevel || profile.person.nivelFormacionActual || getFormationDefaultLevelName_())}</strong>
+            <span>${escapeHtml(getWorkflowStatusLabel_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO"))}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Siguiente paso</span>
+            <strong>${escapeHtml(profile.nextLevel?.name || "Sin recomendación")}</strong>
+            <span>${escapeHtml(profile.nextLevel ? `Orden ${profile.nextLevel.order}` : "Primero define el catálogo o acredita un nivel")}</span>
+          </div>
         </div>
 
-        <div class="table-wrap">
+        ${profile.records?.length ? `
+          <div class="formation-profile-timeline">
+            ${renderFormationTimelineItem_("Detectado", profile.records[0]?.requestedAt)}
+            ${renderFormationTimelineItem_("Aviso líder", profile.records[0]?.leaderNotifiedAt)}
+            ${renderFormationTimelineItem_("Invitación enviada", profile.records[0]?.invitedAt)}
+            ${renderFormationTimelineItem_("Registro a Encuentro", profile.records[0]?.encounterRegisteredAt)}
+          </div>
+        ` : ""}
+
+        <div class="table-wrap" style="margin-top: 18px;">
           <table>
             <thead>
               <tr>
-                <th>Congregante</th>
+                <th>Fecha</th>
                 <th>Nivel</th>
                 <th>Estatus</th>
                 <th>Seguimiento</th>
-                <th>Acción</th>
+                <th>Notas</th>
               </tr>
             </thead>
             <tbody>
-              ${records.length ? records.map((record) => `
+              ${(profile.records || []).length ? profile.records.map((record) => `
                 <tr>
+                  <td>${escapeHtml(formatDate(record.encounterRegisteredAt || record.invitedAt || record.requestedAt) || "-")}</td>
                   <td>
-                    <span class="row-title">${escapeHtml(record.personName)}</span>
-                    <span class="row-meta">${escapeHtml(record.groupName || "Sin grupo")} | ${escapeHtml(record.seasonId || "Sin temporada")}</span>
-                  </td>
-                  <td>${escapeHtml(record.levelName || "Sin nivel")}</td>
-                  <td>${renderWorkflowStatusPill_(record.status)}</td>
-                  <td>
-                    <span class="row-title">${escapeHtml(formatDate(record.requestedAt) || "Sin fecha")}</span>
+                    <span class="row-title">${escapeHtml(record.levelName || "Sin nivel")}</span>
                     <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
                   </td>
+                  <td>${renderWorkflowStatusPill_(record.status)}</td>
                   <td>
-                    <div class="inline-actions">
-                      <button class="btn btn-secondary" data-action="edit-formation-record" data-record-id="${escapeHtml(record.id)}" data-person-id="${escapeHtml(record.personId)}">Editar</button>
-                      <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(record.personId)}">Perfil</button>
-                    </div>
+                    <span class="row-title">${escapeHtml(record.result || record.reason || "Sin resultado")}</span>
+                    <span class="row-meta">Detectado: ${escapeHtml(formatDate(record.requestedAt) || "-")} | Aviso: ${escapeHtml(formatDate(record.leaderNotifiedAt) || "-")} | Invitación: ${escapeHtml(formatDate(record.invitedAt) || "-")} | Encuentro: ${escapeHtml(formatDate(record.encounterRegisteredAt) || "-")}</span>
                   </td>
+                  <td>${escapeHtml(record.notes || "Sin notas")}</td>
                 </tr>
               `).join("") : `
                 <tr>
-                  <td colspan="5"><div class="empty-state">Todavía no hay casos formativos registrados.</div></td>
+                  <td colspan="5"><div class="empty-state">Este congregante aún no tiene historial dentro del proceso de formación.</div></td>
                 </tr>
               `}
             </tbody>
           </table>
         </div>
-      </article>
-
-      <article class="detail-card module-section-anchor" id="formation-profile">
-        <div class="panel-head">
-          <div>
-            <h2>${profile?.person ? "Perfil formativo" : "Selecciona un congregante"}</h2>
-            <p>${profile?.person ? "Aquí ves el seguimiento pastoral completo: detección, aviso al líder, invitación, registro a Encuentro y avance posterior." : "La ficha se carga automáticamente cuando usas las acciones de la Ruta a Encuentro o cuando abres un caso del historial."}</p>
-          </div>
-          ${profile?.person ? renderWorkflowStatusPill_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO") : `<span class="pill dark">Sin perfil</span>`}
-        </div>
-
-        ${profile?.person ? `
-          <div class="summary-stack dashboard-summary-grid">
-            <div class="summary-box">
-              <span class="status-chip neutral">Congregante</span>
-              <strong>${escapeHtml(profile.person.nombreCompleto || profile.person.nombre || "-")}</strong>
-              <span>${escapeHtml(profile.person.numero || "-")} | QR ${escapeHtml(profile.person.id || "-")}</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip neutral">Grupo actual</span>
-              <strong>${escapeHtml(profile.currentCandidate?.groupName || resolveGroupName_(profile.person.grupo) || "Sin grupo")}</strong>
-              <span>${escapeHtml(profile.currentCandidate ? `${profile.currentCandidate.attendanceCount}/${profile.currentCandidate.sessionsCount} asistencias | ${profile.currentCandidate.consecutiveAttendances || 0} consecutivas` : "Sin resumen de asistencia")}</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip neutral">Etapa actual</span>
-              <strong>${escapeHtml(profile.currentCandidate?.currentLevel || profile.person.nivelFormacionActual || "Sin nivel")}</strong>
-              <span>${escapeHtml(getWorkflowStatusLabel_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO"))}</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip neutral">Siguiente paso</span>
-              <strong>${escapeHtml(profile.nextLevel?.name || "Sin recomendación")}</strong>
-              <span>${escapeHtml(profile.nextLevel ? `Orden ${profile.nextLevel.order}` : "Primero define el catálogo o acredita un nivel")}</span>
-            </div>
-          </div>
-
-          ${profile.records?.length ? `
-            <div class="formation-profile-timeline">
-              ${renderFormationTimelineItem_("Detectado", profile.records[0]?.requestedAt)}
-              ${renderFormationTimelineItem_("Aviso líder", profile.records[0]?.leaderNotifiedAt)}
-              ${renderFormationTimelineItem_("Invitación enviada", profile.records[0]?.invitedAt)}
-              ${renderFormationTimelineItem_("Registro a Encuentro", profile.records[0]?.encounterRegisteredAt)}
-            </div>
-          ` : ""}
-
-          <div class="table-wrap" style="margin-top: 18px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Nivel</th>
-                  <th>Estatus</th>
-                  <th>Seguimiento</th>
-                  <th>Notas</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${(profile.records || []).length ? profile.records.map((record) => `
-                  <tr>
-                    <td>${escapeHtml(formatDate(record.encounterRegisteredAt || record.invitedAt || record.requestedAt) || "-")}</td>
-                    <td>
-                      <span class="row-title">${escapeHtml(record.levelName || "Sin nivel")}</span>
-                      <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
-                    </td>
-                    <td>${renderWorkflowStatusPill_(record.status)}</td>
-                    <td>
-                      <span class="row-title">${escapeHtml(record.result || record.reason || "Sin resultado")}</span>
-                      <span class="row-meta">Detectado: ${escapeHtml(formatDate(record.requestedAt) || "-")} | Aviso: ${escapeHtml(formatDate(record.leaderNotifiedAt) || "-")} | Invitación: ${escapeHtml(formatDate(record.invitedAt) || "-")} | Encuentro: ${escapeHtml(formatDate(record.encounterRegisteredAt) || "-")}</span>
-                    </td>
-                    <td>${escapeHtml(record.notes || "Sin notas")}</td>
-                  </tr>
-                `).join("") : `
-                  <tr>
-                    <td colspan="5"><div class="empty-state">Este congregante aún no tiene historial dentro del proceso de formación.</div></td>
-                  </tr>
-                `}
-              </tbody>
-            </table>
-          </div>
-        ` : `
-          <div class="empty-state">Selecciona una persona para consultar su historial, revisar su asistencia y decidir si avanza al siguiente nivel.</div>
-        `}
-      </article>
-    </section>
+      ` : `
+        <div class="empty-state">Abre Ver detalle en la Ruta a Encuentro para consultar la ficha completa de la persona y su avance dentro del proceso.</div>
+      `}
+    </article>
   `;
 }
 
@@ -7561,6 +7791,13 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-formation-section") {
+      state.ui.formationSection = normalizeFormationSection_(button.dataset.sectionKey || "");
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
     if (action === "navigate") {
       state.currentView = button.dataset.view;
       state.ui.welcomeModal = null;
@@ -8510,6 +8747,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-formation-profile") {
+      state.ui.formationSection = "route";
       state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       await loadFormationProfile_(state.ui.selectedFormationPersonId, {
         force: true,
@@ -8542,6 +8780,7 @@ async function handleClick(event) {
     }
 
     if (action === "edit-formation-level") {
+      state.ui.formationSection = "levels";
       state.ui.editingFormationLevelId = String(button.dataset.levelId || "");
       renderApp();
       scrollViewportToTop_();
@@ -8555,6 +8794,7 @@ async function handleClick(event) {
     }
 
     if (action === "edit-formation-record") {
+      state.ui.formationSection = "cases";
       state.ui.editingFormationRecordId = String(button.dataset.recordId || "");
       state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       await loadFormationProfile_(state.ui.selectedFormationPersonId, {
@@ -10805,6 +11045,7 @@ async function saveFormationLevel_(rawPayload) {
   }, payload.id ? "Actualizando nivel..." : "Creando nivel...");
 
   state.ui.editingFormationLevelId = "";
+  state.ui.formationSection = "levels";
   showToast("Nivel guardado", "El catálogo de formación quedó actualizado.", "success");
 }
 
@@ -10841,6 +11082,7 @@ async function saveFormationRecord_(rawPayload) {
 
   state.ui.selectedFormationPersonId = payload.personId;
   state.ui.editingFormationRecordId = "";
+  state.ui.formationSection = "cases";
   showToast("Caso guardado", "El proceso formativo quedó actualizado y ya se reflejó en el historial.", "success");
   renderApp();
 }
@@ -10868,6 +11110,7 @@ async function sendFormationEncounterInvite_(candidate) {
   }, "Preparando invitación a Encuentro...");
 
   state.ui.selectedFormationPersonId = candidate.personId;
+  state.ui.formationSection = "route";
   state.formationProfile = response?.profile || state.formationProfile;
   await loadFormationData_({
     force: true,
@@ -10904,6 +11147,7 @@ async function registerFormationEncounter_(candidate) {
   }, "Registrando a Encuentro...");
 
   state.ui.selectedFormationPersonId = candidate.personId;
+  state.ui.formationSection = "route";
   await loadFormationData_({
     force: true,
     showLoading: false
@@ -12724,6 +12968,14 @@ function buildFormationSummary_() {
   });
 
   return summary;
+}
+
+function getFormationDefaultLevelName_() {
+  const sortedLevels = state.formationCatalog
+    .slice()
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+  const activeLevel = sortedLevels.find((level) => String(level.status || "ACTIVO").toUpperCase() !== "INACTIVO");
+  return activeLevel?.name || sortedLevels[0]?.name || "Encuentro";
 }
 
 function renderFormationTimelineItem_(label, value, emptyLabel = "Pendiente") {
@@ -14844,10 +15096,14 @@ function resetRuntimeState() {
     editingUserEmail: "",
     editingFormationLevelId: "",
     editingFormationRecordId: "",
+    formationSection: "route",
     selectedWelcomePersonId: "",
     welcomeWorkbenchMode: "",
     welcomeModal: null,
     selectedFormationPersonId: "",
+    formationFilterBusy: false,
+    formationFilterMessage: "",
+    formationFilterDraft: null,
     confirmation: null
   };
   state.filters.assistants = {
