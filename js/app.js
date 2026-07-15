@@ -189,6 +189,7 @@ const state = {
   formationRecords: [],
   formationCandidates: [],
   formationProfile: null,
+  formationProfilesByKey: {},
   telegramConfig: null,
   adminUsers: [],
   adminUsersSupport: {
@@ -267,6 +268,8 @@ const state = {
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     formationSection: "route",
+    formationProfileLoading: false,
+    formationProfileLoadingPersonId: "",
     selectedWelcomePersonId: "",
     welcomeWorkbenchMode: "",
     welcomeModal: null,
@@ -528,10 +531,207 @@ function getActiveFormationSection_() {
 function clearFormationProfileSelection_(options = {}) {
   state.ui.selectedFormationPersonId = "";
   state.formationProfile = null;
+  state.ui.formationProfileLoading = false;
+  state.ui.formationProfileLoadingPersonId = "";
 
   if (!options.keepRecord) {
     state.ui.editingFormationRecordId = "";
   }
+}
+
+function getFormationProfileCacheKey_(personId, seasonId) {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanSeasonId = String(seasonId || state.filters.formation.seasonId || "").trim();
+  return cleanPersonId && cleanSeasonId ? `${cleanPersonId}::${cleanSeasonId}` : "";
+}
+
+function getCachedFormationProfile_(personId, seasonId) {
+  const cacheKey = getFormationProfileCacheKey_(personId, seasonId);
+  return cacheKey ? (state.formationProfilesByKey[cacheKey] || null) : null;
+}
+
+function cacheFormationProfile_(profile, personId, seasonId) {
+  const resolvedPersonId = String(personId || profile?.person?.id || "").trim();
+  const resolvedSeasonId = String(seasonId || state.filters.formation.seasonId || "").trim();
+  const cacheKey = getFormationProfileCacheKey_(resolvedPersonId, resolvedSeasonId);
+
+  if (!cacheKey || !profile) {
+    return;
+  }
+
+  state.formationProfilesByKey[cacheKey] = profile;
+}
+
+function clearFormationProfileCache_(personId = "", seasonId = "") {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanSeasonId = String(seasonId || "").trim();
+
+  if (!cleanPersonId && !cleanSeasonId) {
+    state.formationProfilesByKey = {};
+    return;
+  }
+
+  Object.keys(state.formationProfilesByKey).forEach((cacheKey) => {
+    const [cachedPersonId, cachedSeasonId] = cacheKey.split("::");
+
+    if (cleanPersonId && cleanSeasonId) {
+      if (cachedPersonId === cleanPersonId && cachedSeasonId === cleanSeasonId) {
+        delete state.formationProfilesByKey[cacheKey];
+      }
+      return;
+    }
+
+    if (cleanPersonId && cachedPersonId === cleanPersonId) {
+      delete state.formationProfilesByKey[cacheKey];
+      return;
+    }
+
+    if (cleanSeasonId && cachedSeasonId === cleanSeasonId) {
+      delete state.formationProfilesByKey[cacheKey];
+    }
+  });
+}
+
+function setFormationProfileLoading_(loading, personId = "") {
+  state.ui.formationProfileLoading = Boolean(loading);
+  state.ui.formationProfileLoadingPersonId = loading ? String(personId || "") : "";
+}
+
+function getFormationSortedLevels_() {
+  return state.formationCatalog
+    .slice()
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
+    .filter((level) => String(level.status || "ACTIVO").toUpperCase() !== "INACTIVO");
+}
+
+function resolveFormationNextLevelFromLoadedData_(currentLevelName = "", currentStatus = "") {
+  const levels = getFormationSortedLevels_();
+
+  if (!levels.length) {
+    return null;
+  }
+
+  const normalizedLevelName = normalizeText(currentLevelName);
+  const currentIndex = levels.findIndex((level) => normalizeText(level.name) === normalizedLevelName);
+  const normalizedStatus = String(currentStatus || "").trim().toUpperCase();
+
+  if (currentIndex === -1) {
+    return levels[0];
+  }
+
+  if (normalizedStatus === "ACREDITADO" && levels[currentIndex + 1]) {
+    return levels[currentIndex + 1];
+  }
+
+  return levels[currentIndex] || levels[0];
+}
+
+function buildFormationProfileFromLoadedData_(personId, seasonId = "") {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanSeasonId = String(seasonId || state.filters.formation.seasonId || "").trim();
+
+  if (!cleanPersonId) {
+    return null;
+  }
+
+  const currentCandidate = state.formationCandidates.find((candidate) => {
+    return String(candidate?.personId || "").trim() === cleanPersonId
+      && (!cleanSeasonId || String(candidate?.seasonId || "").trim() === cleanSeasonId);
+  }) || state.formationCandidates.find((candidate) => String(candidate?.personId || "").trim() === cleanPersonId) || null;
+
+  const formationRecords = state.formationRecords
+    .filter((record) => {
+      return String(record?.personId || "").trim() === cleanPersonId
+        && (!cleanSeasonId || String(record?.seasonId || "").trim() === cleanSeasonId);
+    })
+    .slice()
+    .sort((left, right) => {
+      const leftTimestamp = parseDateToTimestamp_(
+        left?.encounterRegisteredAt || left?.invitedAt || left?.requestedAt || left?.updatedAt || left?.createdAt,
+        true
+      );
+      const rightTimestamp = parseDateToTimestamp_(
+        right?.encounterRegisteredAt || right?.invitedAt || right?.requestedAt || right?.updatedAt || right?.createdAt,
+        true
+      );
+      return rightTimestamp - leftTimestamp;
+    });
+
+  const latestRecord = formationRecords[0] || null;
+  const directoryPerson = state.peopleDirectory.find((person) => String(person?.id || "").trim() === cleanPersonId) || null;
+  const fullName = String(
+    currentCandidate?.personName
+    || directoryPerson?.name
+    || directoryPerson?.nombreCompleto
+    || latestRecord?.personName
+    || "Congregante"
+  ).trim();
+  const currentLevelName = String(
+    currentCandidate?.currentLevel
+    || latestRecord?.levelName
+    || directoryPerson?.nivelFormacionActual
+    || getFormationDefaultLevelName_()
+  ).trim();
+  const currentStatus = String(
+    currentCandidate?.formationStatus
+    || latestRecord?.status
+    || directoryPerson?.estatusFormacion
+    || "SIN_PROCESO"
+  ).trim();
+  const personGroupId = String(
+    currentCandidate?.groupId
+    || latestRecord?.groupId
+    || directoryPerson?.grupo
+    || directoryPerson?.groupId
+    || ""
+  ).trim();
+
+  if (!currentCandidate && !formationRecords.length && !directoryPerson) {
+    return null;
+  }
+
+  return {
+    person: {
+      ...(directoryPerson || {}),
+      id: cleanPersonId,
+      nombreCompleto: fullName,
+      nombre: fullName,
+      numero: String(
+        currentCandidate?.personNumber
+        || directoryPerson?.numero
+        || latestRecord?.personNumber
+        || ""
+      ).trim(),
+      telefono: String(
+        currentCandidate?.personPhone
+        || directoryPerson?.telefono
+        || directoryPerson?.phone
+        || ""
+      ).trim(),
+      grupo: personGroupId,
+      estatusFormacion: currentStatus,
+      nivelFormacionActual: currentLevelName
+    },
+    currentCandidate: currentCandidate ? { ...currentCandidate } : (personGroupId ? {
+      personId: cleanPersonId,
+      personName: fullName,
+      personNumber: String(directoryPerson?.numero || latestRecord?.personNumber || "").trim(),
+      personPhone: String(directoryPerson?.telefono || directoryPerson?.phone || "").trim(),
+      groupId: personGroupId,
+      groupName: String(latestRecord?.groupName || resolveGroupName_(personGroupId) || personGroupId).trim(),
+      seasonId: cleanSeasonId,
+      formationStatus: currentStatus,
+      currentLevel: currentLevelName,
+      leaderNotifiedAt: latestRecord?.leaderNotifiedAt || "",
+      invitedAt: latestRecord?.invitedAt || "",
+      encounterRegisteredAt: latestRecord?.encounterRegisteredAt || ""
+    } : null),
+    nextLevel: resolveFormationNextLevelFromLoadedData_(currentLevelName, currentStatus),
+    records: formationRecords,
+    meta: {
+      source: "loaded-data"
+    }
+  };
 }
 
 function isUnknownActionError_(error, actionName = "") {
@@ -2655,17 +2855,37 @@ function renderFormationLevelsWorkspace_(context) {
 }
 
 function renderFormationProfileSection_(profile) {
+  const profileLoading = state.ui.formationProfileLoading;
+
   return `
     <article class="detail-card module-section-anchor" id="formation-profile">
       <div class="panel-head">
         <div>
           <h2>${profile?.person ? "Perfil formativo" : "Selecciona un congregante"}</h2>
-          <p>${profile?.person ? "Aquí ves el seguimiento pastoral completo: detección, aviso al líder, invitación, registro a Encuentro y avance posterior." : "La ficha se carga automáticamente cuando abres Ver detalle desde la Ruta a Encuentro o cuando consultas un caso del historial."}</p>
+          <p>${profile?.person ? "Aquí ves el seguimiento pastoral completo: detección, aviso al líder, invitación, registro a Encuentro y avance posterior." : (profileLoading ? "Estamos preparando el historial, etapa actual y seguimiento pastoral del congregante." : "Abre Ver perfil desde la Ruta a Encuentro o desde el historial para consultar la ficha completa." )}</p>
         </div>
-        ${profile?.person ? renderWorkflowStatusPill_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO") : `<span class="pill dark">Sin perfil</span>`}
+        <div class="formation-profile-head-actions">
+          <button
+            class="formation-back-to-top-btn"
+            type="button"
+            data-action="scroll-to-section"
+            data-section-id="formation-route-workspace"
+            aria-label="Subir al listado operativo"
+            title="Subir al listado operativo"
+          >
+            ↑
+          </button>
+          ${profile?.person ? renderWorkflowStatusPill_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO") : `<span class="pill dark">${profileLoading ? "Cargando perfil" : "Sin perfil"}</span>`}
+        </div>
       </div>
 
-      ${profile?.person ? `
+      ${profileLoading ? `
+        <div class="formation-profile-loading">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <strong>Cargando perfil formativo...</strong>
+          <span>En unos segundos verás el historial, la etapa actual y el seguimiento pastoral.</span>
+        </div>
+      ` : (profile?.person ? `
         <div class="summary-stack dashboard-summary-grid">
           <div class="summary-box">
             <span class="status-chip neutral">Congregante</span>
@@ -2733,8 +2953,8 @@ function renderFormationProfileSection_(profile) {
           </table>
         </div>
       ` : `
-        <div class="empty-state">Abre Ver detalle en la Ruta a Encuentro para consultar la ficha completa de la persona y su avance dentro del proceso.</div>
-      `}
+        <div class="empty-state">Abre Ver perfil en la Ruta a Encuentro para consultar la ficha completa de la persona y su avance dentro del proceso.</div>
+      `)}
     </article>
   `;
 }
@@ -8731,13 +8951,13 @@ async function handleClick(event) {
 
     if (action === "refresh-formation") {
       await runFormationFilterTask_("Actualizando prospectos...", async () => {
+        clearFormationProfileCache_("", state.filters.formation.seasonId);
         await ensureFormationViewData_({
           force: true,
           message: "Actualizando proceso de formación..."
         });
         if (state.ui.selectedFormationPersonId) {
           await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-            force: true,
             showLoading: false
           });
         }
@@ -8752,32 +8972,13 @@ async function handleClick(event) {
     }
 
     if (action === "select-formation-person") {
-      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       state.ui.editingFormationRecordId = "";
-      state.formationProfile = null;
-      renderApp();
-      scrollToSection_("formation-profile");
-      await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-        force: true,
-        message: "Cargando perfil formativo..."
-      });
-      renderApp();
-      scrollToSection_("formation-profile");
+      await openFormationProfile_(button.dataset.personId || "");
       return;
     }
 
     if (action === "open-formation-profile") {
-      state.ui.formationSection = "route";
-      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
-      state.formationProfile = null;
-      renderApp();
-      scrollToSection_("formation-profile");
-      await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-        force: true,
-        message: "Cargando perfil formativo..."
-      });
-      renderApp();
-      scrollToSection_("formation-profile");
+      await openFormationProfile_(button.dataset.personId || "");
       return;
     }
 
@@ -8821,7 +9022,6 @@ async function handleClick(event) {
       state.ui.editingFormationRecordId = String(button.dataset.recordId || "");
       state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-        force: true,
         showLoading: false
       });
       renderApp();
@@ -10053,6 +10253,7 @@ async function loadFormationData_(options = {}) {
 
 async function loadFormationProfile_(personId, options = {}) {
   const cleanPersonId = String(personId || "");
+  const seasonId = String(options.seasonId || state.filters.formation.seasonId || "");
 
   if (!cleanPersonId) {
     state.formationProfile = null;
@@ -10061,12 +10262,33 @@ async function loadFormationProfile_(personId, options = {}) {
     return null;
   }
 
-  const task = () => runSharedLoad_(`formationProfile::${cleanPersonId}`, async () => {
-    state.formationProfile = await apiGet("formation.person.profile", {
+  if (!options.force) {
+    const cachedProfile = getCachedFormationProfile_(cleanPersonId, seasonId);
+
+    if (cachedProfile) {
+      state.formationProfile = cachedProfile;
+      state.ui.selectedFormationPersonId = cleanPersonId;
+      return cachedProfile;
+    }
+
+    const loadedProfile = buildFormationProfileFromLoadedData_(cleanPersonId, seasonId);
+
+    if (loadedProfile) {
+      state.formationProfile = loadedProfile;
+      state.ui.selectedFormationPersonId = cleanPersonId;
+      cacheFormationProfile_(loadedProfile, cleanPersonId, seasonId);
+      return loadedProfile;
+    }
+  }
+
+  const task = () => runSharedLoad_(`formationProfile::${cleanPersonId}::${seasonId}`, async () => {
+    const profile = await apiGet("formation.person.profile", {
       personId: cleanPersonId,
-      seasonId: state.filters.formation.seasonId
+      seasonId
     });
+    state.formationProfile = profile;
     state.ui.selectedFormationPersonId = cleanPersonId;
+    cacheFormationProfile_(profile, cleanPersonId, seasonId);
     return state.formationProfile;
   });
 
@@ -10205,8 +10427,50 @@ async function ensureFormationViewData_(options = {}) {
 
   if (!state.formationProfile || state.formationProfile?.person?.id !== state.ui.selectedFormationPersonId) {
     await loadFormationProfile_(state.ui.selectedFormationPersonId, {
+      seasonId: state.filters.formation.seasonId,
       showLoading: false
     });
+  }
+}
+
+async function openFormationProfile_(personId, options = {}) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  const force = Boolean(options.force);
+  const seasonId = String(options.seasonId || state.filters.formation.seasonId || "");
+  const cachedProfile = !force ? getCachedFormationProfile_(cleanPersonId, seasonId) : null;
+  const loadedProfile = !force && !cachedProfile ? buildFormationProfileFromLoadedData_(cleanPersonId, seasonId) : null;
+  const resolvedProfile = cachedProfile || loadedProfile || null;
+
+  if (loadedProfile) {
+    cacheFormationProfile_(loadedProfile, cleanPersonId, seasonId);
+  }
+
+  state.ui.formationSection = "route";
+  state.ui.selectedFormationPersonId = cleanPersonId;
+  state.formationProfile = resolvedProfile;
+  setFormationProfileLoading_(!resolvedProfile, cleanPersonId);
+  renderApp();
+  scrollToSection_("formation-profile");
+
+  if (resolvedProfile) {
+    return;
+  }
+
+  try {
+    await loadFormationProfile_(cleanPersonId, {
+      force,
+      seasonId,
+      showLoading: false
+    });
+  } finally {
+    setFormationProfileLoading_(false, "");
+    renderApp();
+    scrollToSection_("formation-profile");
   }
 }
 
@@ -11097,6 +11361,7 @@ async function saveFormationRecord_(rawPayload) {
   await withLoading(async () => {
     const response = await apiPost("formation.records.save", payload);
     state.formationProfile = response.profile;
+    cacheFormationProfile_(response.profile, payload.personId, payload.seasonId);
     await loadFormationData_({
       force: true,
       showLoading: false
@@ -11135,6 +11400,7 @@ async function sendFormationEncounterInvite_(candidate) {
   state.ui.selectedFormationPersonId = candidate.personId;
   state.ui.formationSection = "route";
   state.formationProfile = response?.profile || state.formationProfile;
+  cacheFormationProfile_(response?.profile, candidate.personId, candidate.seasonId);
   await loadFormationData_({
     force: true,
     showLoading: false
@@ -11167,6 +11433,7 @@ async function registerFormationEncounter_(candidate) {
       registeredBy: state.user?.name || ""
     });
     state.formationProfile = response.profile;
+    cacheFormationProfile_(response.profile, candidate.personId, candidate.seasonId);
   }, "Registrando a Encuentro...");
 
   state.ui.selectedFormationPersonId = candidate.personId;
@@ -12994,11 +13261,8 @@ function buildFormationSummary_() {
 }
 
 function getFormationDefaultLevelName_() {
-  const sortedLevels = state.formationCatalog
-    .slice()
-    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
-  const activeLevel = sortedLevels.find((level) => String(level.status || "ACTIVO").toUpperCase() !== "INACTIVO");
-  return activeLevel?.name || sortedLevels[0]?.name || "Encuentro";
+  const sortedLevels = getFormationSortedLevels_();
+  return sortedLevels[0]?.name || "Encuentro";
 }
 
 function renderFormationTimelineItem_(label, value, emptyLabel = "Pendiente") {
@@ -14804,7 +15068,6 @@ async function applyFormationFilters_() {
       });
       if (state.ui.selectedFormationPersonId) {
         await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-          force: true,
           showLoading: false
         });
       }
@@ -15044,6 +15307,7 @@ function resetRuntimeState() {
   state.formationRecords = [];
   state.formationCandidates = [];
   state.formationProfile = null;
+  state.formationProfilesByKey = {};
   state.telegramConfig = null;
   state.adminUsers = [];
   state.adminUsersSupport = {
@@ -15121,6 +15385,8 @@ function resetRuntimeState() {
     welcomeWorkbenchMode: "",
     welcomeModal: null,
     selectedFormationPersonId: "",
+    formationProfileLoading: false,
+    formationProfileLoadingPersonId: "",
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
