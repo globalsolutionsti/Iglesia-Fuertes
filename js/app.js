@@ -10517,11 +10517,12 @@ async function handleSubmit(event) {
     if (form.id === "admin-user-form") {
       const formData = new FormData(form);
       const payload = Object.fromEntries(formData.entries());
+      let savedUser = null;
       payload.permissions = formData.getAll("permissions");
 
       await withLoading(async () => {
         try {
-          await apiPost("users.save", payload);
+          savedUser = await apiPost("users.save", payload);
         } catch (error) {
           if (isUnknownActionError_(error, "users.save")) {
             throw buildBackendRouteMissingError_("users.save", "la ruta users.save");
@@ -10533,7 +10534,19 @@ async function handleSubmit(event) {
         await loadAdminUsers_();
       }, payload.editingEmail ? "Actualizando usuario..." : "Creando usuario...");
 
-      state.ui.editingUserEmail = "";
+      if (
+        savedUser &&
+        state.user &&
+        String(savedUser.email || "").toLowerCase() === String(state.user.email || "").toLowerCase()
+      ) {
+        state.user = {
+          ...state.user,
+          ...savedUser
+        };
+        setStoredUser(state.user);
+      }
+
+      state.ui.editingUserEmail = String(savedUser?.email || payload.email || "");
       showToast("Usuario guardado", "El perfil y sus accesos quedaron actualizados.", "success");
       renderApp();
       return;
