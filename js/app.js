@@ -6010,11 +6010,12 @@ function invalidateDashboardSeasonMatrix_() {
 
 function buildDashboardSessionInsights_({ seasonId, sessionId, sessionGroups, participants, attendances }) {
   const session = getSessions(seasonId).find((item) => String(item.id) === String(sessionId)) || null;
+  const directoryRows = Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [];
   const peopleById = new Map();
   const groupsMap = new Map();
   const attendanceMap = new Map();
 
-  state.peopleDirectory.forEach((person) => {
+  directoryRows.forEach((person) => {
     peopleById.set(String(person.id), person);
   });
 
@@ -11196,7 +11197,8 @@ async function loadPeople(options = {}) {
   }
 
   const task = async () => {
-    state.people = await apiGet("people.list");
+    const peopleRows = await apiGet("people.list");
+    state.people = Array.isArray(peopleRows) ? peopleRows : [];
     state.metrics.peopleCount = state.people.length;
     state.loaded.people = true;
     return state.people;
@@ -11215,7 +11217,8 @@ async function loadPeopleDirectory(options = {}) {
   }
 
   const task = async () => {
-    state.peopleDirectory = await apiGet("servers.list");
+    const directoryRows = await apiGet("servers.list");
+    state.peopleDirectory = Array.isArray(directoryRows) ? directoryRows : [];
     state.metrics.directoryCount = state.peopleDirectory.length;
     state.loaded.peopleDirectory = true;
     return state.peopleDirectory;
@@ -11428,7 +11431,8 @@ async function loadWelcomePeople_(options = {}) {
 
   const task = async () => {
     const backendRows = await apiGet("welcome.people.list");
-    state.welcomePeople = mergeWelcomePeopleSources_(backendRows);
+    const mergedRows = mergeWelcomePeopleSources_(backendRows);
+    state.welcomePeople = Array.isArray(mergedRows) ? mergedRows : [];
     state.loaded.welcome = true;
     state.cacheKeys.welcomePeople = requestKey;
     return state.welcomePeople;
@@ -13693,7 +13697,7 @@ async function executeScrapDeleteSeasonPerson_(personId, seasonId) {
     });
     invalidateDashboardSeasonMatrix_();
     invalidateWelcomeCache_();
-    await Promise.all([
+    const refreshResults = await Promise.allSettled([
       refreshPeopleSources_(),
       loadWelcomePeople_({
         force: true,
@@ -13702,13 +13706,24 @@ async function executeScrapDeleteSeasonPerson_(personId, seasonId) {
       loadParticipantSeasonAssignments_({
         force: true,
         seasonId: cleanSeasonId,
-        showLoading: false
-      })
+          showLoading: false
+        })
     ]);
-    await loadParticipantsData({
-      force: true,
-      showLoading: false
-    });
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP season refresh warning", result.reason);
+      });
+
+    try {
+      await loadParticipantsData({
+        force: true,
+        showLoading: false
+      });
+    } catch (error) {
+      console.error("SCRAP participants reload warning", error);
+    }
   }, "Eliminando scrap de la temporada...");
 
   showToast(
@@ -13717,6 +13732,23 @@ async function executeScrapDeleteSeasonPerson_(personId, seasonId) {
     "success"
   );
   renderApp();
+}
+
+function applyScrapDeletePersonLocally_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  state.people = (Array.isArray(state.people) ? state.people : []).filter((person) => String(person?.id || "").trim() !== cleanPersonId);
+  state.peopleDirectory = (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).filter((person) => String(person?.id || "").trim() !== cleanPersonId);
+  state.welcomePeople = (Array.isArray(state.welcomePeople) ? state.welcomePeople : []).filter((person) => String(person?.id || "").trim() !== cleanPersonId);
+  state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((item) => String(item?.personId || "").trim() !== cleanPersonId);
+  state.formationRecords = (Array.isArray(state.formationRecords) ? state.formationRecords : []).filter((item) => String(item?.personId || "").trim() !== cleanPersonId);
+  state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((item) => String(item?.personId || "").trim() !== cleanPersonId);
+  state.metrics.peopleCount = state.people.length;
+  state.metrics.directoryCount = state.peopleDirectory.length;
 }
 
 async function executeScrapDeletePerson_(personId, originView) {
@@ -13732,6 +13764,7 @@ async function executeScrapDeletePerson_(personId, originView) {
     response = await apiPost("scrap.deletePerson", {
       personId: cleanPersonId
     });
+    applyScrapDeletePersonLocally_(cleanPersonId);
     invalidateDashboardSeasonMatrix_();
     invalidateWelcomeCache_();
 
@@ -13742,7 +13775,7 @@ async function executeScrapDeletePerson_(personId, originView) {
       state.ui.welcomeModal = null;
     }
 
-    await Promise.all([
+    const refreshResults = await Promise.allSettled([
       refreshPeopleSources_(),
       loadWelcomePeople_({
         force: true,
@@ -13757,11 +13790,21 @@ async function executeScrapDeletePerson_(personId, originView) {
         : Promise.resolve()
     ]);
 
-    if (state.currentView === "participants") {
-      await loadParticipantsData({
-        force: true,
-        showLoading: false
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP person refresh warning", result.reason);
       });
+
+    if (state.currentView === "participants") {
+      try {
+        await loadParticipantsData({
+          force: true,
+          showLoading: false
+        });
+      } catch (error) {
+        console.error("SCRAP participants reload warning", error);
+      }
     }
   }, "Eliminando registro scrap...");
 
@@ -14864,8 +14907,9 @@ function getFilteredPeopleDirectory_() {
 }
 
 function buildPeopleDirectorySummary_() {
+  const directoryRows = Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [];
   const summary = {
-    total: state.peopleDirectory.length,
+    total: directoryRows.length,
     active: 0,
     congregants: 0,
     servers: 0,
@@ -14874,7 +14918,7 @@ function buildPeopleDirectorySummary_() {
     leadership: 0
   };
 
-  state.peopleDirectory.forEach((person) => {
+  directoryRows.forEach((person) => {
     const typeKey = getPersonTypeKey_(person.tipoPersona);
 
     if (String(person.estado || "").toUpperCase() === "ACTIVO") {
@@ -15145,8 +15189,9 @@ function getWelcomeProspectPeople_() {
 }
 
 function buildWelcomeSummary_() {
+  const welcomeRows = Array.isArray(state.welcomePeople) ? state.welcomePeople : [];
   const summary = {
-    total: state.welcomePeople.length,
+    total: welcomeRows.length,
     newPeople: 0,
     prospects: 0,
     congregants: 0,
@@ -15155,7 +15200,7 @@ function buildWelcomeSummary_() {
   };
   const today = formatDateForInput_(new Date());
 
-  state.welcomePeople.forEach((person) => {
+  welcomeRows.forEach((person) => {
     const status = String(person.welcomeStatus || "").toUpperCase();
 
     if (status === "NUEVO") {
@@ -15421,14 +15466,15 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
 }
 
 function buildFormationOperationsSummary_() {
+  const enrollmentRows = Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [];
   const summary = {
     offerings: state.formationOfferings.length,
-    enrollments: state.formationEnrollments.length,
+    enrollments: enrollmentRows.length,
     inProgress: 0,
     approved: 0
   };
 
-  state.formationEnrollments.forEach((enrollment) => {
+  enrollmentRows.forEach((enrollment) => {
     const status = String(enrollment.status || "").toUpperCase();
 
     if (status === "EN_CURSO") {
