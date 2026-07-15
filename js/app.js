@@ -2449,7 +2449,7 @@ function renderFormationRouteWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Filtro operativo</h2>
-          <p>Elige temporada, grupo, estatus y luego aplica el filtro para ver solo los casos que debes trabajar ahora.</p>
+          <p>Elige temporada y grupo; luego usa un solo botón para actualizar únicamente ese grupo y ver los casos que debes trabajar ahora.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral formation-filter-status">
@@ -2457,9 +2457,8 @@ function renderFormationRouteWorkspace_(context) {
             ${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : (formationFilterDirty ? "Cambios pendientes" : "Filtro listo"))}
           </span>
           <button class="btn btn-primary" data-action="apply-formation-filters" ${state.ui.formationFilterBusy ? "disabled" : ""}>
-            ${state.ui.formationFilterBusy ? "Aplicando..." : "Aplicar filtro"}
+            ${state.ui.formationFilterBusy ? "Actualizando..." : "Aplicar y actualizar"}
           </button>
-          <button class="btn btn-secondary" data-action="refresh-formation">Actualizar</button>
         </div>
       </div>
 
@@ -2500,7 +2499,7 @@ function renderFormationRouteWorkspace_(context) {
         </div>
       </div>
 
-      <p class="footer-note">El filtro de nivel se dejó fuera de esta vista operativa para que el líder solo vea lo necesario para invitar y registrar.</p>
+      <p class="footer-note">Para obtener respuesta rápida, primero selecciona el grupo y luego pulsa Aplicar y actualizar.</p>
       ${formationFilterFeedback}
     </article>
 
@@ -8966,24 +8965,18 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-formation") {
-      await runFormationFilterTask_("Actualizando prospectos...", async () => {
-        clearFormationProfileCache_("", state.filters.formation.seasonId);
-        await ensureFormationViewData_({
-          force: true,
-          message: "Actualizando proceso de formación..."
-        });
-        if (state.ui.selectedFormationPersonId) {
-          await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-            showLoading: false
-          });
-        }
-        syncFormationFilterDraft_();
+      await applyFormationFilters_({
+        syncCandidates: true,
+        requireGroup: true
       });
       return;
     }
 
     if (action === "apply-formation-filters") {
-      await applyFormationFilters_();
+      await applyFormationFilters_({
+        syncCandidates: true,
+        requireGroup: true
+      });
       return;
     }
 
@@ -10251,6 +10244,8 @@ async function loadFormationData_(options = {}) {
   await syncFormationFilterState_();
 
   const filter = state.filters.formation;
+  const requestedGroupId = String(options.groupId !== undefined ? options.groupId : (filter.groupId || ""));
+  const shouldSyncCandidates = Boolean(options.syncCandidates);
   const recordsKey = `${filter.seasonId}`;
   const candidatesKey = `${filter.seasonId}`;
 
@@ -10265,22 +10260,27 @@ async function loadFormationData_(options = {}) {
   }
 
   const task = async () => {
-    let syncResponse;
+    let syncResponse = null;
+    let records = null;
+    let candidates = null;
 
-    try {
-      syncResponse = await apiPost("formation.candidates.sync", {
-        seasonId: filter.seasonId
-      });
-    } catch (error) {
-      if (!isUnknownActionError_(error, "formation.candidates.sync")) {
-        throw error;
+    if (shouldSyncCandidates) {
+      try {
+        syncResponse = await apiPost("formation.candidates.sync", {
+          seasonId: filter.seasonId,
+          groupId: requestedGroupId
+        });
+      } catch (error) {
+        if (!isUnknownActionError_(error, "formation.candidates.sync")) {
+          throw error;
+        }
+
+        throw buildBackendRouteMissingError_("formation.candidates.sync", "la ruta formation.candidates.sync");
       }
 
-      throw buildBackendRouteMissingError_("formation.candidates.sync", "la ruta formation.candidates.sync");
+      records = Array.isArray(syncResponse?.records) ? syncResponse.records : null;
+      candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
     }
-
-    let records = Array.isArray(syncResponse?.records) ? syncResponse.records : null;
-    let candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
 
     if (!records || !candidates) {
       const fallbackResponses = await Promise.all([
@@ -10298,7 +10298,8 @@ async function loadFormationData_(options = {}) {
         candidates
           ? Promise.resolve(candidates)
           : apiGet("formation.candidates.list", {
-            seasonId: filter.seasonId
+            seasonId: filter.seasonId,
+            groupId: shouldSyncCandidates ? requestedGroupId : ""
           }).catch((error) => {
             if (!isUnknownActionError_(error, "formation.candidates.list")) {
               throw error;
@@ -15123,14 +15124,21 @@ function syncFormationSelectionAfterFilter_() {
   clearFormationProfileSelection_();
 }
 
-async function applyFormationFilters_() {
+async function applyFormationFilters_(options = {}) {
   const draft = getFormationFilterDraft_();
   const previousSeasonId = String(state.filters.formation.seasonId || "");
   const nextSeasonId = String(draft.seasonId || "");
   const seasonChanged = nextSeasonId !== previousSeasonId;
+  const nextGroupId = String(draft.groupId || "");
+  const shouldSyncCandidates = Boolean(options.syncCandidates);
+
+  if (shouldSyncCandidates && options.requireGroup && !nextGroupId) {
+    showToast("Selecciona un grupo", "Primero elige el grupo que deseas actualizar para que la validación sea rápida.", "warning");
+    return;
+  }
 
   state.filters.formation.seasonId = nextSeasonId;
-  state.filters.formation.groupId = String(draft.groupId || "");
+  state.filters.formation.groupId = nextGroupId;
   state.filters.formation.status = String(draft.status || "ALL");
   state.filters.formation.search = String(draft.search || "");
   state.filters.formation.levelId = "";
@@ -15138,11 +15146,14 @@ async function applyFormationFilters_() {
   if (seasonChanged) {
     state.ui.editingFormationRecordId = "";
     state.formationProfile = null;
-    await runFormationFilterTask_("Aplicando temporada...", async () => {
-      await ensureFormationViewData_({
+    await runFormationFilterTask_(shouldSyncCandidates ? "Actualizando grupo..." : "Aplicando temporada...", async () => {
+      await loadFormationData_({
         force: true,
-        showLoading: false
+        showLoading: false,
+        syncCandidates: shouldSyncCandidates,
+        groupId: nextGroupId
       });
+      syncFormationSelectionAfterFilter_();
       if (state.ui.selectedFormationPersonId) {
         await loadFormationProfile_(state.ui.selectedFormationPersonId, {
           showLoading: false
@@ -15153,7 +15164,17 @@ async function applyFormationFilters_() {
     return;
   }
 
-  await runFormationFilterTask_("Aplicando filtro...", async () => {
+  await runFormationFilterTask_(shouldSyncCandidates ? "Actualizando grupo..." : "Aplicando filtro...", async () => {
+    if (shouldSyncCandidates) {
+      clearFormationProfileCache_("", state.filters.formation.seasonId);
+      await loadFormationData_({
+        force: true,
+        showLoading: false,
+        syncCandidates: true,
+        groupId: nextGroupId
+      });
+    }
+
     const previousSelectedPersonId = String(state.ui.selectedFormationPersonId || "");
     syncFormationSelectionAfterFilter_();
 
