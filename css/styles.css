@@ -1142,6 +1142,138 @@ div {
   line-height: 1.55;
 }
 
+.formation-ops-grid {
+  gap: 20px;
+}
+
+.formation-attendance-mode-strip {
+  margin-bottom: 18px;
+}
+
+.formation-attendance-toggle {
+  margin-bottom: 18px;
+}
+
+.formation-scan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 20px;
+}
+
+.formation-scan-shell {
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 245, 245, 0.98) 100%);
+}
+
+.formation-scan-actions {
+  align-items: center;
+}
+
+.formation-scan-activity {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.formation-scan-activity-list {
+  display: grid;
+  gap: 12px;
+}
+
+.formation-scan-activity-item {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(250, 250, 250, 0.94);
+}
+
+.formation-scan-activity-item strong {
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.formation-scan-activity-item span {
+  color: var(--text-soft);
+  line-height: 1.4;
+}
+
+.formation-payment-strip {
+  flex-wrap: wrap;
+}
+
+.formation-offering-list {
+  display: grid;
+  gap: 14px;
+}
+
+.formation-offering-item,
+.formation-assign-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.formation-offering-item.is-active {
+  background: linear-gradient(180deg, rgba(250, 250, 250, 0.98) 0%, rgba(244, 244, 244, 0.98) 100%);
+  box-shadow: inset 4px 0 0 rgba(17, 17, 17, 0.92);
+}
+
+.formation-offering-item small,
+.formation-assign-item small {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-offering-item strong,
+.formation-assign-item strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.formation-offering-item span,
+.formation-assign-item span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-soft);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.formation-offering-item-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  min-width: 170px;
+}
+
+.formation-assign-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.formation-assignment-card .field {
+  margin-top: 8px;
+}
+
 .formation-route-card {
   display: grid;
   gap: 14px;
@@ -4184,12 +4316,268 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .app-shell.view-formation .formation-ops-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-formation .formation-offering-item,
+  .app-shell.view-formation .formation-assign-item {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-formation .formation-scan-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-formation .formation-scan-shell,
+  .app-shell.view-formation .formation-scan-activity {
+    padding: 16px;
+  }
+
+  .app-shell.view-formation .formation-offering-item-actions {
+    justify-items: stretch;
+    min-width: 0;
+  }
+
   .app-shell.view-formation .formation-ledger-actions {
     grid-template-columns: 1fr;
   }
 
   .app-shell.view-formation .formation-action-stack .btn {
     width: 100%;
+  }
+}
+
+.login-mode-switch {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.login-mode-switch .btn {
+  flex: 1 1 0;
+}
+
+.student-portal-shell {
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.student-portal-panel {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  gap: 20px;
+}
+
+.student-portal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 24px 28px;
+  border-radius: 28px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 245, 245, 0.98) 100%);
+  box-shadow: var(--shadow-md);
+}
+
+.student-portal-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.student-portal-logo {
+  width: 160px;
+}
+
+.student-portal-title {
+  margin: 12px 0 0;
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.student-portal-copy {
+  margin: 10px 0 0;
+  color: var(--text-soft);
+  max-width: 58ch;
+}
+
+.student-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.student-summary-card,
+.student-current-level-card,
+.student-levels-section,
+.student-history-section {
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-md);
+}
+
+.student-summary-card {
+  min-height: 170px;
+  padding: 22px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.student-summary-card strong {
+  font-size: clamp(30px, 5vw, 42px);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+}
+
+.student-summary-card span:not(.status-chip) {
+  color: var(--text-soft);
+}
+
+.student-summary-card-dark {
+  background: linear-gradient(145deg, #101010 0%, #353535 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.student-summary-card-dark span:not(.status-chip) {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.student-summary-card-dark .status-chip {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.student-summary-card-light {
+  background: linear-gradient(145deg, #fff3d8 0%, #f0c978 100%);
+  border-color: rgba(184, 132, 30, 0.18);
+}
+
+.student-summary-card-soft {
+  background: linear-gradient(145deg, #e8f0f7 0%, #b7cfdf 100%);
+  border-color: rgba(43, 86, 120, 0.18);
+}
+
+.student-current-level-card,
+.student-levels-section,
+.student-history-section {
+  padding: 24px;
+}
+
+.student-level-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.student-level-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f6f6f6 100%);
+}
+
+.student-level-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.student-level-card-head small {
+  display: block;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-level-card-head strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 22px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.student-level-card-body {
+  display: grid;
+  gap: 8px;
+  color: var(--text-soft);
+}
+
+.student-level-acreditado {
+  border-color: rgba(31, 122, 67, 0.2);
+  background: linear-gradient(180deg, rgba(235, 249, 240, 0.96) 0%, rgba(223, 244, 232, 0.96) 100%);
+}
+
+.student-level-en_curso,
+.student-level-disponible {
+  border-color: rgba(172, 107, 0, 0.18);
+  background: linear-gradient(180deg, rgba(255, 249, 236, 0.96) 0%, rgba(251, 241, 217, 0.96) 100%);
+}
+
+.student-level-bloqueado {
+  border-color: rgba(15, 15, 16, 0.08);
+  background: linear-gradient(180deg, rgba(247, 247, 247, 0.96) 0%, rgba(237, 237, 237, 0.96) 100%);
+}
+
+.student-level-no_acreditado {
+  border-color: rgba(174, 42, 42, 0.18);
+  background: linear-gradient(180deg, rgba(252, 238, 238, 0.96) 0%, rgba(247, 223, 223, 0.96) 100%);
+}
+
+@media (max-width: 960px) {
+  .login-mode-switch {
+    flex-direction: column;
+  }
+
+  .student-portal-shell {
+    padding: 16px;
+  }
+
+  .student-portal-head,
+  .student-portal-brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .student-hero-grid,
+  .student-level-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .student-portal-head,
+  .student-current-level-card,
+  .student-levels-section,
+  .student-history-section {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .student-summary-card {
+    min-height: auto;
+    padding: 18px;
+  }
+
+  .student-summary-card strong {
+    font-size: 30px;
+  }
+
+  .student-portal-title {
+    font-size: 34px;
   }
 }
 
@@ -4419,6 +4807,17 @@ tbody tr:hover {
   .app-shell.view-formation .formation-ledger-card {
     padding: 16px;
     border-radius: 22px;
+  }
+
+  .app-shell.view-formation .formation-scan-shell,
+  .app-shell.view-formation .formation-scan-activity {
+    border-radius: 22px;
+  }
+
+  .app-shell.view-formation .formation-offering-item,
+  .app-shell.view-formation .formation-assign-item {
+    padding: 14px 16px;
+    border-radius: 18px;
   }
 
   .app-shell.view-formation .formation-back-to-top-btn {
@@ -4675,10 +5074,10 @@ tbody tr:hover {
     padding: 20px;
   }
 
-  .system-modal-card {
-    padding: 22px;
-    border-radius: 24px;
-  }
+.system-modal-card {
+  padding: 22px;
+  border-radius: 24px;
+}
 
   .kiosk-stage-head,
   .kiosk-scanner-meta {
