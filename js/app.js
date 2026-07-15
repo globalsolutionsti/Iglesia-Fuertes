@@ -10218,22 +10218,25 @@ async function loadFormationData_(options = {}) {
   }
 
   const task = async () => {
-    await apiPost("formation.candidates.sync", {
+    const syncResponse = await apiPost("formation.candidates.sync", {
       seasonId: filter.seasonId
     });
-    await loadFormationCatalog_({
-      force: true,
-      showLoading: false
-    });
+    let records = Array.isArray(syncResponse?.records) ? syncResponse.records : null;
+    let candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
 
-    const [records, candidates] = await Promise.all([
-      apiGet("formation.records.list", {
-        seasonId: filter.seasonId
-      }),
-      apiGet("formation.candidates.list", {
-        seasonId: filter.seasonId
-      })
-    ]);
+    if (!records || !candidates) {
+      const fallbackResponses = await Promise.all([
+        records ? Promise.resolve(records) : apiGet("formation.records.list", {
+          seasonId: filter.seasonId
+        }),
+        candidates ? Promise.resolve(candidates) : apiGet("formation.candidates.list", {
+          seasonId: filter.seasonId
+        })
+      ]);
+
+      records = fallbackResponses[0];
+      candidates = fallbackResponses[1];
+    }
 
     state.formationRecords = records;
     state.formationCandidates = candidates;
