@@ -9,8 +9,7 @@ export class ApiError extends Error {
   }
 }
 
-function buildUrl(action, params = {}) {
-  const apiUrl = getStoredApiUrl().trim();
+function buildUrl(action, params = {}, apiUrl = getStoredApiUrl().trim()) {
   const url = new URL(apiUrl);
   url.searchParams.set("action", action);
 
@@ -38,17 +37,18 @@ async function parsePayload(response) {
   }
 }
 
-async function request(method, action, params = {}) {
+async function request(method, action, params = {}, options = {}) {
   const init = {
     method,
     cache: "no-store",
     redirect: "follow"
   };
 
-  let targetUrl = getStoredApiUrl().trim();
+  const resolvedApiUrl = String(options.apiUrl || getStoredApiUrl() || "").trim();
+  let targetUrl = resolvedApiUrl;
 
   if (method === "GET") {
-    targetUrl = buildUrl(action, params);
+    targetUrl = buildUrl(action, params, resolvedApiUrl);
   } else {
     init.headers = {
       // `text/plain` evita el preflight CORS comun en Apps Script.
@@ -84,10 +84,10 @@ async function request(method, action, params = {}) {
   return payload.data;
 }
 
-export function apiGet(action, params = {}) {
-  return request("GET", action, params);
+export function apiGet(action, params = {}, options = {}) {
+  return request("GET", action, params, options);
 }
 
-export function apiPost(action, params = {}) {
-  return request("POST", action, params);
+export function apiPost(action, params = {}, options = {}) {
+  return request("POST", action, params, options);
 }

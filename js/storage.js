@@ -1,6 +1,9 @@
 import { APP_CONFIG } from "./config.js";
 
 const buildKey = (suffix) => `${APP_CONFIG.storagePrefix}.${suffix}`;
+const LEGACY_API_URL_KEY = buildKey("apiUrl");
+const API_URL_OVERRIDE_KEY = buildKey("apiUrlOverride");
+const API_URL_OVERRIDE_ENABLED_KEY = buildKey("apiUrlOverrideEnabled");
 
 export function getStoredUser() {
   try {
@@ -19,9 +22,26 @@ export function clearStoredUser() {
 }
 
 export function getStoredApiUrl() {
-  return localStorage.getItem(buildKey("apiUrl")) || APP_CONFIG.defaultApiUrl;
+  if (hasStoredApiUrlOverride()) {
+    return localStorage.getItem(API_URL_OVERRIDE_KEY) || APP_CONFIG.defaultApiUrl;
+  }
+
+  return APP_CONFIG.defaultApiUrl;
 }
 
 export function setStoredApiUrl(apiUrl) {
-  localStorage.setItem(buildKey("apiUrl"), apiUrl);
+  localStorage.setItem(API_URL_OVERRIDE_KEY, apiUrl);
+  localStorage.setItem(API_URL_OVERRIDE_ENABLED_KEY, "1");
+  localStorage.removeItem(LEGACY_API_URL_KEY);
+}
+
+export function clearStoredApiUrl() {
+  localStorage.removeItem(API_URL_OVERRIDE_KEY);
+  localStorage.removeItem(API_URL_OVERRIDE_ENABLED_KEY);
+  localStorage.removeItem(LEGACY_API_URL_KEY);
+}
+
+export function hasStoredApiUrlOverride() {
+  return localStorage.getItem(API_URL_OVERRIDE_ENABLED_KEY) === "1"
+    && Boolean(localStorage.getItem(API_URL_OVERRIDE_KEY));
 }
