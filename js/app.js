@@ -1522,67 +1522,72 @@ function renderLoginView() {
   const loginMode = state.ui.loginMode === "student" ? "student" : "admin";
 
   return `
-    <div class="login-shell">
-      <section class="login-panel">
-        <div>
-          <div class="brand-lockup">
-            <span class="eyebrow">Sistema Version 2</span>
-            <img class="brand-logo" src="assets/logo-fuertes.png" alt="Fuertes">
-<h1 class="login-title">Gestion moderna para congregantes y voluntarios</h1>
-            <p class="login-copy">
-              Ahora el acceso ya contempla dos experiencias: operación interna para la iglesia y portal
-              independiente para el asistente en su ruta de formación.
-            </p>
+    <div class="login-shell login-shell-modern">
+      <section class="login-hero-card">
+        <div class="login-hero-surface">
+          <div class="login-hero-head">
+            <span class="eyebrow">Iglesia Fuertes V2</span>
+            <span class="login-hero-chip">ERP - CRM ministerial</span>
           </div>
 
-          <div class="feature-list">
-            <article class="feature-item">
-              <span class="feature-icon">01</span>
-              <div>
-                <h2 class="feature-title">Backend nuevo, frontend limpio</h2>
-                <p class="feature-copy">Sin JSONP viejo, con configuracion central de API y respuestas estandarizadas.</p>
-              </div>
-            </article>
+          <img class="brand-logo login-hero-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+          <h1 class="login-title">Gestion moderna para congregantes y voluntarios</h1>
+          <p class="login-copy">
+            Una plataforma pensada para operar Bienvenida, grupos de conexion, asistencias, QR,
+            kiosko, reportes ejecutivos y proceso de formacion con una experiencia clara y profesional.
+          </p>
 
-            <article class="feature-item">
-              <span class="feature-icon">02</span>
-              <div>
-                <h2 class="feature-title">Operacion diaria mas rapida</h2>
-                <p class="feature-copy">Captura manual, edicion, kiosko y consultas desde un solo flujo de trabajo.</p>
-              </div>
+          <div class="login-hero-metrics">
+            <article class="login-hero-metric">
+              <strong>Bienvenida CRM</strong>
+              <span>Nuevos, seguimientos y prospectos en un flujo simple para el equipo pastoral.</span>
             </article>
+            <article class="login-hero-metric">
+              <strong>Operacion de grupos</strong>
+              <span>Temporadas, asignacion masiva, captura manual, QR asistido y kiosko.</span>
+            </article>
+            <article class="login-hero-metric">
+              <strong>Reportes ejecutivos</strong>
+              <span>Dashboard, detalle por grupo, exportacion PDF y lectura pastoral por sesion.</span>
+            </article>
+            <article class="login-hero-metric">
+              <strong>Proceso de formacion</strong>
+              <span>Ruta a Encuentro, seguimiento formativo y portal independiente del asistente.</span>
+            </article>
+          </div>
 
-            <article class="feature-item">
-              <span class="feature-icon">03</span>
-              <div>
-                <h2 class="feature-title">Visual sobrio y claro</h2>
-                <p class="feature-copy">Paleta blanca, negra y gris para alinearse con el logo y reforzar legibilidad.</p>
-              </div>
-            </article>
+          <div class="login-hero-ribbon">
+            <span>Dashboard Iglesia</span>
+            <span>QR y kiosko</span>
+            <span>Voluntarios y congregantes</span>
+            <span>Formacion</span>
           </div>
         </div>
+      </section>
 
-        <div class="login-form-card">
-          <div class="panel-head">
+      <section class="login-access-column">
+        <article class="login-access-card">
+          <div class="login-access-top">
             <div>
-              <h2 class="section-title">${loginMode === "student" ? "Portal del asistente" : "Ingresar al sistema"}</h2>
+              <span class="eyebrow">Acceso seguro</span>
+              <h2 class="login-access-title">${loginMode === "student" ? "Portal del asistente" : "Ingresar al sistema"}</h2>
               <p class="section-copy">
                 ${loginMode === "student"
-                  ? "El asistente entra con su QR/usuario y su PIN personal para revisar su avance formativo."
-                  : "Usa un usuario existente de la hoja USUARIOS de tu backend V2."}
+                  ? "Ingresa con tu QR o usuario y tu PIN para revisar tu avance dentro del proceso de formacion."
+                  : "Accede al ERP - CRM de la iglesia con tu usuario de administracion para operar el sistema completo."}
               </p>
             </div>
             ${renderConnectionChip()}
           </div>
 
-          <div class="login-mode-switch">
-            <button class="btn ${loginMode === "admin" ? "btn-primary" : "btn-ghost"}" data-action="set-login-mode" data-login-mode="admin">Administración</button>
+          <div class="login-mode-switch login-mode-switch-modern">
+            <button class="btn ${loginMode === "admin" ? "btn-primary" : "btn-ghost"}" data-action="set-login-mode" data-login-mode="admin">Administracion</button>
             <button class="btn ${loginMode === "student" ? "btn-primary" : "btn-ghost"}" data-action="set-login-mode" data-login-mode="student">Asistente</button>
           </div>
 
           ${loginMode === "student" ? `
-            <form id="student-login-form">
-              <div class="field-grid">
+            <form id="student-login-form" class="login-entry-form">
+              <div class="field-grid two">
                 <div class="field">
                   <label for="student-login-username">QR / Usuario</label>
                   <input id="student-login-username" name="username" type="text" placeholder="Ingresa tu QR o usuario" required>
@@ -1594,13 +1599,13 @@ function renderLoginView() {
                 </div>
               </div>
 
-              <div class="actions-row">
-                <button class="btn btn-primary" type="submit">Entrar a mi formación</button>
+              <div class="actions-row login-entry-actions">
+                <button class="btn btn-primary" type="submit">Entrar a mi formacion</button>
               </div>
             </form>
           ` : `
-            <form id="login-form">
-              <div class="field-grid">
+            <form id="login-form" class="login-entry-form">
+              <div class="field-grid two">
                 <div class="field">
                   <label for="login-email">Correo</label>
                   <input id="login-email" name="email" type="email" placeholder="correo@iglesia.com" required>
@@ -1612,71 +1617,60 @@ function renderLoginView() {
                 </div>
               </div>
 
-              <div class="actions-row">
-                <button class="btn btn-primary" type="submit">Ingresar</button>
+              <div class="actions-row login-entry-actions">
+                <button class="btn btn-primary" type="submit">Ingresar al sistema</button>
               </div>
             </form>
           `}
+        </article>
 
-          <div class="field-grid" style="margin-top: 18px;">
-            <div class="field">
-              <label for="api-url-input">URL de la API</label>
-              <input id="api-url-input" type="url" value="${escapeHtml(state.apiUrl)}" placeholder="https://script.google.com/macros/s/.../exec">
-              <span class="field-help">
-                ${hasStoredApiUrlOverride()
-                  ? "Este dispositivo esta usando una URL local distinta a la global. Si quieres volver a la misma URL compartida para todos, usa el boton URL global."
-                  : `Este dispositivo esta usando la URL global del sistema. URL global actual: ${escapeHtml(state.globalApiUrl || APP_CONFIG.defaultApiUrl)}`}
-              </span>
+        <article class="login-api-card">
+          <div class="login-utility-head">
+            <div>
+              <h3>Conexion del sistema</h3>
+              <p>Util para pruebas, cambios de entorno o sincronizacion con la URL global activa.</p>
             </div>
           </div>
 
-          <div class="actions-row">
+          <div class="field">
+            <label for="api-url-input">URL de la API</label>
+            <input id="api-url-input" type="url" value="${escapeHtml(state.apiUrl)}" placeholder="https://script.google.com/macros/s/.../exec">
+            <span class="field-help">
+              ${hasStoredApiUrlOverride()
+                ? "Este dispositivo usa una URL local distinta. Si quieres regresar a la misma URL compartida por todos, usa el boton URL global."
+                : `Este dispositivo esta usando la URL global del sistema. URL global actual: ${escapeHtml(state.globalApiUrl || APP_CONFIG.defaultApiUrl)}`}
+            </span>
+          </div>
+
+          <div class="actions-row login-api-actions">
+            <button class="btn btn-primary" data-action="save-global-api-url">Guardar globalmente</button>
             <button class="btn btn-secondary" data-action="save-api-url">Guardar solo en este dispositivo</button>
             <button class="btn btn-ghost" data-action="use-global-api-url">URL global</button>
             <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
           </div>
-        </div>
+
+          ${state.connectionStatus ? `
+            <p class="footer-note">${escapeHtml(state.connectionStatus.message || "")}</p>
+          ` : ""}
+        </article>
+
+        <article class="login-support-card">
+          <div class="login-support-grid">
+            <article class="login-support-item">
+              <strong>Desktop</strong>
+              <span>Paneles operativos amplios para administracion diaria y consultas ejecutivas.</span>
+            </article>
+            <article class="login-support-item">
+              <strong>iPad</strong>
+              <span>Flujos tactiles claros para captura, kiosko, asistencia y consulta pastoral.</span>
+            </article>
+            <article class="login-support-item">
+              <strong>Celular</strong>
+              <span>Experiencia tipo app para lideres, bienvenida, formacion y reportes rapidos.</span>
+            </article>
+          </div>
+        </article>
       </section>
-
-      <aside class="login-aside">
-        <div class="aside-head">
-          <div>
-          <span class="eyebrow">Ruta sugerida</span>
-          <h2 class="aside-title">Primero base operativa, luego refinamos cada modulo</h2>
-          <p class="aside-copy">
-              Este frontend ya nace pensando en migracion total a V2: menos friccion para los lideres,
-              mejor orden visual, portal individual para el asistente y una base mucho mas mantenible.
-          </p>
-        </div>
-        </div>
-
-        <div class="metric-grid">
-          <article class="metric-card">
-            <span class="metric-value">7</span>
-            <span class="metric-label">Pantallas base conectadas</span>
-          </article>
-          <article class="metric-card">
-            <span class="metric-value">1</span>
-            <span class="metric-label">Configuracion central de API</span>
-          </article>
-          <article class="metric-card">
-            <span class="metric-value">0</span>
-            <span class="metric-label">Dependencias pesadas</span>
-          </article>
-          <article class="metric-card">
-            <span class="metric-value">100%</span>
-            <span class="metric-label">Alineado al backend V2</span>
-          </article>
-        </div>
-
-        <div class="connection-box">
-          <span class="eyebrow">Siguiente etapa</span>
-          <p>
-            Esta fase ya prepara el camino para cuentas personales, desbloqueo de niveles, asistencias
-            por nivel y evaluación de formación sin mezclar la experiencia del asistente con la operación interna.
-          </p>
-        </div>
-      </aside>
     </div>
   `;
 }
