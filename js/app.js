@@ -506,6 +506,83 @@ function canUseScrapDelete_() {
   return (roleKey === "admin" || roleKey === "administrador") && hasUserPermission_(DELETE_SCRAP_PERMISSION);
 }
 
+function getNormalizedUserRole_() {
+  return normalizeText(state.user?.role || "");
+}
+
+function canUseDashboardPastorReports_() {
+  return !["lider", "coordinador"].includes(getNormalizedUserRole_());
+}
+
+function getUserScopedDashboardGroups_() {
+  const roleKey = getNormalizedUserRole_();
+  const userName = normalizeText(state.user?.name || "");
+
+  if (!["lider", "coordinador"].includes(roleKey) || !userName) {
+    return [];
+  }
+
+  return (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : []).filter((group) => {
+    return [group?.leader1Name, group?.leader2Name].some((leaderName) => normalizeText(leaderName || "") === userName);
+  });
+}
+
+function resolveDashboardGroupReportScope_() {
+  const selectedGroupId = String(state.filters.dashboard.groupId || "");
+  const scopedGroups = getUserScopedDashboardGroups_();
+  const scopedIds = scopedGroups.map((group) => String(group?.id || ""));
+
+  if (scopedIds.length) {
+    if (selectedGroupId && scopedIds.includes(selectedGroupId)) {
+      return {
+        ok: true,
+        groupId: selectedGroupId,
+        groupName: resolveGroupName_(selectedGroupId) || selectedGroupId,
+        source: "selected",
+        scopedGroups
+      };
+    }
+
+    if (scopedIds.length === 1) {
+      return {
+        ok: true,
+        groupId: scopedIds[0],
+        groupName: resolveGroupName_(scopedIds[0]) || scopedIds[0],
+        source: "role",
+        scopedGroups
+      };
+    }
+
+    return {
+      ok: false,
+      groupId: "",
+      groupName: "",
+      source: "role",
+      scopedGroups,
+      reason: "Selecciona uno de tus grupos para generar el reporte."
+    };
+  }
+
+  if (selectedGroupId) {
+    return {
+      ok: true,
+      groupId: selectedGroupId,
+      groupName: resolveGroupName_(selectedGroupId) || selectedGroupId,
+      source: "selected",
+      scopedGroups
+    };
+  }
+
+  return {
+    ok: false,
+    groupId: "",
+    groupName: "",
+    source: "manual",
+    scopedGroups,
+    reason: "Selecciona un grupo para generar el reporte."
+  };
+}
+
 function getFirstAccessibleView_(views) {
   const allowed = views.find((view) => canAccessView_(view));
   return allowed || "dashboard";
@@ -6263,6 +6340,8 @@ function renderDashboardView() {
         </div>
       </article>
 
+      ${renderDashboardReportCenter_()}
+
       ${!hasSeasonData ? `
         <div class="empty-state">Selecciona o crea una temporada para comenzar la consulta ejecutiva.</div>
       ` : `
@@ -6758,6 +6837,831 @@ function buildDashboardGroupDetailCsv_() {
   });
 
   return buildCsvText_(rows);
+}
+
+function buildDashboardBinaryExportFileName_(prefix, label, extension) {
+  const safeLabel = label ? `_${sanitizeFileNamePart_(label)}` : "";
+  return `${prefix}_${formatTimestampToken_()}${safeLabel}.${extension}`;
+}
+
+function downloadExcelHtmlFile_(htmlText, fileName) {
+  const blob = new Blob(["\ufeff", htmlText], {
+    type: "application/vnd.ms-excel;charset=utf-8"
+  });
+  downloadBlob_(blob, fileName);
+}
+
+function buildWhatsappTextShareUrl_(message, phone = "") {
+  const cleanPhone = normalizeWhatsappPhone_(phone);
+  const encodedMessage = encodeURIComponent(String(message || "").trim());
+
+  if (cleanPhone) {
+    return `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
+  }
+
+  return `https://api.whatsapp.com/send?text=${encodedMessage}`;
+}
+
+function formatDashboardAttendanceStatusText_(status) {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (normalizedStatus === "SI") {
+    return "SI";
+  }
+
+  if (normalizedStatus === "NO") {
+    return "NO";
+  }
+
+  return "-";
+}
+
+function buildDashboardConsecutiveAttendanceInfo_(person, sessions) {
+  const normalizedSessions = Array.isArray(sessions) ? sessions : [];
+  let streak = 0;
+  let maxStreak = 0;
+  let attendanceCount = 0;
+  let capturedSessionsCount = 0;
+  let triggerSessionId = "";
+  let triggerSessionLabel = "";
+  let triggerSessions = [];
+  let currentWindow = [];
+
+  normalizedSessions.forEach((session) => {
+    const sessionId = String(session?.sessionId || session?.id || "");
+    const isCaptured = Boolean(session?.captured || Number(session?.recorded || 0) > 0);
+    const sessionLabel = String(session?.shortLabel || session?.name || sessionId);
+    const status = String(person?.attendances?.[sessionId] || "").toUpperCase();
+
+    if (!sessionId || !isCaptured) {
+      return;
+    }
+
+    capturedSessionsCount += 1;
+
+    if (status === "SI") {
+      streak += 1;
+      attendanceCount += 1;
+      currentWindow.push(sessionLabel);
+
+      if (currentWindow.length > 3) {
+        currentWindow.shift();
+      }
+
+      if (streak > maxStreak) {
+        maxStreak = streak;
+      }
+
+      if (!triggerSessionId && streak >= 3) {
+        triggerSessionId = sessionId;
+        triggerSessionLabel = sessionLabel;
+        triggerSessions = currentWindow.slice();
+      }
+
+      return;
+    }
+
+    streak = 0;
+    currentWindow = [];
+  });
+
+  return {
+    eligible: maxStreak >= 3,
+    consecutiveAttendances: maxStreak,
+    attendanceCount,
+    capturedSessionsCount,
+    triggerSessionId,
+    triggerSessionLabel,
+    triggerSessions
+  };
+}
+
+function buildDashboardConsecutiveCandidatesForGroup_(groupSummary) {
+  const sessions = Array.isArray(groupSummary?.sessions) ? groupSummary.sessions : [];
+  const people = Array.isArray(groupSummary?.people) ? groupSummary.people : [];
+
+  return people
+    .map((person) => {
+      const streakInfo = buildDashboardConsecutiveAttendanceInfo_(person, sessions);
+
+      if (!streakInfo.eligible) {
+        return null;
+      }
+
+      return {
+        groupId: String(groupSummary?.groupId || ""),
+        groupName: groupSummary?.groupName || resolveGroupName_(groupSummary?.groupId || "") || "Grupo",
+        personId: String(person?.personId || ""),
+        personName: person?.name || person?.personId || "Sin nombre",
+        type: person?.type || "",
+        totalPresent: Number(person?.totalPresent || 0),
+        totalAssignedSessions: Number(person?.totalAssignedSessions || sessions.length || 0),
+        attendanceRate: Number(person?.attendanceRate || 0),
+        consecutiveAttendances: streakInfo.consecutiveAttendances,
+        attendanceCount: streakInfo.attendanceCount,
+        capturedSessionsCount: streakInfo.capturedSessionsCount,
+        triggerSessionId: streakInfo.triggerSessionId,
+        triggerSessionLabel: streakInfo.triggerSessionLabel,
+        triggerSessions: streakInfo.triggerSessions
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      if (right.consecutiveAttendances !== left.consecutiveAttendances) {
+        return right.consecutiveAttendances - left.consecutiveAttendances;
+      }
+
+      if (right.totalPresent !== left.totalPresent) {
+        return right.totalPresent - left.totalPresent;
+      }
+
+      return normalizeText(left.personName).localeCompare(normalizeText(right.personName), "es");
+    });
+}
+
+function buildDashboardReportGroupEntries_() {
+  const seasonMatrix = state.dashboardSeasonMatrix;
+  const detailMap = seasonMatrix?.groupDetailsById || {};
+  const seasonGroups = Array.isArray(seasonMatrix?.groups) ? seasonMatrix.groups : [];
+
+  return seasonGroups
+    .map((group) => {
+      const groupId = String(group?.groupId || "");
+      const detail = detailMap[groupId] || null;
+      const summary = buildDashboardLeaderSummary_(group, detail);
+
+      if (!summary) {
+        return null;
+      }
+
+      return {
+        groupId,
+        groupName: summary.groupName || resolveGroupName_(groupId) || `Grupo ${groupId}`,
+        detail,
+        summary,
+        consecutiveCandidates: buildDashboardConsecutiveCandidatesForGroup_(summary)
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es"));
+}
+
+function getDashboardReportContext_() {
+  const executive = state.dashboardExecutive;
+  const latestSeason = getLatestSeason();
+  const focusSeason = executive?.seasonFocus || (latestSeason ? {
+    id: latestSeason.id,
+    name: latestSeason.name,
+    status: latestSeason.status,
+    startDate: latestSeason.startDate,
+    sessionsCount: latestSeason.sessionsCount || getSessions(latestSeason.id).length
+  } : null);
+  const seasonMatrix = state.dashboardSeasonMatrix;
+  const sessionTotals = Array.isArray(seasonMatrix?.sessionTotals) ? seasonMatrix.sessionTotals : [];
+  const groups = buildDashboardReportGroupEntries_();
+  const selectedSessionId = String(state.filters.dashboard.sessionId || "");
+  const selectedSession = sessionTotals.find((session) => String(session?.sessionId || session?.id || "") === selectedSessionId) || null;
+
+  return {
+    executive,
+    focusSeason,
+    seasonMatrix,
+    seasonId: String(focusSeason?.id || seasonMatrix?.seasonId || state.filters.dashboard.seasonId || ""),
+    seasonName: focusSeason?.name || seasonMatrix?.seasonName || "Sin temporada",
+    generatedAt: executive?.generatedAt || new Date().toISOString(),
+    overall: seasonMatrix?.overall || {
+      presentTotal: 0,
+      capturedBaseTotal: 0,
+      uniquePeople: 0,
+      groups: groups.length,
+      sessions: sessionTotals.length,
+      attendanceRate: 0
+    },
+    sessionTotals,
+    groups,
+    selectedSession
+  };
+}
+
+function buildDashboardPastorReportModel_() {
+  const context = getDashboardReportContext_();
+
+  if (!context.seasonId) {
+    return null;
+  }
+
+  return {
+    kind: "pastor",
+    title: `Reporte pastoral · ${context.seasonName}`,
+    subtitle: "Incluye asistencia global por sesión, resumen de grupos, regla de 3 asistencias consecutivas y detalle completo por grupo.",
+    ...context,
+    totalConsecutiveCandidates: context.groups.reduce((sum, group) => sum + group.consecutiveCandidates.length, 0)
+  };
+}
+
+function buildDashboardGroupReportModel_(groupId) {
+  const context = getDashboardReportContext_();
+  const resolvedGroupId = String(groupId || "");
+  const group = context.groups.find((item) => String(item.groupId || "") === resolvedGroupId) || null;
+
+  if (!context.seasonId || !group) {
+    return null;
+  }
+
+  return {
+    kind: "group",
+    title: `Reporte de grupo · ${group.groupName}`,
+    subtitle: "Incluye asistencia global por sesión, detalle completo de integrantes y la regla de 3 asistencias consecutivas.",
+    ...context,
+    group,
+    totalConsecutiveCandidates: group.consecutiveCandidates.length
+  };
+}
+
+function renderDashboardReportTableHtml_(headers, rows) {
+  const safeHeaders = Array.isArray(headers) ? headers : [];
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  return `
+    <div class="report-table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            ${safeHeaders.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${safeRows.length ? safeRows.map((row) => `
+            <tr>
+              ${(Array.isArray(row) ? row : []).map((cell) => `<td>${escapeHtml(cell == null ? "" : String(cell))}</td>`).join("")}
+            </tr>
+          `).join("") : `
+            <tr>
+              <td colspan="${Math.max(safeHeaders.length, 1)}">Sin datos disponibles para esta sección.</td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDashboardReportSummaryHtml_(items) {
+  const safeItems = Array.isArray(items) ? items : [];
+
+  return `
+    <div class="report-summary-grid">
+      ${safeItems.map((item) => `
+        <div class="report-summary-card">
+          <span>${escapeHtml(item?.label || "")}</span>
+          <strong>${escapeHtml(item?.value == null ? "" : String(item.value))}</strong>
+          <small>${escapeHtml(item?.note || "")}</small>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderDashboardReportSectionHtml_(title, description, innerHtml, options = {}) {
+  return `
+    <section class="report-section ${options.className || ""}">
+      <div class="report-section-head">
+        <h2>${escapeHtml(title || "")}</h2>
+        ${description ? `<p>${escapeHtml(description)}</p>` : ""}
+      </div>
+      ${innerHtml || ""}
+    </section>
+  `;
+}
+
+function buildDashboardGroupSessionRows_(groupEntry) {
+  const sessions = Array.isArray(groupEntry?.summary?.sessions) ? groupEntry.summary.sessions : [];
+
+  return sessions.map((session) => [
+    session.shortLabel || session.name || "Sesión",
+    formatDate(session.date) || "-",
+    session.status || "-",
+    session.captured ? "Sí" : "No",
+    String(session.total || 0),
+    String(session.volunteers || 0),
+    String(session.congregants || 0),
+    String(session.present || 0),
+    String(session.absent || 0),
+    `${session.rate || 0}%`
+  ]);
+}
+
+function buildDashboardGroupRosterRows_(groupEntry) {
+  const summary = groupEntry?.summary || {};
+  const sessions = Array.isArray(summary.sessions) ? summary.sessions : [];
+  const people = Array.isArray(summary.people) ? summary.people : [];
+
+  return people.map((person) => ([
+    person.personId || "",
+    person.name || "",
+    person.type || "",
+    `${person.totalPresent || 0}/${person.totalAssignedSessions || summary.totalSessions || sessions.length || 0}`,
+    `${person.attendanceRate || 0}%`,
+    ...sessions.map((session) => formatDashboardAttendanceStatusText_(person.attendances?.[session.sessionId] || person.attendances?.[session.id] || ""))
+  ]));
+}
+
+function buildDashboardConsecutiveRows_(groupEntry) {
+  return (Array.isArray(groupEntry?.consecutiveCandidates) ? groupEntry.consecutiveCandidates : []).map((candidate) => ([
+    candidate.personId || "",
+    candidate.personName || "",
+    candidate.type || "",
+    `${candidate.totalPresent || 0}/${candidate.totalAssignedSessions || 0}`,
+    `${candidate.attendanceRate || 0}%`,
+    String(candidate.consecutiveAttendances || 0),
+    candidate.triggerSessionLabel || "-",
+    Array.isArray(candidate.triggerSessions) && candidate.triggerSessions.length ? candidate.triggerSessions.join(" · ") : "-"
+  ]));
+}
+
+function renderDashboardReportGroupSectionHtml_(groupEntry) {
+  const summary = groupEntry?.summary || {};
+  const sessions = Array.isArray(summary.sessions) ? summary.sessions : [];
+
+  return renderDashboardReportSectionHtml_(
+    `Grupo ${groupEntry?.groupName || summary.groupName || ""}`,
+    "Aquí aparece la asistencia global del grupo por cada sesión y debajo el detalle de todos sus integrantes.",
+    `
+      ${renderDashboardReportSummaryHtml_([
+        {
+          label: "Personas registradas",
+          value: String(summary.uniquePeople || 0),
+          note: `${summary.participantAssignments || 0} asignaciones acumuladas`
+        },
+        {
+          label: "Asistencia acumulada",
+          value: `${summary.presentTotal || 0}/${summary.capturedBaseTotal || 0}`,
+          note: `${summary.attendanceRate || 0}% real`
+        },
+        {
+          label: "Sesiones capturadas",
+          value: `${summary.capturedSessions || 0}/${summary.totalSessions || sessions.length || 0}`,
+          note: `${summary.captureProgress || 0}% de cobertura`
+        },
+        {
+          label: "3+ consecutivas",
+          value: String(groupEntry?.consecutiveCandidates?.length || 0),
+          note: "Regla principal para asistir a Encuentro"
+        }
+      ])}
+
+      <div class="report-subsection">
+        <h3>Asistencia global por sesión</h3>
+        ${renderDashboardReportTableHtml_(
+          ["Sesión", "Fecha", "Estado", "Capturada", "Base", "Voluntarios", "Congregantes", "Presentes", "Ausentes", "% Asistencia"],
+          buildDashboardGroupSessionRows_(groupEntry)
+        )}
+      </div>
+
+      <div class="report-subsection">
+        <h3>Asistentes con 3 o más asistencias consecutivas</h3>
+        ${renderDashboardReportTableHtml_(
+          ["ID", "Nombre", "Tipo", "Total SI", "% Asistencia", "Racha", "Sesión activación", "Sesiones que activaron"],
+          buildDashboardConsecutiveRows_(groupEntry)
+        )}
+      </div>
+
+      <div class="report-subsection">
+        <h3>Detalle completo de integrantes</h3>
+        ${renderDashboardReportTableHtml_(
+          ["ID", "Nombre", "Tipo", "Total SI", "% Asistencia", ...sessions.map((session) => session.shortLabel || session.name || "Sesión")],
+          buildDashboardGroupRosterRows_(groupEntry)
+        )}
+      </div>
+    `
+  );
+}
+
+function buildDashboardPastorReportBodyHtml_(report) {
+  const overall = report?.overall || {};
+  const sessionTotals = Array.isArray(report?.sessionTotals) ? report.sessionTotals : [];
+  const groups = Array.isArray(report?.groups) ? report.groups : [];
+
+  return `
+    ${renderDashboardReportSummaryHtml_([
+      {
+        label: "Temporada",
+        value: report?.seasonName || "Sin temporada",
+        note: report?.focusSeason?.status || "Sin estado"
+      },
+      {
+        label: "Asistencia global",
+        value: `${overall.presentTotal || 0}/${overall.capturedBaseTotal || 0}`,
+        note: `${overall.attendanceRate || 0}% acumulado`
+      },
+      {
+        label: "Grupos",
+        value: String(groups.length),
+        note: "Incluidos en el reporte pastoral"
+      },
+      {
+        label: "3+ consecutivas",
+        value: String(report?.totalConsecutiveCandidates || 0),
+        note: "Prospectos actuales a Encuentro"
+      }
+    ])}
+
+    ${renderDashboardReportSectionHtml_(
+      "Resumen global por sesión",
+      "Este bloque sirve al Pastor para ver la asistencia de toda la temporada, sesión por sesión.",
+      renderDashboardReportTableHtml_(
+        ["Sesión", "Fecha", "Estado", "Grupos capturados", "Grupos configurados", "Base capturada", "Presentes", "Ausentes", "% Asistencia", "Cobertura grupos"],
+        sessionTotals.map((session) => [
+          session.shortLabel || session.name || "Sesión",
+          formatDate(session.date) || "-",
+          session.status || "-",
+          String(session.groupsCaptured || 0),
+          String(session.groupsConfigured || 0),
+          String(session.capturedBaseTotal || 0),
+          String(session.presentTotal || 0),
+          String(session.absentTotal || 0),
+          `${session.attendanceRate || 0}%`,
+          `${session.captureCoverage || 0}%`
+        ])
+      )
+    )}
+
+    ${renderDashboardReportSectionHtml_(
+      "Resumen global por grupo",
+      "Aquí se ve cada grupo con su asistencia acumulada y cuántas personas ya cumplen la regla de las 3 asistencias consecutivas.",
+      renderDashboardReportTableHtml_(
+        ["Grupo", "Personas", "Asistencia", "Sesiones capturadas", "% Captura", "3+ consecutivas", "Tendencia"],
+        groups.map((groupEntry) => [
+          groupEntry.groupName || "",
+          String(groupEntry.summary?.uniquePeople || 0),
+          `${groupEntry.summary?.presentTotal || 0}/${groupEntry.summary?.capturedBaseTotal || 0}`,
+          `${groupEntry.summary?.capturedSessions || 0}/${groupEntry.summary?.totalSessions || 0}`,
+          `${groupEntry.summary?.captureProgress || 0}%`,
+          String(groupEntry.consecutiveCandidates?.length || 0),
+          groupEntry.summary?.trend?.label || "Sin tendencia"
+        ])
+      )
+    )}
+
+    ${groups.map((groupEntry) => renderDashboardReportGroupSectionHtml_(groupEntry)).join("")}
+  `;
+}
+
+function buildDashboardGroupReportBodyHtml_(report) {
+  const groupEntry = report?.group || null;
+
+  if (!groupEntry) {
+    return renderDashboardReportSectionHtml_("Sin grupo", "No se encontró un grupo válido para este reporte.", "");
+  }
+
+  return `
+    ${renderDashboardReportSummaryHtml_([
+      {
+        label: "Temporada",
+        value: report?.seasonName || "Sin temporada",
+        note: report?.focusSeason?.status || "Sin estado"
+      },
+      {
+        label: "Grupo",
+        value: groupEntry.groupName || "Sin grupo",
+        note: `${groupEntry.summary?.uniquePeople || 0} personas registradas`
+      },
+      {
+        label: "Asistencia acumulada",
+        value: `${groupEntry.summary?.presentTotal || 0}/${groupEntry.summary?.capturedBaseTotal || 0}`,
+        note: `${groupEntry.summary?.attendanceRate || 0}% real`
+      },
+      {
+        label: "3+ consecutivas",
+        value: String(report?.totalConsecutiveCandidates || 0),
+        note: "Listas para Encuentro"
+      }
+    ])}
+    ${renderDashboardReportGroupSectionHtml_(groupEntry)}
+  `;
+}
+
+function buildDashboardReportDocumentBodyHtml_(report) {
+  if (report?.kind === "group") {
+    return buildDashboardGroupReportBodyHtml_(report);
+  }
+
+  return buildDashboardPastorReportBodyHtml_(report);
+}
+
+function buildDashboardReportDocumentHtml_(report, options = {}) {
+  const autoPrint = Boolean(options.autoPrint);
+  const generatedAt = report?.generatedAt ? formatDateTime_(report.generatedAt) : formatDateTime_(new Date());
+  const bodyHtml = buildDashboardReportDocumentBodyHtml_(report);
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>${escapeHtml(report?.title || "Reporte Dashboard Iglesia")}</title>
+      <style>
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          padding: 28px;
+          font-family: Manrope, Arial, sans-serif;
+          color: #111111;
+          background: #f4f4f4;
+        }
+        .report-shell {
+          display: grid;
+          gap: 18px;
+        }
+        .report-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 18px;
+          padding: 22px 24px;
+          border-radius: 24px;
+          background: #ffffff;
+          border: 1px solid #d8d8d8;
+        }
+        .report-head h1 {
+          margin: 0;
+          font-size: 30px;
+          letter-spacing: -0.04em;
+        }
+        .report-head p,
+        .report-head small {
+          margin: 8px 0 0;
+          color: #5a5a5a;
+          line-height: 1.6;
+        }
+        .report-summary-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 12px;
+        }
+        .report-summary-card,
+        .report-section {
+          background: #ffffff;
+          border: 1px solid #dcdcdc;
+          border-radius: 22px;
+        }
+        .report-summary-card {
+          display: grid;
+          gap: 6px;
+          padding: 18px;
+        }
+        .report-summary-card span {
+          font-size: 12px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #666666;
+        }
+        .report-summary-card strong {
+          font-size: 28px;
+          letter-spacing: -0.04em;
+        }
+        .report-summary-card small {
+          color: #666666;
+        }
+        .report-section {
+          padding: 20px;
+          display: grid;
+          gap: 14px;
+        }
+        .report-section-head {
+          display: grid;
+          gap: 6px;
+        }
+        .report-section-head h2 {
+          margin: 0;
+          font-size: 24px;
+          letter-spacing: -0.03em;
+        }
+        .report-section-head p,
+        .report-subsection p {
+          margin: 0;
+          color: #5f5f5f;
+          line-height: 1.65;
+        }
+        .report-subsection {
+          display: grid;
+          gap: 10px;
+        }
+        .report-subsection h3 {
+          margin: 0;
+          font-size: 18px;
+          letter-spacing: -0.03em;
+        }
+        .report-table-wrap {
+          width: 100%;
+          overflow: hidden;
+          border-radius: 18px;
+          border: 1px solid #dddddd;
+        }
+        .report-table {
+          width: 100%;
+          border-collapse: collapse;
+          background: #ffffff;
+        }
+        .report-table th,
+        .report-table td {
+          padding: 10px 12px;
+          border-bottom: 1px solid #ededed;
+          text-align: left;
+          vertical-align: top;
+          font-size: 12px;
+        }
+        .report-table th {
+          background: #f5f5f5;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #555555;
+        }
+        @media print {
+          body {
+            padding: 0;
+            background: #ffffff;
+          }
+          .report-shell {
+            gap: 12px;
+          }
+          .report-summary-card,
+          .report-section,
+          .report-head {
+            box-shadow: none;
+            break-inside: avoid;
+          }
+          .report-section {
+            page-break-inside: avoid;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="report-shell">
+        <header class="report-head">
+          <div>
+            <h1>${escapeHtml(report?.title || "Reporte Dashboard Iglesia")}</h1>
+            <p>${escapeHtml(report?.subtitle || "")}</p>
+          </div>
+          <div>
+            <small>${escapeHtml(`Generado: ${generatedAt}`)}</small>
+            <small>${escapeHtml(`Temporada: ${report?.seasonName || "Sin temporada"}`)}</small>
+          </div>
+        </header>
+        ${bodyHtml}
+      </div>
+      ${autoPrint ? `
+        <script>
+          window.addEventListener("load", function () {
+            window.print();
+          });
+        </script>
+      ` : ""}
+    </body>
+    </html>
+  `;
+}
+
+function openDashboardReportPdf_(report) {
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1440,height=960");
+
+  if (!printWindow) {
+    showToast("Ventana bloqueada", "Permite ventanas emergentes para abrir la versión PDF del reporte.", "warning");
+    return false;
+  }
+
+  printWindow.document.write(buildDashboardReportDocumentHtml_(report, {
+    autoPrint: true
+  }));
+  printWindow.document.close();
+  return true;
+}
+
+function downloadDashboardReportExcel_(report, prefix) {
+  downloadExcelHtmlFile_(
+    buildDashboardReportDocumentHtml_(report),
+    buildDashboardBinaryExportFileName_(prefix, report?.seasonName || report?.group?.groupName || "reporte", "xls")
+  );
+}
+
+function buildDashboardPastorWhatsappText_(report) {
+  const overall = report?.overall || {};
+  const sessionLines = (Array.isArray(report?.sessionTotals) ? report.sessionTotals : []).map((session) => {
+    return `${session.shortLabel || session.name}: ${session.presentTotal || 0}/${session.capturedBaseTotal || 0} (${session.attendanceRate || 0}%)`;
+  });
+  const groupLines = (Array.isArray(report?.groups) ? report.groups : []).map((groupEntry) => {
+    return `${groupEntry.groupName}: ${groupEntry.summary?.presentTotal || 0}/${groupEntry.summary?.capturedBaseTotal || 0} (${groupEntry.summary?.attendanceRate || 0}%) | 3+ consecutivas: ${groupEntry.consecutiveCandidates?.length || 0}`;
+  });
+
+  return [
+    "Reporte pastoral Iglesia Fuertes",
+    `Temporada: ${report?.seasonName || "Sin temporada"}`,
+    `Asistencia global acumulada: ${overall.presentTotal || 0}/${overall.capturedBaseTotal || 0} (${overall.attendanceRate || 0}%)`,
+    `Grupos incluidos: ${report?.groups?.length || 0}`,
+    `Prospectos con 3+ consecutivas: ${report?.totalConsecutiveCandidates || 0}`,
+    "",
+    "Asistencia por sesión:",
+    ...(sessionLines.length ? sessionLines : ["- Sin sesiones capturadas"]),
+    "",
+    "Resumen por grupo:",
+    ...(groupLines.length ? groupLines : ["- Sin grupos con datos"]),
+    "",
+    `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
+  ].join("\n");
+}
+
+function buildDashboardGroupWhatsappText_(report) {
+  const groupEntry = report?.group || {};
+  const sessionLines = buildDashboardGroupSessionRows_(groupEntry).map((row) => `${row[0]}: ${row[7]}/${row[4]} (${row[9]})`);
+  const candidateLines = (Array.isArray(groupEntry?.consecutiveCandidates) ? groupEntry.consecutiveCandidates : [])
+    .slice(0, 20)
+    .map((candidate) => `- ${candidate.personName} (${candidate.consecutiveAttendances} consecutivas)`);
+  const omittedCandidates = Math.max((groupEntry?.consecutiveCandidates?.length || 0) - candidateLines.length, 0);
+
+  return [
+    "Reporte de grupo de conexión",
+    `Temporada: ${report?.seasonName || "Sin temporada"}`,
+    `Grupo: ${groupEntry?.groupName || "Sin grupo"}`,
+    `Asistencia acumulada: ${groupEntry?.summary?.presentTotal || 0}/${groupEntry?.summary?.capturedBaseTotal || 0} (${groupEntry?.summary?.attendanceRate || 0}%)`,
+    `Sesiones capturadas: ${groupEntry?.summary?.capturedSessions || 0}/${groupEntry?.summary?.totalSessions || 0}`,
+    `Prospectos con 3+ consecutivas: ${report?.totalConsecutiveCandidates || 0}`,
+    "",
+    "Asistencia por sesión:",
+    ...(sessionLines.length ? sessionLines : ["- Sin sesiones capturadas"]),
+    "",
+    "Asistentes con 3+ consecutivas:",
+    ...(candidateLines.length ? candidateLines : ["- Ninguno por ahora"]),
+    ...(omittedCandidates ? [`- ${omittedCandidates} persona(s) más en el reporte completo`] : []),
+    "",
+    `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
+  ].join("\n");
+}
+
+function renderDashboardReportCenter_() {
+  const canUsePastorReports = canUseDashboardPastorReports_();
+  const reportScope = resolveDashboardGroupReportScope_();
+  const pastorReport = canUsePastorReports ? buildDashboardPastorReportModel_() : null;
+  const groupReport = reportScope.ok ? buildDashboardGroupReportModel_(reportScope.groupId) : null;
+  const scopedGroups = reportScope.scopedGroups || [];
+  const scopedGroupNames = scopedGroups.map((group) => group?.name || group?.id || "").filter(Boolean);
+
+  return `
+    <article class="detail-card dashboard-report-center-card module-section-anchor" id="dashboard-report-center">
+      <div class="panel-head">
+        <div>
+          <h2>Centro de reportes</h2>
+          <p>Desde aquí exportas el reporte completo para Pastor o el reporte por grupo para líderes y coordinadores.</p>
+        </div>
+        <span class="pill dark">${escapeHtml(canUsePastorReports ? "Pastor / Administración" : "Líder / Coordinación")}</span>
+      </div>
+
+      <div class="dashboard-report-grid">
+        ${canUsePastorReports ? `
+          <article class="dashboard-report-card">
+            <span class="status-chip neutral">Reporte completo</span>
+            <h3>Pastor</h3>
+            <p>Incluye toda la temporada: asistencia global por sesión, resumen de cada grupo, regla de 3 asistencias consecutivas y detalle de integrantes.</p>
+            <div class="dashboard-report-meta">
+              <span class="context-item"><strong>Grupos:</strong> ${escapeHtml(String(pastorReport?.groups?.length || 0))}</span>
+              <span class="context-item"><strong>3+ consecutivas:</strong> ${escapeHtml(String(pastorReport?.totalConsecutiveCandidates || 0))}</span>
+              <span class="context-item"><strong>Asistencia global:</strong> ${escapeHtml(`${pastorReport?.overall?.presentTotal || 0}/${pastorReport?.overall?.capturedBaseTotal || 0}`)}</span>
+            </div>
+            <div class="dashboard-report-actions">
+              <button class="btn btn-primary" type="button" data-action="export-dashboard-pastor-excel" ${pastorReport ? "" : "disabled"}>Excel</button>
+              <button class="btn btn-secondary" type="button" data-action="export-dashboard-pastor-pdf" ${pastorReport ? "" : "disabled"}>PDF</button>
+              <button class="btn btn-secondary" type="button" data-action="share-dashboard-pastor-whatsapp" ${pastorReport ? "" : "disabled"}>WhatsApp resumen</button>
+            </div>
+          </article>
+        ` : ""}
+
+        <article class="dashboard-report-card">
+          <span class="status-chip success">Reporte por grupo</span>
+          <h3>${escapeHtml(groupReport?.group?.groupName || reportScope.groupName || "Selecciona grupo")}</h3>
+          <p>Incluye asistencia global del grupo por cada sesión, el listado completo de integrantes y quiénes ya cumplieron 3 asistencias consecutivas.</p>
+          <div class="dashboard-report-meta">
+            <span class="context-item"><strong>Alcance:</strong> ${escapeHtml(groupReport?.group?.groupName || reportScope.reason || "Selecciona un grupo")}</span>
+            <span class="context-item"><strong>3+ consecutivas:</strong> ${escapeHtml(String(groupReport?.totalConsecutiveCandidates || 0))}</span>
+            <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(groupReport?.group?.summary?.totalSessions || 0))}</span>
+          </div>
+          ${scopedGroupNames.length > 1 ? `
+            <div class="dashboard-report-note">
+              Tus grupos detectados: ${escapeHtml(scopedGroupNames.join(", "))}.
+            </div>
+          ` : ""}
+          <div class="dashboard-report-actions">
+            <button class="btn btn-primary" type="button" data-action="export-dashboard-group-report-excel" ${groupReport ? "" : "disabled"}>Excel</button>
+            <button class="btn btn-secondary" type="button" data-action="export-dashboard-group-report-pdf" ${groupReport ? "" : "disabled"}>PDF</button>
+            <button class="btn btn-secondary" type="button" data-action="share-dashboard-group-whatsapp" ${groupReport ? "" : "disabled"}>WhatsApp resumen</button>
+          </div>
+        </article>
+      </div>
+
+      <p class="dashboard-report-note">Excel descarga el reporte completo. PDF abre la versión lista para guardar como PDF. WhatsApp envía un resumen ejecutivo funcional desde navegador.</p>
+    </article>
+  `;
 }
 
 function renderAssistantsView() {
@@ -9322,6 +10226,43 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "export-dashboard-pastor-excel") {
+      const report = buildDashboardPastorReportModel_();
+
+      if (!report) {
+        showToast("Sin datos", "Selecciona una temporada válida para generar el reporte pastoral.", "warning");
+        return;
+      }
+
+      downloadDashboardReportExcel_(report, "REPORTE_PASTORAL");
+      showToast("Reporte listo", "Se descargó el reporte pastoral en formato Excel.", "success");
+      return;
+    }
+
+    if (action === "export-dashboard-pastor-pdf") {
+      const report = buildDashboardPastorReportModel_();
+
+      if (!report) {
+        showToast("Sin datos", "Selecciona una temporada válida para generar el reporte pastoral.", "warning");
+        return;
+      }
+
+      openDashboardReportPdf_(report);
+      return;
+    }
+
+    if (action === "share-dashboard-pastor-whatsapp") {
+      const report = buildDashboardPastorReportModel_();
+
+      if (!report) {
+        showToast("Sin datos", "Selecciona una temporada válida para compartir el resumen pastoral.", "warning");
+        return;
+      }
+
+      window.open(buildWhatsappTextShareUrl_(buildDashboardPastorWhatsappText_(report)), "_blank", "noopener,noreferrer");
+      return;
+    }
+
     if (action === "load-dashboard-group-query") {
       if (!state.filters.dashboard.groupId) {
         showToast("Selecciona un grupo", "Elige un grupo antes de abrir la consulta para lideres.", "warning");
@@ -9362,6 +10303,40 @@ async function handleClick(event) {
         buildDashboardExportFileName_("DASHBOARD_GRUPO", groupLabel)
       );
       showToast("Exportacion lista", "Se descargo el detalle del grupo en CSV.", "success");
+      return;
+    }
+
+    if (
+      action === "export-dashboard-group-report-excel"
+      || action === "export-dashboard-group-report-pdf"
+      || action === "share-dashboard-group-whatsapp"
+    ) {
+      const reportScope = resolveDashboardGroupReportScope_();
+
+      if (!reportScope.ok) {
+        showToast("Selecciona grupo", reportScope.reason || "Elige un grupo antes de generar este reporte.", "warning");
+        return;
+      }
+
+      const report = buildDashboardGroupReportModel_(reportScope.groupId);
+
+      if (!report) {
+        showToast("Sin datos", "Ese grupo todavía no tiene datos suficientes para generar el reporte.", "warning");
+        return;
+      }
+
+      if (action === "export-dashboard-group-report-excel") {
+        downloadDashboardReportExcel_(report, "REPORTE_GRUPO");
+        showToast("Reporte listo", "Se descargó el reporte del grupo en formato Excel.", "success");
+        return;
+      }
+
+      if (action === "export-dashboard-group-report-pdf") {
+        openDashboardReportPdf_(report);
+        return;
+      }
+
+      window.open(buildWhatsappTextShareUrl_(buildDashboardGroupWhatsappText_(report)), "_blank", "noopener,noreferrer");
       return;
     }
 
