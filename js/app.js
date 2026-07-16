@@ -7630,108 +7630,765 @@ function buildDashboardReportDocumentHtml_(report) {
   `;
 }
 
-function printHtmlDocumentInHiddenFrame_(htmlText, options = {}) {
+function getDashboardPdfConstructor_() {
+  return window.jspdf?.jsPDF || null;
+}
+
+function blobToDataUrl_(blob) {
   return new Promise((resolve, reject) => {
-    const frame = document.createElement("iframe");
-    const timeoutMs = Number(options.timeoutMs || 18000);
-    let settled = false;
-    let timeoutId = 0;
-    let cleanupTimerId = 0;
+    const reader = new FileReader();
 
-    const cleanup = () => {
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      if (cleanupTimerId) {
-        window.clearTimeout(cleanupTimerId);
-      }
-      if (frame.parentNode) {
-        frame.parentNode.removeChild(frame);
-      }
-    };
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("FILE_READER_ERROR"));
+    reader.readAsDataURL(blob);
+  });
+}
 
-    const settle = (callback, value) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      callback(value);
-    };
+async function loadAssetAsDataUrl_(url) {
+  if (!url) {
+    return "";
+  }
 
-    timeoutId = window.setTimeout(() => {
-      settle(reject, new Error("PRINT_FRAME_TIMEOUT"));
-    }, timeoutMs);
+  try {
+    const response = await fetch(url, {
+      cache: "force-cache"
+    });
 
-    frame.setAttribute("aria-hidden", "true");
-    frame.style.position = "fixed";
-    frame.style.right = "0";
-    frame.style.bottom = "0";
-    frame.style.width = "1px";
-    frame.style.height = "1px";
-    frame.style.opacity = "0";
-    frame.style.pointerEvents = "none";
-    frame.style.border = "0";
+    if (!response.ok) {
+      throw new Error(`ASSET_FETCH_${response.status}`);
+    }
 
-    frame.onload = () => {
-      try {
-        const frameWindow = frame.contentWindow;
-        const frameDocument = frame.contentDocument || frameWindow?.document;
+    return await blobToDataUrl_(await response.blob());
+  } catch (error) {
+    console.warn("No se pudo cargar el logo para el PDF.", error);
+    return "";
+  }
+}
 
-        if (!frameWindow || !frameDocument) {
-          settle(reject, new Error("PRINT_FRAME_UNAVAILABLE"));
-          return;
+function waitForUiPaint_(delayMs = 40) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
+function buildDashboardPdfSessionSummaryRows_(report) {
+  return (Array.isArray(report?.sessionTotals) ? report.sessionTotals : []).map((session) => ([
+    session.shortLabel || session.name || "Sesion",
+    formatDate(session.date) || "-",
+    `${session.presentTotal || 0}/${session.capturedBaseTotal || 0}`,
+    `${session.attendanceRate || 0}%`,
+    `${session.groupsCaptured || 0}/${session.groupsConfigured || 0}`,
+    session.status || "-"
+  ]));
+}
+
+function buildDashboardPdfGroupSessionSummaryRows_(groupEntry) {
+  const sessions = Array.isArray(groupEntry?.summary?.sessions) ? groupEntry.summary.sessions : [];
+
+  return sessions.map((session) => ([
+    session.shortLabel || session.name || "Sesion",
+    formatDate(session.date) || "-",
+    `${session.total || 0}`,
+    `${session.present || 0}`,
+    `${session.absent || 0}`,
+    `${session.rate || 0}%`,
+    session.status || "-"
+  ]));
+}
+
+function buildDashboardPdfGroupOverviewRows_(report) {
+  const sessions = Array.isArray(report?.sessionTotals) ? report.sessionTotals : [];
+  const groups = Array.isArray(report?.groups) ? report.groups : [];
+
+  return groups.map((groupEntry) => {
+    const summary = groupEntry?.summary || {};
+    const sessionMap = {};
+
+    (Array.isArray(summary.sessions) ? summary.sessions : []).forEach((session) => {
+      sessionMap[String(session.sessionId || session.id || "")] = session;
+    });
+
+    return [
+      groupEntry.groupName || "",
+      String(summary.uniquePeople || 0),
+      String(groupEntry?.consecutiveCandidates?.length || 0),
+      ...sessions.map((session) => {
+        const match = sessionMap[String(session.sessionId || session.id || "")] || null;
+
+        if (!match || !match.captured) {
+          return "S/C";
         }
 
-        const imagePromises = Array.from(frameDocument.images || []).map((image) => {
-          if (image.complete) {
-            return Promise.resolve();
-          }
-
-          return new Promise((imageResolve) => {
-            image.onload = () => imageResolve();
-            image.onerror = () => imageResolve();
-          });
-        });
-
-        Promise.all(imagePromises).then(() => {
-          window.setTimeout(() => {
-            try {
-              frameWindow.focus();
-              frameWindow.print();
-              cleanupTimerId = window.setTimeout(() => {
-                settle(resolve, true);
-              }, 1200);
-            } catch (error) {
-              settle(reject, error);
-            }
-          }, 260);
-        }).catch((error) => {
-          settle(reject, error);
-        });
-      } catch (error) {
-        settle(reject, error);
-      }
-    };
-
-    document.body.appendChild(frame);
-    frame.srcdoc = htmlText;
+        return `${match.present || 0}/${match.total || 0}`;
+      }),
+      `${summary.presentTotal || 0}/${summary.capturedBaseTotal || 0}`,
+      `${summary.attendanceRate || 0}%`
+    ];
   });
+}
+
+function buildDashboardPdfCandidateRows_(groupEntry) {
+  return (Array.isArray(groupEntry?.consecutiveCandidates) ? groupEntry.consecutiveCandidates : []).map((candidate) => ([
+    candidate.personId || "",
+    candidate.personName || "",
+    String(candidate.consecutiveAttendances || 0),
+    candidate.triggerSessionLabel || "-",
+    Array.isArray(candidate.triggerSessions) && candidate.triggerSessions.length
+      ? candidate.triggerSessions.join(", ")
+      : "-"
+  ]));
+}
+
+function buildDashboardPdfRosterRows_(groupEntry) {
+  const summary = groupEntry?.summary || {};
+  const sessions = Array.isArray(summary.sessions) ? summary.sessions : [];
+  const people = Array.isArray(summary.people) ? summary.people : [];
+
+  return people.map((person) => ([
+    person.name || "",
+    person.personId || "",
+    person.type || "",
+    String(person.totalPresent || 0),
+    `${person.attendanceRate || 0}%`,
+    ...sessions.map((session) => formatDashboardAttendanceStatusText_(person.attendances?.[session.sessionId] || person.attendances?.[session.id] || ""))
+  ]));
+}
+
+function addDashboardPdfHeader_(doc, title, subtitle, metadata, logoDataUrl) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 26;
+  const headerHeight = 84;
+  const headerWidth = pageWidth - (margin * 2);
+  const textLeft = logoDataUrl ? margin + 104 : margin + 18;
+  const maxTextWidth = pageWidth - textLeft - margin - 12;
+
+  doc.setFillColor(17, 17, 17);
+  doc.roundedRect(margin, margin, headerWidth, headerHeight, 20, 20, "F");
+
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, "PNG", margin + 18, margin + 18, 72, 36, undefined, "FAST");
+    } catch (error) {
+      console.warn("No se pudo dibujar el logo en el PDF.", error);
+    }
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(21);
+  doc.text(String(title || "Reporte Dashboard Iglesia"), textLeft, margin + 28, {
+    maxWidth: maxTextWidth
+  });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const subtitleLines = doc.splitTextToSize(String(subtitle || ""), maxTextWidth);
+  doc.text(subtitleLines.slice(0, 2), textLeft, margin + 45);
+
+  const metaLine = (Array.isArray(metadata) ? metadata : [])
+    .filter(Boolean)
+    .join(" | ");
+
+  if (metaLine) {
+    doc.setFontSize(8);
+    doc.setTextColor(220, 220, 220);
+    doc.text(metaLine, textLeft, margin + headerHeight - 14, {
+      maxWidth: maxTextWidth
+    });
+  }
+
+  return margin + headerHeight;
+}
+
+function drawDashboardPdfMetricCard_(doc, x, y, width, height, metric, colors = {}) {
+  const fill = colors.fill || [248, 248, 248];
+  const stroke = colors.stroke || [222, 222, 222];
+  const valueColor = colors.value || [17, 17, 17];
+
+  doc.setFillColor(...fill);
+  doc.setDrawColor(...stroke);
+  doc.roundedRect(x, y, width, height, 14, 14, "FD");
+
+  doc.setTextColor(90, 90, 90);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text(String(metric?.label || "").toUpperCase(), x + 12, y + 16);
+
+  doc.setTextColor(...valueColor);
+  doc.setFontSize(20);
+  doc.text(String(metric?.value == null ? "" : metric.value), x + 12, y + 38);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(96, 96, 96);
+  const noteLines = doc.splitTextToSize(String(metric?.note || ""), Math.max(width - 24, 40));
+  doc.text(noteLines.slice(0, 2), x + 12, y + height - 16);
+}
+
+function addDashboardPdfMetricRow_(doc, metrics, startY) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 26;
+  const gap = 10;
+  const safeMetrics = Array.isArray(metrics) ? metrics : [];
+  const cardHeight = 64;
+  const cardWidth = (pageWidth - (margin * 2) - (gap * Math.max(safeMetrics.length - 1, 0))) / Math.max(safeMetrics.length, 1);
+  const palettes = [
+    {
+      fill: [246, 246, 246],
+      stroke: [223, 223, 223],
+      value: [17, 17, 17]
+    },
+    {
+      fill: [236, 243, 255],
+      stroke: [201, 220, 248],
+      value: [21, 60, 130]
+    },
+    {
+      fill: [245, 239, 228],
+      stroke: [232, 213, 175],
+      value: [131, 90, 18]
+    },
+    {
+      fill: [235, 244, 239],
+      stroke: [199, 223, 209],
+      value: [21, 97, 62]
+    }
+  ];
+
+  safeMetrics.forEach((metric, index) => {
+    drawDashboardPdfMetricCard_(
+      doc,
+      margin + ((cardWidth + gap) * index),
+      startY,
+      cardWidth,
+      cardHeight,
+      metric,
+      palettes[index % palettes.length]
+    );
+  });
+
+  return startY + cardHeight;
+}
+
+function addDashboardPdfSectionTitle_(doc, title, startY) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(17, 17, 17);
+  doc.text(String(title || ""), 26, startY);
+  return startY;
+}
+
+function addDashboardPdfFooter_(doc, pageNumber, pageTotal) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  doc.setDrawColor(220, 220, 220);
+  doc.line(26, pageHeight - 24, pageWidth - 26, pageHeight - 24);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(108, 108, 108);
+  doc.text(`Iglesia Fuertes V2 | Pagina ${pageNumber} de ${pageTotal}`, pageWidth - 26, pageHeight - 10, {
+    align: "right"
+  });
+}
+
+function addDashboardPastorPdfSummaryPage_(doc, report, logoDataUrl) {
+  const overall = report?.overall || {};
+  const groups = Array.isArray(report?.groups) ? report.groups : [];
+  const sessionHeaders = (Array.isArray(report?.sessionTotals) ? report.sessionTotals : []).map((session) => session.shortLabel || session.name || "Sesion");
+  const headerBottom = addDashboardPdfHeader_(
+    doc,
+    report?.title || "Reporte Dashboard Iglesia",
+    "Primera hoja ejecutiva con panorama global de la temporada y resumen por grupo en cada sesion.",
+    [
+      `Temporada: ${report?.seasonName || "Sin temporada"}`,
+      `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`,
+      `Grupos: ${groups.length}`
+    ],
+    logoDataUrl
+  );
+
+  let cursorY = addDashboardPdfMetricRow_(doc, [
+    {
+      label: "Total asistentes",
+      value: String(overall.uniquePeople || 0),
+      note: "Personas inscritas en grupos de conexion."
+    },
+    {
+      label: "3+ consecutivas",
+      value: String(report?.totalConsecutiveCandidates || 0),
+      note: "Prospectos actuales con la regla principal para Encuentro."
+    },
+    {
+      label: "Asistencia global",
+      value: `${overall.presentTotal || 0}/${overall.capturedBaseTotal || 0}`,
+      note: `${overall.attendanceRate || 0}% acumulado en la temporada.`
+    },
+    {
+      label: "Sesiones",
+      value: String(report?.sessionTotals?.length || 0),
+      note: `${overall.groups || groups.length || 0} grupos incluidos en este PDF.`
+    }
+  ], headerBottom + 14);
+
+  cursorY += 18;
+  addDashboardPdfSectionTitle_(doc, "Resumen global por sesion", cursorY);
+  doc.autoTable({
+    startY: cursorY + 6,
+    head: [["Sesion", "Fecha", "Asistencia", "%", "Grupos capturados", "Estado"]],
+    body: buildDashboardPdfSessionSummaryRows_(report),
+    theme: "grid",
+    margin: {
+      left: 26,
+      right: 26
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 7.6,
+      cellPadding: 3,
+      lineColor: [226, 226, 226],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [35, 35, 35]
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [249, 249, 249]
+    }
+  });
+
+  cursorY = doc.lastAutoTable.finalY + 14;
+  addDashboardPdfSectionTitle_(doc, "Asistencia global por grupo y sesion", cursorY);
+
+  const groupColumnStyles = {
+    0: {
+      cellWidth: 92
+    },
+    1: {
+      cellWidth: 28,
+      halign: "center"
+    },
+    2: {
+      cellWidth: 30,
+      halign: "center"
+    }
+  };
+  const dynamicSessionWidth = sessionHeaders.length > 8 ? 28 : 34;
+
+  sessionHeaders.forEach((header, index) => {
+    groupColumnStyles[index + 3] = {
+      cellWidth: dynamicSessionWidth,
+      halign: "center"
+    };
+  });
+
+  groupColumnStyles[sessionHeaders.length + 3] = {
+    cellWidth: 48,
+    halign: "center"
+  };
+  groupColumnStyles[sessionHeaders.length + 4] = {
+    cellWidth: 30,
+    halign: "center"
+  };
+
+  doc.autoTable({
+    startY: cursorY + 6,
+    head: [[
+      "Grupo",
+      "Pers.",
+      "3+",
+      ...sessionHeaders,
+      "Total",
+      "%"
+    ]],
+    body: buildDashboardPdfGroupOverviewRows_(report),
+    theme: "grid",
+    margin: {
+      left: 26,
+      right: 26
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 6.3,
+      cellPadding: 2.6,
+      lineColor: [226, 226, 226],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [35, 35, 35],
+      valign: "middle"
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [249, 249, 249]
+    },
+    columnStyles: groupColumnStyles
+  });
+}
+
+function addDashboardGroupPdfSummaryPage_(doc, report, logoDataUrl) {
+  const groupEntry = report?.group || null;
+  const summary = groupEntry?.summary || {};
+  const headerBottom = addDashboardPdfHeader_(
+    doc,
+    report?.title || "Reporte de grupo",
+    "Primera hoja ejecutiva con asistencia por sesion, prospectos a Encuentro y resumen general del grupo.",
+    [
+      `Temporada: ${report?.seasonName || "Sin temporada"}`,
+      `Grupo: ${groupEntry?.groupName || "Sin grupo"}`,
+      `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
+    ],
+    logoDataUrl
+  );
+
+  let cursorY = addDashboardPdfMetricRow_(doc, [
+    {
+      label: "Personas registradas",
+      value: String(summary.uniquePeople || 0),
+      note: `${summary.participantAssignments || 0} asignaciones acumuladas.`
+    },
+    {
+      label: "3+ consecutivas",
+      value: String(report?.totalConsecutiveCandidates || 0),
+      note: "Prospectos actuales a Encuentro."
+    },
+    {
+      label: "Asistencia global",
+      value: `${summary.presentTotal || 0}/${summary.capturedBaseTotal || 0}`,
+      note: `${summary.attendanceRate || 0}% de asistencia real.`
+    },
+    {
+      label: "Sesiones capturadas",
+      value: `${summary.capturedSessions || 0}/${summary.totalSessions || 0}`,
+      note: `${summary.captureProgress || 0}% de cobertura del grupo.`
+    }
+  ], headerBottom + 14);
+
+  cursorY += 18;
+  addDashboardPdfSectionTitle_(doc, "Asistencia del grupo por sesion", cursorY);
+  doc.autoTable({
+    startY: cursorY + 6,
+    head: [["Sesion", "Fecha", "Base", "Presentes", "Ausentes", "%", "Estado"]],
+    body: buildDashboardPdfGroupSessionSummaryRows_(groupEntry),
+    theme: "grid",
+    margin: {
+      left: 26,
+      right: 26
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 7.4,
+      cellPadding: 3,
+      lineColor: [226, 226, 226],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [35, 35, 35]
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [249, 249, 249]
+    },
+    columnStyles: {
+      0: {
+        cellWidth: 44
+      },
+      1: {
+        cellWidth: 54
+      }
+    }
+  });
+
+  cursorY = doc.lastAutoTable.finalY + 14;
+  addDashboardPdfSectionTitle_(doc, "Asistentes con 3 o mas asistencias consecutivas", cursorY);
+  doc.autoTable({
+    startY: cursorY + 6,
+    head: [["ID", "Nombre", "Racha", "Sesion activacion", "Sesiones que activaron"]],
+    body: buildDashboardPdfCandidateRows_(groupEntry),
+    theme: "grid",
+    margin: {
+      left: 26,
+      right: 26
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 7.2,
+      cellPadding: 3,
+      lineColor: [226, 226, 226],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [35, 35, 35]
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [249, 249, 249]
+    },
+    columnStyles: {
+      0: {
+        cellWidth: 58
+      },
+      2: {
+        cellWidth: 38,
+        halign: "center"
+      },
+      3: {
+        cellWidth: 58
+      }
+    }
+  });
+}
+
+function addDashboardPdfGroupDetailPage_(doc, report, groupEntry, logoDataUrl) {
+  doc.addPage("a4", "landscape");
+
+  const summary = groupEntry?.summary || {};
+  const sessions = Array.isArray(summary.sessions) ? summary.sessions : [];
+  const sessionHeaders = sessions.map((session) => session.shortLabel || session.name || "Sesion");
+  const headerBottom = addDashboardPdfHeader_(
+    doc,
+    `${groupEntry?.groupName || "Grupo"} · detalle de participantes`,
+    "Detalle completo de cada integrante y su asistencia en todas las sesiones registradas.",
+    [
+      `Temporada: ${report?.seasonName || "Sin temporada"}`,
+      `Grupo: ${groupEntry?.groupName || "Sin grupo"}`,
+      `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
+    ],
+    logoDataUrl
+  );
+
+  let cursorY = addDashboardPdfMetricRow_(doc, [
+    {
+      label: "Personas",
+      value: String(summary.uniquePeople || 0),
+      note: `${summary.participantAssignments || 0} asignaciones acumuladas.`
+    },
+    {
+      label: "Asistencia",
+      value: `${summary.presentTotal || 0}/${summary.capturedBaseTotal || 0}`,
+      note: `${summary.attendanceRate || 0}% acumulado del grupo.`
+    },
+    {
+      label: "3+ consecutivas",
+      value: String(groupEntry?.consecutiveCandidates?.length || 0),
+      note: "Regla principal para asistir a Encuentro."
+    },
+    {
+      label: "Cobertura",
+      value: `${summary.capturedSessions || 0}/${summary.totalSessions || sessions.length || 0}`,
+      note: `${summary.captureProgress || 0}% de sesiones capturadas.`
+    }
+  ], headerBottom + 14);
+
+  cursorY += 18;
+  addDashboardPdfSectionTitle_(doc, "Prospectos con 3 o mas asistencias consecutivas", cursorY);
+
+  const candidateRows = buildDashboardPdfCandidateRows_(groupEntry);
+
+  if (candidateRows.length) {
+    doc.autoTable({
+      startY: cursorY + 6,
+      head: [["ID", "Nombre", "Racha", "Sesion activacion", "Sesiones que activaron"]],
+      body: candidateRows,
+      theme: "grid",
+      margin: {
+        left: 26,
+        right: 26
+      },
+      styles: {
+        font: "helvetica",
+        fontSize: 7.1,
+        cellPadding: 3,
+        lineColor: [226, 226, 226],
+        lineWidth: 0.1,
+        overflow: "linebreak",
+        textColor: [35, 35, 35]
+      },
+      headStyles: {
+        fillColor: [17, 17, 17],
+        textColor: [255, 255, 255],
+        fontStyle: "bold"
+      },
+      alternateRowStyles: {
+        fillColor: [249, 249, 249]
+      },
+      columnStyles: {
+        0: {
+          cellWidth: 58
+        },
+        2: {
+          cellWidth: 38,
+          halign: "center"
+        },
+        3: {
+          cellWidth: 58
+        }
+      }
+    });
+    cursorY = doc.lastAutoTable.finalY + 14;
+  } else {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(96, 96, 96);
+    doc.text("No hay personas que cumplan la regla en este grupo.", 26, cursorY + 16);
+    cursorY += 28;
+  }
+
+  addDashboardPdfSectionTitle_(doc, "Detalle de asistentes por sesion", cursorY);
+
+  const rosterColumnStyles = {
+    0: {
+      cellWidth: 148
+    },
+    1: {
+      cellWidth: 58
+    },
+    2: {
+      cellWidth: 52
+    },
+    3: {
+      cellWidth: 24,
+      halign: "center"
+    },
+    4: {
+      cellWidth: 28,
+      halign: "center"
+    }
+  };
+  const dynamicRosterSessionWidth = sessionHeaders.length > 8 ? 26 : 30;
+
+  sessionHeaders.forEach((header, index) => {
+    rosterColumnStyles[index + 5] = {
+      cellWidth: dynamicRosterSessionWidth,
+      halign: "center"
+    };
+  });
+
+  doc.autoTable({
+    startY: cursorY + 6,
+    head: [[
+      "Nombre",
+      "ID",
+      "Tipo",
+      "SI",
+      "%",
+      ...sessionHeaders
+    ]],
+    body: buildDashboardPdfRosterRows_(groupEntry),
+    theme: "grid",
+    margin: {
+      left: 26,
+      right: 26
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 6.4,
+      cellPadding: 2.5,
+      lineColor: [226, 226, 226],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [35, 35, 35],
+      valign: "middle"
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [249, 249, 249]
+    },
+    columnStyles: rosterColumnStyles
+  });
+}
+
+async function generateDashboardReportPdfBlob_(report) {
+  const JsPdf = getDashboardPdfConstructor_();
+
+  if (!JsPdf) {
+    throw new Error("JSPDF_UNAVAILABLE");
+  }
+
+  const doc = new JsPdf({
+    orientation: "landscape",
+    unit: "pt",
+    format: "a4",
+    compress: true
+  });
+
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+  }
+
+  const logoDataUrl = await loadAssetAsDataUrl_(getReportLogoAssetUrl_());
+
+  setLoadingMessage_("Descargando reporte PDF... preparando resumen ejecutivo.");
+  await waitForUiPaint_();
+
+  if (report?.kind === "group") {
+    addDashboardGroupPdfSummaryPage_(doc, report, logoDataUrl);
+
+    setLoadingMessage_("Descargando reporte PDF... compactando detalle del grupo.");
+    await waitForUiPaint_();
+
+    addDashboardPdfGroupDetailPage_(doc, report, report?.group || null, logoDataUrl);
+  } else {
+    addDashboardPastorPdfSummaryPage_(doc, report, logoDataUrl);
+
+    const groups = Array.isArray(report?.groups) ? report.groups : [];
+
+    for (let index = 0; index < groups.length; index += 1) {
+      const groupEntry = groups[index];
+
+      setLoadingMessage_(`Descargando reporte PDF... procesando grupo ${index + 1} de ${groups.length}: ${groupEntry?.groupName || "Grupo"}.`);
+      await waitForUiPaint_(24);
+
+      addDashboardPdfGroupDetailPage_(doc, report, groupEntry, logoDataUrl);
+    }
+  }
+
+  const pageTotal = doc.getNumberOfPages();
+
+  for (let pageNumber = 1; pageNumber <= pageTotal; pageNumber += 1) {
+    doc.setPage(pageNumber);
+    addDashboardPdfFooter_(doc, pageNumber, pageTotal);
+  }
+
+  return doc.output("blob");
 }
 
 async function openDashboardReportPdf_(report) {
   try {
-    await withLoading(async () => {
-      await printHtmlDocumentInHiddenFrame_(buildDashboardReportDocumentHtml_(report), {
-        timeoutMs: 18000
-      });
-    }, "Preparando reporte ejecutivo en PDF...");
+    const fileName = buildDashboardBinaryExportFileName_(
+      report?.kind === "group" ? "REPORTE_GRUPO" : "REPORTE_PASTORAL",
+      report?.group?.groupName || report?.seasonName || "reporte",
+      "pdf"
+    );
 
-    showToast("PDF listo", "Se abrió la ventana de impresión. Elige Guardar como PDF para descargar el reporte.", "success");
+    await withLoading(async () => {
+      await waitForUiPaint_();
+      const blob = await generateDashboardReportPdfBlob_(report);
+      downloadBlob_(blob, fileName);
+    }, "Descargando reporte PDF...");
+
+    showToast("Descarga iniciada", "El reporte PDF se esta descargando con el nuevo formato ejecutivo.", "success");
     return true;
   } catch (error) {
     console.error(error);
-    showToast("No se pudo abrir el PDF", "No fue posible preparar la impresión del reporte. Intenta nuevamente o usa la exportación a Excel.", "danger");
+    showToast("No se pudo descargar el PDF", "No fue posible generar el archivo PDF. Verifica que el frontend este actualizado e intenta nuevamente.", "danger");
     return false;
   }
 }
