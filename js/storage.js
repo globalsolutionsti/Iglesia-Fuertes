@@ -4,6 +4,7 @@ const buildKey = (suffix) => `${APP_CONFIG.storagePrefix}.${suffix}`;
 const LEGACY_API_URL_KEY = buildKey("apiUrl");
 const API_URL_OVERRIDE_KEY = buildKey("apiUrlOverride");
 const API_URL_OVERRIDE_ENABLED_KEY = buildKey("apiUrlOverrideEnabled");
+const RUNTIME_API_URL_KEY = buildKey("runtimeApiUrl");
 
 export function getStoredUser() {
   try {
@@ -26,7 +27,7 @@ export function getStoredApiUrl() {
     return localStorage.getItem(API_URL_OVERRIDE_KEY) || APP_CONFIG.defaultApiUrl;
   }
 
-  return APP_CONFIG.defaultApiUrl;
+  return sessionStorage.getItem(RUNTIME_API_URL_KEY) || APP_CONFIG.defaultApiUrl;
 }
 
 export function setStoredApiUrl(apiUrl) {
@@ -44,4 +45,12 @@ export function clearStoredApiUrl() {
 export function hasStoredApiUrlOverride() {
   return localStorage.getItem(API_URL_OVERRIDE_ENABLED_KEY) === "1"
     && Boolean(localStorage.getItem(API_URL_OVERRIDE_KEY));
+}
+
+export function setRuntimeApiUrl(apiUrl) {
+  sessionStorage.setItem(RUNTIME_API_URL_KEY, apiUrl);
+}
+
+export function clearRuntimeApiUrl() {
+  sessionStorage.removeItem(RUNTIME_API_URL_KEY);
 }

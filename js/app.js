@@ -2,10 +2,12 @@
 import { ApiError, apiGet, apiPost } from "./api.js";
 import {
   clearStoredApiUrl,
+  clearRuntimeApiUrl,
   clearStoredUser,
   getStoredApiUrl,
   hasStoredApiUrlOverride,
   getStoredUser,
+  setRuntimeApiUrl,
   setStoredApiUrl,
   setStoredUser
 } from "./storage.js";
@@ -181,6 +183,7 @@ const MOBILE_NAV_ITEMS = [
 const state = {
   user: initialStoredUser,
   apiUrl: getStoredApiUrl(),
+  globalApiUrl: APP_CONFIG.defaultApiUrl,
   currentView: initialStoredUser
     ? (initialStoredUser.sessionType === "student" ? "student-portal" : "dashboard")
     : "login",
@@ -435,6 +438,7 @@ init();
 
 async function init() {
   initializeDateFilters_();
+  await resolveApiUrlConfiguration_();
   renderApp();
 
   if (state.user) {
@@ -442,6 +446,36 @@ async function init() {
       await bootstrapStudentPortal_();
     } else {
       await bootstrapApplication();
+    }
+  }
+}
+
+async function resolveApiUrlConfiguration_() {
+  const localOverrideActive = hasStoredApiUrlOverride();
+
+  if (localOverrideActive) {
+    state.apiUrl = getStoredApiUrl();
+  }
+
+  try {
+    const config = await apiGet("app.config.get", {}, {
+      apiUrl: APP_CONFIG.defaultApiUrl
+    });
+    const configuredGlobalUrl = normalizeApiUrlForComparison_(config?.apiUrl);
+    const resolvedGlobalUrl = configuredGlobalUrl || APP_CONFIG.defaultApiUrl;
+
+    state.globalApiUrl = resolvedGlobalUrl;
+    setRuntimeApiUrl(resolvedGlobalUrl);
+
+    if (!localOverrideActive) {
+      state.apiUrl = resolvedGlobalUrl;
+    }
+  } catch (error) {
+    state.globalApiUrl = APP_CONFIG.defaultApiUrl;
+    setRuntimeApiUrl(APP_CONFIG.defaultApiUrl);
+
+    if (!localOverrideActive) {
+      state.apiUrl = APP_CONFIG.defaultApiUrl;
     }
   }
 }
@@ -1591,7 +1625,7 @@ function renderLoginView() {
               <span class="field-help">
                 ${hasStoredApiUrlOverride()
                   ? "Este dispositivo esta usando una URL local distinta a la global. Si quieres volver a la misma URL compartida para todos, usa el boton URL global."
-                  : "Este dispositivo esta usando la URL global del sistema. Si cambias aqui, el ajuste solo aplicara a este dispositivo."}
+                  : `Este dispositivo esta usando la URL global del sistema. URL global actual: ${escapeHtml(state.globalApiUrl || APP_CONFIG.defaultApiUrl)}`}
               </span>
             </div>
           </div>
@@ -4398,12 +4432,13 @@ function renderAdminSettingsView_() {
             <input id="api-url-input" value="${escapeHtml(state.apiUrl || "")}" placeholder="https://script.google.com/macros/s/.../exec">
             <span class="field-help">
               ${hasStoredApiUrlOverride()
-                ? `Este equipo usa una URL local. La URL global actual del sistema es: ${escapeHtml(APP_CONFIG.defaultApiUrl)}`
-                : `Modo global activo. Todos los dispositivos sin override local usaran esta URL: ${escapeHtml(APP_CONFIG.defaultApiUrl)}`}
+                ? `Este equipo usa una URL local. La URL global actual del sistema es: ${escapeHtml(state.globalApiUrl || APP_CONFIG.defaultApiUrl)}`
+                : `Modo global activo. Todos los dispositivos sin override local usaran esta URL: ${escapeHtml(state.globalApiUrl || APP_CONFIG.defaultApiUrl)}`}
             </span>
           </div>
 
           <div class="actions-row">
+            <button class="btn btn-primary" data-action="save-global-api-url">Guardar globalmente</button>
             <button class="btn btn-primary" data-action="save-api-url">Guardar solo en este dispositivo</button>
             <button class="btn btn-secondary" data-action="use-global-api-url">Usar URL global</button>
             <button class="btn btn-secondary" data-action="test-api-connection">Probar conexion</button>
@@ -11005,7 +11040,7 @@ async function handleClick(event) {
       ensureApiUrl(value);
       state.apiUrl = value;
 
-      if (normalizeApiUrlForComparison_(value) === normalizeApiUrlForComparison_(APP_CONFIG.defaultApiUrl)) {
+      if (normalizeApiUrlForComparison_(value) === normalizeApiUrlForComparison_(state.globalApiUrl || APP_CONFIG.defaultApiUrl)) {
         clearStoredApiUrl();
         showToast("Modo global activo", "Este dispositivo volvió a usar la URL global del sistema.", "success");
       } else {
@@ -11017,9 +11052,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "save-global-api-url") {
+      const value = document.getElementById("api-url-input")?.value?.trim();
+      ensureApiUrl(value);
+
+      await withLoading(async () => {
+        await apiGet("health", {}, {
+          apiUrl: value
+        });
+
+        const config = await apiPost("app.config.save", {
+          apiUrl: value
+        }, {
+          apiUrl: state.globalApiUrl || APP_CONFIG.defaultApiUrl
+        });
+
+        state.globalApiUrl = config?.apiUrl || value;
+        state.apiUrl = state.globalApiUrl;
+        clearStoredApiUrl();
+        setRuntimeApiUrl(state.globalApiUrl);
+        state.connectionStatus = {
+          type: "success",
+          message: `URL global actualizada. Todos los dispositivos sin override local usarán ${state.globalApiUrl}.`
+        };
+      }, "Guardando URL global del sistema...");
+
+      showToast("Configuracion global actualizada", "La URL quedó guardada globalmente para todo el sistema.", "success");
+      renderApp();
+      return;
+    }
+
     if (action === "use-global-api-url") {
       clearStoredApiUrl();
-      state.apiUrl = APP_CONFIG.defaultApiUrl;
+      state.apiUrl = state.globalApiUrl || APP_CONFIG.defaultApiUrl;
+      setRuntimeApiUrl(state.apiUrl);
       state.connectionStatus = {
         type: "success",
         message: "Este dispositivo volvió a usar la URL global del sistema."
