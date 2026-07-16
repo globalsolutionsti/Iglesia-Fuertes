@@ -1577,7 +1577,7 @@ function renderLoginView() {
                   : "Accede al ERP - CRM de la iglesia con tu usuario de administracion para operar el sistema completo."}
               </p>
             </div>
-            ${renderConnectionChip()}
+            <span class="status-chip ${loginMode === "student" ? "neutral" : "success"}">${loginMode === "student" ? "Portal personal" : "Acceso administrativo"}</span>
           </div>
 
           <div class="login-mode-switch login-mode-switch-modern">
@@ -1624,37 +1624,13 @@ function renderLoginView() {
           `}
         </article>
 
-        <article class="login-api-card">
+        <article class="login-support-card">
           <div class="login-utility-head">
             <div>
-              <h3>Conexion del sistema</h3>
-              <p>Util para pruebas, cambios de entorno o sincronizacion con la URL global activa.</p>
+              <h3>Listo para escritorio, iPad y celular</h3>
+              <p>Un mismo acceso para operar la iglesia con pantallas claras, tactiles y faciles de entender.</p>
             </div>
           </div>
-
-          <div class="field">
-            <label for="api-url-input">URL de la API</label>
-            <input id="api-url-input" type="url" value="${escapeHtml(state.apiUrl)}" placeholder="https://script.google.com/macros/s/.../exec">
-            <span class="field-help">
-              ${hasStoredApiUrlOverride()
-                ? "Este dispositivo usa una URL local distinta. Si quieres regresar a la misma URL compartida por todos, usa el boton URL global."
-                : `Este dispositivo esta usando la URL global del sistema. URL global actual: ${escapeHtml(state.globalApiUrl || APP_CONFIG.defaultApiUrl)}`}
-            </span>
-          </div>
-
-          <div class="actions-row login-api-actions">
-            <button class="btn btn-primary" data-action="save-global-api-url">Guardar globalmente</button>
-            <button class="btn btn-secondary" data-action="save-api-url">Guardar solo en este dispositivo</button>
-            <button class="btn btn-ghost" data-action="use-global-api-url">URL global</button>
-            <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
-          </div>
-
-          ${state.connectionStatus ? `
-            <p class="footer-note">${escapeHtml(state.connectionStatus.message || "")}</p>
-          ` : ""}
-        </article>
-
-        <article class="login-support-card">
           <div class="login-support-grid">
             <article class="login-support-item">
               <strong>Desktop</strong>
@@ -10843,18 +10819,6 @@ function renderOptions(items, selectedValue, placeholder) {
   });
 
   return options.join("");
-}
-
-function renderConnectionChip() {
-  if (!state.connectionStatus) {
-    return `<span class="status-chip neutral">Sin prueba reciente</span>`;
-  }
-
-  return `
-    <span class="status-chip ${escapeHtml(state.connectionStatus.type)}">
-      ${escapeHtml(state.connectionStatus.message)}
-    </span>
-  `;
 }
 
 function renderPill(value) {
