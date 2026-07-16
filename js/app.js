@@ -1,8 +1,10 @@
 ﻿import { APP_CONFIG } from "./config.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import {
+  clearStoredApiUrl,
   clearStoredUser,
   getStoredApiUrl,
+  hasStoredApiUrlOverride,
   getStoredUser,
   setStoredApiUrl,
   setStoredUser
@@ -1587,13 +1589,16 @@ function renderLoginView() {
               <label for="api-url-input">URL de la API</label>
               <input id="api-url-input" type="url" value="${escapeHtml(state.apiUrl)}" placeholder="https://script.google.com/macros/s/.../exec">
               <span class="field-help">
-                Ya deje cargada la URL mas reciente que validaste. Si publicas una nueva version del Apps Script, solo reemplazala aqui.
+                ${hasStoredApiUrlOverride()
+                  ? "Este dispositivo esta usando una URL local distinta a la global. Si quieres volver a la misma URL compartida para todos, usa el boton URL global."
+                  : "Este dispositivo esta usando la URL global del sistema. Si cambias aqui, el ajuste solo aplicara a este dispositivo."}
               </span>
             </div>
           </div>
 
           <div class="actions-row">
-            <button class="btn btn-secondary" data-action="save-api-url">Guardar URL</button>
+            <button class="btn btn-secondary" data-action="save-api-url">Guardar solo en este dispositivo</button>
+            <button class="btn btn-ghost" data-action="use-global-api-url">URL global</button>
             <button class="btn btn-ghost" data-action="test-api-connection">Probar conexion</button>
           </div>
         </div>
@@ -4391,10 +4396,16 @@ function renderAdminSettingsView_() {
           <div class="field">
             <label for="api-url-input">URL base</label>
             <input id="api-url-input" value="${escapeHtml(state.apiUrl || "")}" placeholder="https://script.google.com/macros/s/.../exec">
+            <span class="field-help">
+              ${hasStoredApiUrlOverride()
+                ? `Este equipo usa una URL local. La URL global actual del sistema es: ${escapeHtml(APP_CONFIG.defaultApiUrl)}`
+                : `Modo global activo. Todos los dispositivos sin override local usaran esta URL: ${escapeHtml(APP_CONFIG.defaultApiUrl)}`}
+            </span>
           </div>
 
           <div class="actions-row">
-            <button class="btn btn-primary" data-action="save-api-url">Guardar URL</button>
+            <button class="btn btn-primary" data-action="save-api-url">Guardar solo en este dispositivo</button>
+            <button class="btn btn-secondary" data-action="use-global-api-url">Usar URL global</button>
             <button class="btn btn-secondary" data-action="test-api-connection">Probar conexion</button>
           </div>
 
@@ -10993,8 +11004,27 @@ async function handleClick(event) {
       const value = document.getElementById("api-url-input")?.value?.trim();
       ensureApiUrl(value);
       state.apiUrl = value;
-      setStoredApiUrl(value);
-      showToast("Configuracion actualizada", "La URL de la API se guardo correctamente.", "success");
+
+      if (normalizeApiUrlForComparison_(value) === normalizeApiUrlForComparison_(APP_CONFIG.defaultApiUrl)) {
+        clearStoredApiUrl();
+        showToast("Modo global activo", "Este dispositivo volvió a usar la URL global del sistema.", "success");
+      } else {
+        setStoredApiUrl(value);
+        showToast("Configuracion local guardada", "La URL se guardó solo en este dispositivo.", "success");
+      }
+
+      renderApp();
+      return;
+    }
+
+    if (action === "use-global-api-url") {
+      clearStoredApiUrl();
+      state.apiUrl = APP_CONFIG.defaultApiUrl;
+      state.connectionStatus = {
+        type: "success",
+        message: "Este dispositivo volvió a usar la URL global del sistema."
+      };
+      showToast("URL global activa", "Ahora este dispositivo usará la misma URL global que el sistema.", "success");
       renderApp();
       return;
     }
@@ -19541,17 +19571,20 @@ async function testConnection() {
 
   ensureApiUrl(nextApiUrl);
   state.apiUrl = nextApiUrl;
-  setStoredApiUrl(nextApiUrl);
 
   await withLoading(async () => {
-    const response = await apiGet("health");
+    const response = await apiGet("health", {}, {
+      apiUrl: nextApiUrl
+    });
     state.connectionStatus = {
       type: "success",
-      message: response.status === "ok" ? "API OK" : "Respuesta recibida"
+      message: response.status === "ok"
+        ? "API OK. La URL fue validada sin guardarse todavía."
+        : "Respuesta recibida. La URL fue probada sin guardarse todavía."
     };
   }, "Probando conexion...");
 
-  showToast("Conexion correcta", "La API respondio satisfactoriamente.", "success");
+  showToast("Conexion correcta", "La API respondió satisfactoriamente. Si quieres dejar esta URL solo en este dispositivo, ahora sí guárdala.", "success");
 }
 
 function resetRuntimeState() {
@@ -19860,6 +19893,12 @@ function ensureApiUrl(value) {
   } catch (error) {
     throw new ApiError("La URL de la API no es valida.", "INVALID_API_URL");
   }
+}
+
+function normalizeApiUrlForComparison_(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "");
 }
 
 async function withLoading(fn, message) {
