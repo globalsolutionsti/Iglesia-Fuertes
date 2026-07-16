@@ -2242,6 +2242,64 @@ tbody tr:hover {
   justify-content: center;
 }
 
+.dashboard-report-center-card,
+.dashboard-report-card {
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.035), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.dashboard-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.dashboard-report-card {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid rgba(15, 15, 16, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.05);
+}
+
+.dashboard-report-card h3 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.dashboard-report-card p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.7;
+}
+
+.dashboard-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dashboard-report-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboard-report-actions .btn {
+  justify-content: center;
+}
+
+.dashboard-report-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 .dashboard-stats-grid .stat-card {
   min-height: 168px;
 }
@@ -4659,7 +4717,8 @@ tbody tr:hover {
   }
 
   .stats-grid,
-  .dashboard-mobile-chip-grid {
+  .dashboard-mobile-chip-grid,
+  .dashboard-report-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4668,7 +4727,8 @@ tbody tr:hover {
   }
 
   .dashboard-mobile-shortcuts,
-  .dashboard-mobile-actions {
+  .dashboard-mobile-actions,
+  .dashboard-report-grid {
     grid-template-columns: 1fr;
   }
 
@@ -4729,6 +4789,10 @@ tbody tr:hover {
   .summary-strip,
   .context-strip {
     gap: 8px;
+  }
+
+  .dashboard-report-card h3 {
+    font-size: 22px;
   }
 
   .topbar-copy {
