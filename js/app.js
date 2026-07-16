@@ -7006,6 +7006,35 @@ function buildDashboardReportGroupEntries_() {
     .sort((left, right) => normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es"));
 }
 
+function buildDashboardSegmentSessionMatrix_(seasonMatrix, sessionTotals) {
+  const safeSessions = Array.isArray(sessionTotals) ? sessionTotals : [];
+
+  return safeSessions.map((session) => {
+    const sessionId = String(session?.sessionId || session?.id || "");
+    const segmentState = buildDashboardAttendanceSegments_(seasonMatrix, sessionId);
+    const segments = Array.isArray(segmentState?.segments) ? segmentState.segments : [];
+    const getSegment = (segmentId) => segments.find((segment) => segment.id === segmentId) || {
+      id: segmentId,
+      label: "",
+      description: "",
+      presentTotal: 0,
+      assignedTotal: 0,
+      percent: 0,
+      groups: []
+    };
+
+    return {
+      sessionId,
+      label: session?.shortLabel || session?.name || sessionId || "Sesion",
+      date: session?.date || "",
+      globalAttendance: Number(segmentState?.globalAttendance || session?.presentTotal || 0),
+      youth: getSegment("youth"),
+      marriages: getSegment("marriages"),
+      menWomen: getSegment("menWomen")
+    };
+  });
+}
+
 function getDashboardReportContext_() {
   const executive = state.dashboardExecutive;
   const latestSeason = getLatestSeason();
@@ -7038,6 +7067,7 @@ function getDashboardReportContext_() {
       attendanceRate: 0
     },
     sessionTotals,
+    segmentSessions: buildDashboardSegmentSessionMatrix_(seasonMatrix, sessionTotals),
     groups,
     selectedSession
   };
@@ -7240,6 +7270,7 @@ function renderDashboardReportGroupSectionHtml_(groupEntry) {
 function buildDashboardPastorReportBodyHtml_(report) {
   const overall = report?.overall || {};
   const sessionTotals = Array.isArray(report?.sessionTotals) ? report.sessionTotals : [];
+  const segmentRows = Array.isArray(report?.segmentSessions) ? report.segmentSessions : [];
   const groups = Array.isArray(report?.groups) ? report.groups : [];
 
   return `
@@ -7284,6 +7315,25 @@ function buildDashboardPastorReportBodyHtml_(report) {
           `${session.captureCoverage || 0}%`
         ])
       )
+    )}
+
+    ${renderDashboardReportSectionHtml_(
+      "Lectura ejecutiva por sesión",
+      "Replica lo que ve el Pastor en Dashboard Iglesia: asistencia global, Jóvenes, Matrimonios y Hombres y Mujeres en cada sesión.",
+      `
+        <p>Jóvenes: Switch On, Exteens, Fearless y Unlimited. Matrimonios: Inseparables. Hombres y Mujeres: Entre Mujeres y Hombres de Valor.</p>
+        ${renderDashboardReportTableHtml_(
+          ["Sesión", "Fecha", "Asistencia global", "Jóvenes", "Matrimonios", "Hombres y Mujeres"],
+          segmentRows.map((row) => [
+            row.label || "Sesión",
+            formatDate(row.date) || "-",
+            String(row.globalAttendance || 0),
+            formatDashboardSegmentCellLabel_(row.youth, row.globalAttendance),
+            formatDashboardSegmentCellLabel_(row.marriages, row.globalAttendance),
+            formatDashboardSegmentCellLabel_(row.menWomen, row.globalAttendance)
+          ])
+        )}
+      `
     )}
 
     ${renderDashboardReportSectionHtml_(
@@ -7696,6 +7746,28 @@ function buildDashboardPdfGroupSessionSummaryRows_(groupEntry) {
   ]));
 }
 
+function formatDashboardSegmentCellLabel_(segment, globalAttendance) {
+  const safeSegment = segment || {};
+  const presentTotal = Number(safeSegment.presentTotal || 0);
+
+  if (!Number(globalAttendance || 0)) {
+    return presentTotal ? `${presentTotal} | S/C` : "S/C";
+  }
+
+  return `${presentTotal} | ${formatDashboardGlobalPercent_(presentTotal, globalAttendance)}`;
+}
+
+function buildDashboardPdfSegmentSessionRows_(report) {
+  return (Array.isArray(report?.segmentSessions) ? report.segmentSessions : []).map((row) => ([
+    row.label || "Sesion",
+    formatDate(row.date) || "-",
+    String(row.globalAttendance || 0),
+    formatDashboardSegmentCellLabel_(row.youth, row.globalAttendance),
+    formatDashboardSegmentCellLabel_(row.marriages, row.globalAttendance),
+    formatDashboardSegmentCellLabel_(row.menWomen, row.globalAttendance)
+  ]));
+}
+
 function buildDashboardPdfGroupOverviewRows_(report) {
   const sessions = Array.isArray(report?.sessionTotals) ? report.sessionTotals : [];
   const groups = Array.isArray(report?.groups) ? report.groups : [];
@@ -7958,6 +8030,72 @@ function addDashboardPastorPdfSummaryPage_(doc, report, logoDataUrl) {
     },
     alternateRowStyles: {
       fillColor: [249, 249, 249]
+    }
+  });
+
+  cursorY = doc.lastAutoTable.finalY + 14;
+  addDashboardPdfSectionTitle_(doc, "Lectura ejecutiva por sesion", cursorY);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(96, 96, 96);
+  doc.text(
+    "Jovenes: Switch On, Exteens, Fearless y Unlimited | Matrimonios: Inseparables | Hombres y Mujeres: Entre Mujeres y Hombres de Valor",
+    26,
+    cursorY + 12,
+    {
+      maxWidth: doc.internal.pageSize.getWidth() - 52
+    }
+  );
+  doc.autoTable({
+    startY: cursorY + 20,
+    head: [["Sesion", "Fecha", "Asistencia global", "Jovenes", "Matrimonios", "Hombres y Mujeres"]],
+    body: buildDashboardPdfSegmentSessionRows_(report),
+    theme: "grid",
+    margin: {
+      left: 26,
+      right: 26
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 7.3,
+      cellPadding: 3,
+      lineColor: [226, 226, 226],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [35, 35, 35],
+      valign: "middle"
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [249, 249, 249]
+    },
+    columnStyles: {
+      0: {
+        cellWidth: 48
+      },
+      1: {
+        cellWidth: 54
+      },
+      2: {
+        cellWidth: 66,
+        halign: "center"
+      },
+      3: {
+        cellWidth: 82,
+        halign: "center"
+      },
+      4: {
+        cellWidth: 82,
+        halign: "center"
+      },
+      5: {
+        cellWidth: 92,
+        halign: "center"
+      }
     }
   });
 
