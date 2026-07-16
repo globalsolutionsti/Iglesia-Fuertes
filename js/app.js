@@ -7349,10 +7349,15 @@ function buildDashboardReportDocumentBodyHtml_(report) {
   return buildDashboardPastorReportBodyHtml_(report);
 }
 
-function buildDashboardReportDocumentHtml_(report, options = {}) {
-  const autoPrint = Boolean(options.autoPrint);
+function getReportLogoAssetUrl_() {
+  return new URL("./assets/logo-fuertes.png", window.location.href).href;
+}
+
+function buildDashboardReportDocumentHtml_(report) {
   const generatedAt = report?.generatedAt ? formatDateTime_(report.generatedAt) : formatDateTime_(new Date());
   const bodyHtml = buildDashboardReportDocumentBodyHtml_(report);
+  const logoUrl = getReportLogoAssetUrl_();
+  const reportKindLabel = report?.kind === "group" ? "Reporte por grupo" : "Reporte pastoral";
 
   return `
     <!DOCTYPE html>
@@ -7361,54 +7366,123 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
       <meta charset="UTF-8">
       <title>${escapeHtml(report?.title || "Reporte Dashboard Iglesia")}</title>
       <style>
+        @page {
+          size: A4;
+          margin: 16mm;
+        }
         * { box-sizing: border-box; }
         body {
           margin: 0;
           padding: 28px;
           font-family: Manrope, Arial, sans-serif;
           color: #111111;
-          background: #f4f4f4;
+          background:
+            radial-gradient(circle at top left, rgba(0, 0, 0, 0.06), transparent 24%),
+            linear-gradient(180deg, #f6f6f6 0%, #ececec 100%);
         }
         .report-shell {
           display: grid;
-          gap: 18px;
+          gap: 20px;
         }
         .report-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
+          display: grid;
+          grid-template-columns: minmax(220px, 320px) minmax(280px, 1fr);
           gap: 18px;
-          padding: 22px 24px;
-          border-radius: 24px;
-          background: #ffffff;
-          border: 1px solid #d8d8d8;
+          padding: 24px 26px;
+          border-radius: 28px;
+          background:
+            radial-gradient(circle at top right, rgba(255, 255, 255, 0.08), transparent 30%),
+            linear-gradient(135deg, #111111 0%, #1b1b1b 100%);
+          border: 1px solid rgba(0, 0, 0, 0.2);
+          color: #ffffff;
         }
-        .report-head h1 {
+        .report-head-brand {
+          display: grid;
+          align-content: space-between;
+          gap: 16px;
+        }
+        .report-head-brand img {
+          width: 230px;
+          max-width: 100%;
+          display: block;
+          filter: brightness(0) invert(1);
+        }
+        .report-head-chip {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          padding: 9px 14px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          color: rgba(255, 255, 255, 0.82);
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .report-head-copy {
+          display: grid;
+          gap: 16px;
+          align-content: space-between;
+        }
+        .report-head-copy h1 {
           margin: 0;
-          font-size: 30px;
+          font-size: 34px;
           letter-spacing: -0.04em;
         }
-        .report-head p,
-        .report-head small {
-          margin: 8px 0 0;
-          color: #5a5a5a;
+        .report-head-copy p {
+          margin: 0;
+          color: rgba(255, 255, 255, 0.8);
           line-height: 1.6;
+        }
+        .report-head-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .report-head-meta span {
+          display: inline-flex;
+          align-items: center;
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: rgba(255, 255, 255, 0.86);
+          font-size: 12px;
+          line-height: 1.45;
         }
         .report-summary-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
           gap: 12px;
         }
+        .report-summary-card {
+          position: relative;
+          overflow: hidden;
+        }
+        .report-summary-card::after {
+          content: "";
+          position: absolute;
+          inset: auto 18px 0 18px;
+          height: 4px;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #111111 0%, #555555 100%);
+          opacity: 0.14;
+        }
         .report-summary-card,
         .report-section {
-          background: #ffffff;
-          border: 1px solid #dcdcdc;
-          border-radius: 22px;
+          background:
+            radial-gradient(circle at top right, rgba(0, 0, 0, 0.025), transparent 26%),
+            #ffffff;
+          border: 1px solid #d9d9d9;
+          border-radius: 24px;
+          box-shadow: 0 14px 34px rgba(0, 0, 0, 0.05);
         }
         .report-summary-card {
           display: grid;
-          gap: 6px;
-          padding: 18px;
+          gap: 8px;
+          padding: 20px;
         }
         .report-summary-card span {
           font-size: 12px;
@@ -7418,14 +7492,15 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
           color: #666666;
         }
         .report-summary-card strong {
-          font-size: 28px;
+          font-size: 30px;
           letter-spacing: -0.04em;
         }
         .report-summary-card small {
           color: #666666;
+          line-height: 1.55;
         }
         .report-section {
-          padding: 20px;
+          padding: 22px;
           display: grid;
           gap: 14px;
         }
@@ -7446,7 +7521,7 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
         }
         .report-subsection {
           display: grid;
-          gap: 10px;
+          gap: 12px;
         }
         .report-subsection h3 {
           margin: 0;
@@ -7479,6 +7554,27 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
           letter-spacing: 0.06em;
           color: #555555;
         }
+        .report-table td strong {
+          display: inline-block;
+          font-size: 13px;
+        }
+        .report-table tr:nth-child(even) td {
+          background: rgba(0, 0, 0, 0.012);
+        }
+        @media (max-width: 960px) {
+          body {
+            padding: 18px;
+          }
+          .report-head {
+            grid-template-columns: 1fr;
+          }
+          .report-head-brand img {
+            width: 200px;
+          }
+          .report-head-copy h1 {
+            font-size: 28px;
+          }
+        }
         @media print {
           body {
             padding: 0;
@@ -7493,6 +7589,15 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
             box-shadow: none;
             break-inside: avoid;
           }
+          .report-head {
+            background: #111111 !important;
+            color: #ffffff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .report-head-brand img {
+            filter: brightness(0) invert(1);
+          }
           .report-section {
             page-break-inside: avoid;
           }
@@ -7502,42 +7607,133 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
     <body>
       <div class="report-shell">
         <header class="report-head">
-          <div>
-            <h1>${escapeHtml(report?.title || "Reporte Dashboard Iglesia")}</h1>
-            <p>${escapeHtml(report?.subtitle || "")}</p>
+          <div class="report-head-brand">
+            <img src="${logoUrl}" alt="Iglesia Fuertes">
+            <span class="report-head-chip">${escapeHtml(reportKindLabel)}</span>
           </div>
-          <div>
-            <small>${escapeHtml(`Generado: ${generatedAt}`)}</small>
-            <small>${escapeHtml(`Temporada: ${report?.seasonName || "Sin temporada"}`)}</small>
+          <div class="report-head-copy">
+            <div>
+              <h1>${escapeHtml(report?.title || "Reporte Dashboard Iglesia")}</h1>
+              <p>${escapeHtml(report?.subtitle || "")}</p>
+            </div>
+            <div class="report-head-meta">
+              <span>${escapeHtml(`Temporada: ${report?.seasonName || "Sin temporada"}`)}</span>
+              <span>${escapeHtml(`Generado: ${generatedAt}`)}</span>
+              <span>${escapeHtml("Fuente: Dashboard Iglesia V2")}</span>
+            </div>
           </div>
         </header>
         ${bodyHtml}
       </div>
-      ${autoPrint ? `
-        <script>
-          window.addEventListener("load", function () {
-            window.print();
-          });
-        </script>
-      ` : ""}
     </body>
     </html>
   `;
 }
 
-function openDashboardReportPdf_(report) {
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1440,height=960");
+function printHtmlDocumentInHiddenFrame_(htmlText, options = {}) {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    const timeoutMs = Number(options.timeoutMs || 18000);
+    let settled = false;
+    let timeoutId = 0;
+    let cleanupTimerId = 0;
 
-  if (!printWindow) {
-    showToast("Ventana bloqueada", "Permite ventanas emergentes para abrir la versión PDF del reporte.", "warning");
+    const cleanup = () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      if (cleanupTimerId) {
+        window.clearTimeout(cleanupTimerId);
+      }
+      if (frame.parentNode) {
+        frame.parentNode.removeChild(frame);
+      }
+    };
+
+    const settle = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+
+    timeoutId = window.setTimeout(() => {
+      settle(reject, new Error("PRINT_FRAME_TIMEOUT"));
+    }, timeoutMs);
+
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "1px";
+    frame.style.height = "1px";
+    frame.style.opacity = "0";
+    frame.style.pointerEvents = "none";
+    frame.style.border = "0";
+
+    frame.onload = () => {
+      try {
+        const frameWindow = frame.contentWindow;
+        const frameDocument = frame.contentDocument || frameWindow?.document;
+
+        if (!frameWindow || !frameDocument) {
+          settle(reject, new Error("PRINT_FRAME_UNAVAILABLE"));
+          return;
+        }
+
+        const imagePromises = Array.from(frameDocument.images || []).map((image) => {
+          if (image.complete) {
+            return Promise.resolve();
+          }
+
+          return new Promise((imageResolve) => {
+            image.onload = () => imageResolve();
+            image.onerror = () => imageResolve();
+          });
+        });
+
+        Promise.all(imagePromises).then(() => {
+          window.setTimeout(() => {
+            try {
+              frameWindow.focus();
+              frameWindow.print();
+              cleanupTimerId = window.setTimeout(() => {
+                settle(resolve, true);
+              }, 1200);
+            } catch (error) {
+              settle(reject, error);
+            }
+          }, 260);
+        }).catch((error) => {
+          settle(reject, error);
+        });
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+
+    document.body.appendChild(frame);
+    frame.srcdoc = htmlText;
+  });
+}
+
+async function openDashboardReportPdf_(report) {
+  try {
+    await withLoading(async () => {
+      await printHtmlDocumentInHiddenFrame_(buildDashboardReportDocumentHtml_(report), {
+        timeoutMs: 18000
+      });
+    }, "Preparando reporte ejecutivo en PDF...");
+
+    showToast("PDF listo", "Se abrió la ventana de impresión. Elige Guardar como PDF para descargar el reporte.", "success");
+    return true;
+  } catch (error) {
+    console.error(error);
+    showToast("No se pudo abrir el PDF", "No fue posible preparar la impresión del reporte. Intenta nuevamente o usa la exportación a Excel.", "danger");
     return false;
   }
-
-  printWindow.document.write(buildDashboardReportDocumentHtml_(report, {
-    autoPrint: true
-  }));
-  printWindow.document.close();
-  return true;
 }
 
 function downloadDashboardReportExcel_(report, prefix) {
@@ -10247,7 +10443,7 @@ async function handleClick(event) {
         return;
       }
 
-      openDashboardReportPdf_(report);
+      await openDashboardReportPdf_(report);
       return;
     }
 
@@ -10332,7 +10528,7 @@ async function handleClick(event) {
       }
 
       if (action === "export-dashboard-group-report-pdf") {
-        openDashboardReportPdf_(report);
+        await openDashboardReportPdf_(report);
         return;
       }
 
