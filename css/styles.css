@@ -363,7 +363,7 @@ div {
 
 .login-access-column {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto;
   gap: 16px;
   align-content: start;
 }
@@ -4296,11 +4296,11 @@ tbody tr:hover {
   }
 
   .login-access-column {
-    order: 1;
+    order: 2;
   }
 
   .login-hero-card {
-    order: 2;
+    order: 1;
     min-height: auto;
   }
 
@@ -4964,16 +4964,51 @@ tbody tr:hover {
 
   .login-shell-modern .login-copy {
     font-size: 14px;
+    line-height: 1.6;
   }
 
-  .login-hero-metrics,
+  .login-hero-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
   .login-support-grid {
     grid-template-columns: 1fr;
+  }
+
+  .login-hero-metric {
+    min-height: 112px;
+    padding: 14px;
+    gap: 8px;
+  }
+
+  .login-hero-metric strong {
+    font-size: 15px;
+  }
+
+  .login-hero-metric span {
+    font-size: 12px;
+    line-height: 1.45;
   }
 
   .login-hero-metric,
   .login-support-item {
     min-height: auto;
+  }
+
+  .login-hero-ribbon {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .login-hero-ribbon::-webkit-scrollbar {
+    display: none;
+  }
+
+  .login-hero-ribbon span {
+    white-space: nowrap;
   }
 
   .login-mode-switch-modern,
