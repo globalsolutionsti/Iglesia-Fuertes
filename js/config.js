@@ -1,5 +1,5 @@
 export const APP_CONFIG = {
   appName: "Iglesia Fuertes V2",
   storagePrefix: "iglesiaFuertesV2",
-  defaultApiUrl: "https://script.google.com/macros/s/AKfycbxtGhiVenC85QICv6nRGJO4wjw2YMTej7wn2QXu6mK6pIYfmwKmje07sbLu9Q6QsuAa/exec"
+  defaultApiUrl: "https://script.google.com/macros/s/AKfycby2O9StNPSCXG6CH4cKegYWgKPvQkYCKQ5tHGeDvO11Lb_2T8cMzZfBqa5xXOveXFsM/exec"
 };
