@@ -4743,14 +4743,18 @@ tbody tr:hover {
 
 .student-portal-shell {
   min-height: 100vh;
-  padding: 28px;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(182, 138, 47, 0.1), transparent 28%),
+    radial-gradient(circle at top right, rgba(67, 86, 111, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(247, 244, 238, 0.98) 0%, rgba(240, 236, 230, 1) 100%);
 }
 
 .student-portal-panel {
-  max-width: 1180px;
+  max-width: 1320px;
   margin: 0 auto;
   display: grid;
-  gap: 20px;
+  gap: 22px;
 }
 
 .student-portal-head {
@@ -4763,6 +4767,11 @@ tbody tr:hover {
   border: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 245, 245, 0.98) 100%);
   box-shadow: var(--shadow-md);
+}
+
+.student-portal-head-actions {
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .student-portal-brand {
@@ -4788,13 +4797,15 @@ tbody tr:hover {
   max-width: 58ch;
 }
 
-.student-hero-grid {
+.student-stage-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
   gap: 18px;
 }
 
-.student-summary-card,
+.student-stage-hero,
+.student-account-card,
+.student-portal-stat-card,
 .student-current-level-card,
 .student-levels-section,
 .student-history-section {
@@ -4804,48 +4815,213 @@ tbody tr:hover {
   box-shadow: var(--shadow-md);
 }
 
-.student-summary-card {
-  min-height: 170px;
-  padding: 22px;
+.student-stage-hero {
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(249, 245, 237, 0.98) 100%);
+}
+
+.student-stage-copy h2 {
+  margin: 10px 0 12px;
+  font-size: clamp(38px, 5vw, 56px);
+  line-height: 0.94;
+  letter-spacing: -0.04em;
+}
+
+.student-stage-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  max-width: 62ch;
+}
+
+.student-stage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.student-stage-progress-block {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.student-stage-progress-head,
+.student-stage-progress-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.student-stage-progress-head strong {
+  font-size: 18px;
+}
+
+.student-stage-progress-head span,
+.student-stage-progress-foot span {
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.student-progress-bar {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.08);
+  overflow: hidden;
+}
+
+.student-progress-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #101010 0%, #b68a2f 100%);
+}
+
+.student-stage-actions {
+  align-items: stretch;
+}
+
+.student-account-card {
+  padding: 26px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  background: linear-gradient(180deg, #111111 0%, #262626 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.student-progress-ring {
+  --student-progress: 0;
+  width: 172px;
+  height: 172px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    conic-gradient(#b68a2f calc(var(--student-progress) * 1%), rgba(255, 255, 255, 0.12) 0);
+}
+
+.student-progress-ring-inner {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  background: #171717;
+}
+
+.student-progress-ring-inner strong {
+  display: block;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.student-progress-ring-inner span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.student-account-copy {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.student-account-copy strong {
+  font-size: 24px;
+  line-height: 1.02;
+}
+
+.student-account-copy span:not(.eyebrow) {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.student-account-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.student-account-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.student-account-item span {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.student-account-item strong {
+  font-size: 20px;
+  line-height: 1.05;
+}
+
+.student-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.student-portal-stat-card {
+  min-height: 166px;
+  padding: 20px;
   display: grid;
   align-content: start;
   gap: 10px;
 }
 
-.student-summary-card strong {
-  font-size: clamp(30px, 5vw, 42px);
+.student-portal-stat-card strong {
+  font-size: clamp(28px, 4vw, 36px);
   line-height: 0.98;
   letter-spacing: -0.04em;
 }
 
-.student-summary-card span:not(.status-chip) {
+.student-portal-stat-card p {
+  margin: 0;
   color: var(--text-soft);
 }
 
-.student-summary-card-dark {
-  background: linear-gradient(145deg, #101010 0%, #353535 100%);
+.student-portal-stat-dark {
+  background: linear-gradient(145deg, #121212 0%, #313131 100%);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.student-summary-card-dark span:not(.status-chip) {
-  color: rgba(255, 255, 255, 0.76);
+.student-portal-stat-dark p,
+.student-portal-stat-dark .status-chip {
+  color: rgba(255, 255, 255, 0.82);
 }
 
-.student-summary-card-dark .status-chip {
-  background: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.student-summary-card-light {
+.student-portal-stat-gold {
   background: linear-gradient(145deg, #fff3d8 0%, #f0c978 100%);
   border-color: rgba(184, 132, 30, 0.18);
 }
 
-.student-summary-card-soft {
-  background: linear-gradient(145deg, #e8f0f7 0%, #b7cfdf 100%);
-  border-color: rgba(43, 86, 120, 0.18);
+.student-portal-stat-green {
+  background: linear-gradient(145deg, #e2f3e7 0%, #b8dcc6 100%);
+  border-color: rgba(44, 115, 87, 0.16);
+}
+
+.student-portal-stat-slate {
+  background: linear-gradient(145deg, #edf2f8 0%, #c5d6e4 100%);
+  border-color: rgba(43, 86, 120, 0.14);
 }
 
 .student-current-level-card,
@@ -4854,15 +5030,40 @@ tbody tr:hover {
   padding: 24px;
 }
 
+.student-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.student-detail-block {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f8f7f4 100%);
+}
+
+.student-detail-block strong {
+  font-size: 22px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.student-detail-block span:not(.status-chip) {
+  color: var(--text-soft);
+}
+
 .student-level-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
 .student-level-card {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   padding: 18px;
   border-radius: 20px;
   border: 1px solid var(--line);
@@ -4899,6 +5100,17 @@ tbody tr:hover {
   color: var(--text-soft);
 }
 
+.student-level-card-metrics {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  color: var(--text-faint);
+  font-size: 14px;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+}
+
 .student-level-acreditado {
   border-color: rgba(31, 122, 67, 0.2);
   background: linear-gradient(180deg, rgba(235, 249, 240, 0.96) 0%, rgba(223, 244, 232, 0.96) 100%);
@@ -4920,6 +5132,67 @@ tbody tr:hover {
   background: linear-gradient(180deg, rgba(252, 238, 238, 0.96) 0%, rgba(247, 223, 223, 0.96) 100%);
 }
 
+.student-portal-bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.9fr);
+  gap: 18px;
+}
+
+.student-history-stack,
+.student-support-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.student-history-card,
+.student-support-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f6f3 100%);
+}
+
+.student-history-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.student-history-card-head small {
+  display: block;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-history-card-head strong,
+.student-support-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 22px;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+}
+
+.student-history-card-body {
+  display: grid;
+  gap: 8px;
+}
+
+.student-history-card-body span,
+.student-support-card p {
+  color: var(--text-soft);
+}
+
+.student-support-card p {
+  margin: 0;
+}
+
 @media (max-width: 960px) {
   .login-mode-switch {
     flex-direction: column;
@@ -4935,14 +5208,24 @@ tbody tr:hover {
     align-items: flex-start;
   }
 
-  .student-hero-grid,
-  .student-level-grid {
+  .student-stage-grid,
+  .student-kpi-grid,
+  .student-detail-grid,
+  .student-level-grid,
+  .student-portal-bottom-grid {
     grid-template-columns: 1fr;
+  }
+
+  .student-account-card {
+    order: -1;
   }
 }
 
 @media (max-width: 640px) {
   .student-portal-head,
+  .student-stage-hero,
+  .student-account-card,
+  .student-portal-stat-card,
   .student-current-level-card,
   .student-levels-section,
   .student-history-section {
@@ -4950,17 +5233,26 @@ tbody tr:hover {
     border-radius: 22px;
   }
 
-  .student-summary-card {
-    min-height: auto;
-    padding: 18px;
-  }
-
-  .student-summary-card strong {
-    font-size: 30px;
-  }
-
   .student-portal-title {
     font-size: 34px;
+  }
+
+  .student-stage-progress-head,
+  .student-stage-progress-foot,
+  .student-level-card-metrics,
+  .student-history-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .student-progress-ring {
+    width: 150px;
+    height: 150px;
+  }
+
+  .student-progress-ring-inner {
+    width: 118px;
+    height: 118px;
   }
 }
 
