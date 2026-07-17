@@ -7419,10 +7419,11 @@ function getReportLogoAssetUrl_() {
   return new URL("./assets/logo-fuertes.png", window.location.href).href;
 }
 
-function buildDashboardReportDocumentHtml_(report) {
+function buildDashboardReportDocumentHtml_(report, options = {}) {
   const generatedAt = report?.generatedAt ? formatDateTime_(report.generatedAt) : formatDateTime_(new Date());
   const bodyHtml = buildDashboardReportDocumentBodyHtml_(report);
-  const logoUrl = getReportLogoAssetUrl_();
+  const logoUrl = options.logoUrl || getReportLogoAssetUrl_();
+  const logoFilter = options.logoIsLight ? "none" : "brightness(0) invert(1)";
   const reportKindLabel = report?.kind === "group" ? "Reporte por grupo" : "Reporte pastoral";
 
   return `
@@ -7674,7 +7675,7 @@ function buildDashboardReportDocumentHtml_(report) {
       <div class="report-shell">
         <header class="report-head">
           <div class="report-head-brand">
-            <img src="${logoUrl}" alt="Iglesia Fuertes">
+            <img src="${logoUrl}" alt="Iglesia Fuertes" style="filter:${logoFilter};">
             <span class="report-head-chip">${escapeHtml(reportKindLabel)}</span>
           </div>
           <div class="report-head-copy">
@@ -7727,6 +7728,52 @@ async function loadAssetAsDataUrl_(url) {
     return await blobToDataUrl_(await response.blob());
   } catch (error) {
     console.warn("No se pudo cargar el logo para el PDF.", error);
+    return "";
+  }
+}
+
+async function loadLightAssetAsDataUrl_(url) {
+  if (!url) {
+    return "";
+  }
+
+  try {
+    const response = await fetch(url, {
+      cache: "force-cache"
+    });
+
+    if (!response.ok) {
+      throw new Error(`ASSET_FETCH_${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
+    try {
+      const image = await loadImageElement_(objectUrl);
+      const width = Math.max(image.naturalWidth || image.width || 0, 1);
+      const height = Math.max(image.naturalHeight || image.height || 0, 1);
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new Error("CANVAS_CONTEXT_UNAVAILABLE");
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      context.clearRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      context.globalCompositeOperation = "source-in";
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
+      context.globalCompositeOperation = "source-over";
+      return canvas.toDataURL("image/png");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch (error) {
+    console.warn("No se pudo preparar el logo blanco para el reporte.", error);
     return "";
   }
 }
@@ -8487,7 +8534,8 @@ async function generateDashboardReportPdfBlob_(report) {
     throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
   }
 
-  const logoDataUrl = await loadAssetAsDataUrl_(getReportLogoAssetUrl_());
+  const reportLogoUrl = getReportLogoAssetUrl_();
+  const logoDataUrl = await loadLightAssetAsDataUrl_(reportLogoUrl) || await loadAssetAsDataUrl_(reportLogoUrl);
 
   setLoadingMessage_("Descargando reporte PDF... preparando resumen ejecutivo.");
   await waitForUiPaint_();
@@ -8547,9 +8595,13 @@ async function openDashboardReportPdf_(report) {
   }
 }
 
-function downloadDashboardReportExcel_(report, prefix) {
+async function downloadDashboardReportExcel_(report, prefix) {
+  const whiteLogoDataUrl = await loadLightAssetAsDataUrl_(getReportLogoAssetUrl_());
   downloadExcelHtmlFile_(
-    buildDashboardReportDocumentHtml_(report),
+    buildDashboardReportDocumentHtml_(report, {
+      logoUrl: whiteLogoDataUrl || getReportLogoAssetUrl_(),
+      logoIsLight: Boolean(whiteLogoDataUrl)
+    }),
     buildDashboardBinaryExportFileName_(prefix, report?.seasonName || report?.group?.groupName || "reporte", "xls")
   );
 }
@@ -11279,7 +11331,7 @@ async function handleClick(event) {
         return;
       }
 
-      downloadDashboardReportExcel_(report, "REPORTE_PASTORAL");
+      await downloadDashboardReportExcel_(report, "REPORTE_PASTORAL");
       showToast("Reporte listo", "Se descargó el reporte pastoral en formato Excel.", "success");
       return;
     }
@@ -11371,7 +11423,7 @@ async function handleClick(event) {
       }
 
       if (action === "export-dashboard-group-report-excel") {
-        downloadDashboardReportExcel_(report, "REPORTE_GRUPO");
+        await downloadDashboardReportExcel_(report, "REPORTE_GRUPO");
         showToast("Reporte listo", "Se descargó el reporte del grupo en formato Excel.", "success");
         return;
       }
