@@ -4803,7 +4803,7 @@ function renderAdminSettingsView_() {
           </div>
 
           ${telegramConfig.startBaseUrl ? `
-            <p class="footer-note">Bot listo: <strong>@${escapeHtml(telegramConfig.botUsername || "")}</strong></p>
+            <p class="footer-note">Bot listo: <strong>@${escapeHtml(telegramConfig.botUsername || "")}</strong>. El líder debe abrir el enlace exacto y pulsar <strong>Iniciar</strong>; escribir solo <strong>/start</strong> no vincula el grupo.</p>
           ` : `
             <p class="footer-note">Todavía no hay bot configurado. Sin esto no se enviarán avisos automáticos.</p>
           `}
@@ -19959,7 +19959,16 @@ async function syncTelegramLinks_() {
   }, "Sincronizando líderes desde Telegram...");
 
   if (response.linkedCount) {
-    showToast("Telegram sincronizado", `Se vincularon ${response.linkedCount} líder(es) en ${response.scannedCount} actualización(es).`, "success");
+    const linkedSummary = Array.isArray(response.linked) && response.linked.length
+      ? response.linked.map((item) => `${item.groupName || item.groupId} · L${item.leaderSlot}`).join(", ")
+      : `${response.linkedCount} líder(es)`;
+    showToast("Telegram sincronizado", `Se vinculó correctamente: ${linkedSummary}.`, "success");
+  } else if ((Number(response.ignoredCount || 0) > 0) || (Number(response.scannedCount || 0) > 0)) {
+    showToast(
+      "Inicio no válido",
+      "El bot sí recibió mensajes, pero no llegaron desde el enlace correcto del líder. Pídele que abra de nuevo el enlace exacto y pulse Iniciar dentro de Telegram.",
+      "warning"
+    );
   } else {
     showToast("Sin cambios", "No llegaron nuevos inicios del bot para vincular líderes.", "warning");
   }
