@@ -15414,6 +15414,44 @@ async function saveCatalogGroupForm_(form) {
   renderApp();
 }
 
+function applyTelegramLinkToLocalGroup_(payload) {
+  const groupId = String(payload?.groupId || "").trim();
+  const leaderSlot = String(payload?.leaderSlot || "").trim();
+  const chatId = String(payload?.chatId || "").trim();
+
+  if (!groupId || !leaderSlot || !chatId || !Array.isArray(state.catalogs.groups) || !state.catalogs.groups.length) {
+    return;
+  }
+
+  state.catalogs.groups = state.catalogs.groups.map((group) => {
+    if (String(group?.id || "") !== groupId) {
+      return group;
+    }
+
+    const updatedGroup = {
+      ...group
+    };
+
+    if (leaderSlot === "1") {
+      updatedGroup.leader1TelegramChatId = chatId;
+      updatedGroup.leader1TelegramLinked = true;
+    } else if (leaderSlot === "2") {
+      updatedGroup.leader2TelegramChatId = chatId;
+      updatedGroup.leader2TelegramLinked = true;
+    }
+
+    return updatedGroup;
+  });
+}
+
+function applyTelegramLinksToLocalGroups_(items) {
+  const rows = Array.isArray(items) ? items : [];
+
+  rows.forEach((item) => {
+    applyTelegramLinkToLocalGroup_(item);
+  });
+}
+
 async function processPeopleImportFile_(file) {
   await withLoading(async () => {
     ensureXlsxLoaded_();
@@ -19996,9 +20034,11 @@ async function syncTelegramLinks_() {
     });
   }, "Sincronizando líderes desde Telegram...");
 
+  applyTelegramLinksToLocalGroups_(response?.linked);
+
   if (response.linkedCount) {
     const linkedSummary = Array.isArray(response.linked) && response.linked.length
-      ? response.linked.map((item) => `${item.groupName || item.groupId} · L${item.leaderSlot}`).join(", ")
+      ? response.linked.map((item) => `${item.groupName || item.groupId} · L${item.leaderSlot} · ${item.chatId || "sin chat ID"}`).join(", ")
       : `${response.linkedCount} líder(es)`;
     const pendingNote = Number(response.pendingStartsCount || 0) > 0
       ? ` Aún quedan ${response.pendingStartsCount} inicio(s) pendiente(s) por asignar manualmente desde Catálogos.`
@@ -20046,12 +20086,13 @@ async function assignPendingTelegramStart_(groupId, leaderSlot) {
     throw error;
   }
 
+  applyTelegramLinkToLocalGroup_(response);
   state.ui.editingGroupId = String(groupId || "");
   renderApp();
 
   showToast(
     "Telegram vinculado",
-    `${response?.displayName || "El líder"} quedó vinculado como líder ${leaderSlot} de ${response?.groupName || "este grupo"}.`,
+    `${response?.displayName || "El líder"} quedó vinculado como líder ${leaderSlot} de ${response?.groupName || "este grupo"} con chat ID ${response?.chatId || "sin dato"}.`,
     "success"
   );
 }
