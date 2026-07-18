@@ -4443,8 +4443,15 @@ function renderCatalogsView_() {
     enabled: false,
     configured: false,
     botUsername: "",
-    startBaseUrl: ""
+    startBaseUrl: "",
+    pendingStartsCount: 0,
+    pendingStarts: []
   };
+  const telegramPendingStarts = Array.isArray(telegramConfig.pendingStarts) ? telegramConfig.pendingStarts : [];
+  const latestPendingStart = telegramPendingStarts[0] || null;
+  const latestPendingLabel = latestPendingStart
+    ? [latestPendingStart.displayName, latestPendingStart.username ? `@${latestPendingStart.username}` : "", latestPendingStart.chatId ? `chat ${latestPendingStart.chatId}` : ""].filter(Boolean).join(" · ")
+    : "";
   const telegramStats = getTelegramLeaderStats_();
   const groups = state.catalogs.groups.filter((group) => {
     const haystack = `${group.id} ${group.name} ${group.leader1Name || ""} ${group.leader2Name || ""}`.toLowerCase();
@@ -4506,6 +4513,7 @@ function renderCatalogsView_() {
             <span class="context-item"><strong>Bot:</strong> ${escapeHtml(telegramConfig.botUsername ? `@${telegramConfig.botUsername}` : "Sin configurar")}</span>
             <span class="context-item"><strong>Vinculados:</strong> ${escapeHtml(`${telegramStats.linked}/${telegramStats.total || 0}`)} líderes</span>
             <span class="context-item"><strong>Acción:</strong> comparte enlace y luego sincroniza</span>
+            ${telegramConfig.pendingStartsCount ? `<span class="context-item"><strong>Pendientes:</strong> ${escapeHtml(String(telegramConfig.pendingStartsCount))} inicio(s) por asignar</span>` : ""}
           </div>
 
           <form id="catalog-group-form">
@@ -4557,11 +4565,17 @@ function renderCatalogsView_() {
                   <span class="status-chip ${telegramActionGroup.leader1TelegramLinked ? "success" : "warning"}">Líder 1</span>
                   <strong>${escapeHtml(telegramActionGroup.leader1TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
                   <span>${escapeHtml(telegramActionGroup.leader1TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
+                  ${!telegramActionGroup.leader1TelegramLinked && telegramPendingStarts.length ? `
+                    <button class="btn btn-ghost" type="button" data-action="assign-pending-telegram-start" data-group-id="${escapeHtml(String(telegramActionGroup.id || ""))}" data-leader-slot="1">Asignar último inicio</button>
+                  ` : ""}
                 </div>
                 <div class="summary-box">
                   <span class="status-chip ${telegramActionGroup.leader2TelegramLinked ? "success" : "warning"}">Líder 2</span>
                   <strong>${escapeHtml(telegramActionGroup.leader2TelegramLinked ? "Vinculado" : "Pendiente")}</strong>
                   <span>${escapeHtml(telegramActionGroup.leader2TelegramChatId || "Comparte el enlace y luego sincroniza.")}</span>
+                  ${!telegramActionGroup.leader2TelegramLinked && telegramPendingStarts.length ? `
+                    <button class="btn btn-ghost" type="button" data-action="assign-pending-telegram-start" data-group-id="${escapeHtml(String(telegramActionGroup.id || ""))}" data-leader-slot="2">Asignar último inicio</button>
+                  ` : ""}
                 </div>
               </div>
 
@@ -4571,6 +4585,9 @@ function renderCatalogsView_() {
                   <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(leader1TelegramLink)}" ${leader1TelegramLink ? "" : "disabled"}>Copiar enlace líder 1</button>
                   <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(leader2TelegramLink)}" ${leader2TelegramLink ? "" : "disabled"}>Copiar enlace líder 2</button>
                 </div>
+                ${latestPendingLabel ? `
+                  <p class="footer-note">Último inicio pendiente detectado: <strong>${escapeHtml(latestPendingLabel)}</strong>. Si ese líder abrió mal el bot, puedes asignarlo manualmente arriba.</p>
+                ` : ""}
               ` : `
                 <p class="footer-note">Primero configura Telegram en Administración para generar los enlaces de vinculación.</p>
               `}
@@ -4787,6 +4804,11 @@ function renderAdminSettingsView_() {
                 <strong>${escapeHtml(`${telegramStats.linked}/${telegramStats.total || 0}`)}</strong>
                 <span>Solo los líderes vinculados recibirán el aviso automático.</span>
               </div>
+              <div class="summary-box">
+                <span class="status-chip ${telegramConfig.pendingStartsCount ? "warning" : "neutral"}">Inicios pendientes</span>
+                <strong>${escapeHtml(String(telegramConfig.pendingStartsCount || 0))}</strong>
+                <span>${escapeHtml(telegramConfig.pendingStartsCount ? "Ve a Catálogos del grupo y usa Asignar último inicio." : "No hay inicios de Telegram esperando asignación.")}</span>
+              </div>
             </div>
 
             <div class="actions-row">
@@ -4800,6 +4822,7 @@ function renderAdminSettingsView_() {
             <span class="context-item"><strong>Paso 1:</strong> guarda aquí el token del bot</span>
             <span class="context-item"><strong>Paso 2:</strong> comparte el enlace del líder desde Catálogos</span>
             <span class="context-item"><strong>Paso 3:</strong> cuando el líder pulse Iniciar, vuelve y sincroniza</span>
+            ${telegramConfig.pendingStartsCount ? `<span class="context-item"><strong>Rescate:</strong> si el líder abrió mal el bot, recupéralo en Catálogos con Asignar último inicio</span>` : ""}
           </div>
 
           ${telegramConfig.startBaseUrl ? `
@@ -11512,6 +11535,19 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "assign-pending-telegram-start") {
+      const groupId = String(button.dataset.groupId || "").trim();
+      const leaderSlot = String(button.dataset.leaderSlot || "").trim();
+
+      if (!groupId || !leaderSlot) {
+        showToast("Asignación incompleta", "No fue posible identificar el grupo o el líder que deseas vincular.", "warning");
+        return;
+      }
+
+      await assignPendingTelegramStart_(groupId, leaderSlot);
+      return;
+    }
+
     if (action === "scroll-to-section") {
       scrollToSection_(button.dataset.sectionId || "");
       return;
@@ -13692,6 +13728,8 @@ async function loadTelegramConfig_(options = {}) {
         botUsername: "",
         startBaseUrl: "",
         hasToken: false,
+        pendingStartsCount: 0,
+        pendingStarts: [],
         unsupported: true
       };
       state.loaded.telegramConfig = true;
@@ -19962,7 +20000,16 @@ async function syncTelegramLinks_() {
     const linkedSummary = Array.isArray(response.linked) && response.linked.length
       ? response.linked.map((item) => `${item.groupName || item.groupId} · L${item.leaderSlot}`).join(", ")
       : `${response.linkedCount} líder(es)`;
-    showToast("Telegram sincronizado", `Se vinculó correctamente: ${linkedSummary}.`, "success");
+    const pendingNote = Number(response.pendingStartsCount || 0) > 0
+      ? ` Aún quedan ${response.pendingStartsCount} inicio(s) pendiente(s) por asignar manualmente desde Catálogos.`
+      : "";
+    showToast("Telegram sincronizado", `Se vinculó correctamente: ${linkedSummary}.${pendingNote}`, "success");
+  } else if ((Number(response.pendingCapturedCount || 0) > 0) || (Number(response.pendingStartsCount || 0) > 0)) {
+    showToast(
+      "Inicio pendiente detectado",
+      `Se detectó ${response.pendingStartsCount || response.pendingCapturedCount || 1} inicio(s) de Telegram sin el enlace exacto. Ve a Catálogos del grupo y pulsa "Asignar último inicio" en el líder correcto.`,
+      "warning"
+    );
   } else if ((Number(response.ignoredCount || 0) > 0) || (Number(response.scannedCount || 0) > 0)) {
     showToast(
       "Inicio no válido",
@@ -19974,6 +20021,39 @@ async function syncTelegramLinks_() {
   }
 
   renderApp();
+}
+
+async function assignPendingTelegramStart_(groupId, leaderSlot) {
+  let response = null;
+
+  try {
+    await withLoading(async () => {
+      response = await apiPost("telegram.links.assignPending", {
+        groupId,
+        leaderSlot
+      });
+      await loadTelegramConfig_({
+        force: true
+      });
+      await loadGroupsCatalog_({
+        force: true
+      });
+    }, "Asignando el último inicio de Telegram...");
+  } catch (error) {
+    if (isUnknownActionError_(error, "telegram.links.assignPending")) {
+      throw buildBackendRouteMissingError_("telegram.links.assignPending", "la asignación manual de Telegram");
+    }
+    throw error;
+  }
+
+  state.ui.editingGroupId = String(groupId || "");
+  renderApp();
+
+  showToast(
+    "Telegram vinculado",
+    `${response?.displayName || "El líder"} quedó vinculado como líder ${leaderSlot} de ${response?.groupName || "este grupo"}.`,
+    "success"
+  );
 }
 
 async function notifyFormationLeaderTelegram_(candidate) {
