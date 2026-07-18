@@ -4460,6 +4460,16 @@ function renderCatalogsView_() {
   const telegramActionLabel = editingGroup
     ? `${editingGroup.name} (modo edición)`
     : (telegramActionGroup ? `${telegramActionGroup.name} (grupo filtrado)` : "");
+  const leader1TelegramLink = buildTelegramLeaderStartLink_(
+    telegramActionGroup?.id,
+    1,
+    telegramActionGroup?.leader1TelegramStartLink || telegramActionGroup?.leader1TelegramLink || ""
+  );
+  const leader2TelegramLink = buildTelegramLeaderStartLink_(
+    telegramActionGroup?.id,
+    2,
+    telegramActionGroup?.leader2TelegramStartLink || telegramActionGroup?.leader2TelegramLink || ""
+  );
 
   return `
     <section class="view-grid">
@@ -4558,8 +4568,8 @@ function renderCatalogsView_() {
               ${telegramConfig.botUsername ? `
                 <p class="footer-note">Grupo activo para compartir: <strong>${escapeHtml(telegramActionLabel)}</strong>.</p>
                 <div class="actions-row" style="margin-top: 12px;">
-                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(telegramActionGroup.leader1TelegramStartLink || "")}" ${telegramActionGroup.leader1TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 1</button>
-                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(telegramActionGroup.leader2TelegramStartLink || "")}" ${telegramActionGroup.leader2TelegramStartLink ? "" : "disabled"}>Copiar enlace líder 2</button>
+                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(leader1TelegramLink)}" ${leader1TelegramLink ? "" : "disabled"}>Copiar enlace líder 1</button>
+                  <button class="btn btn-secondary" type="button" data-action="copy-telegram-link" data-url="${escapeHtml(leader2TelegramLink)}" ${leader2TelegramLink ? "" : "disabled"}>Copiar enlace líder 2</button>
                 </div>
               ` : `
                 <p class="footer-note">Primero configura Telegram en Administración para generar los enlaces de vinculación.</p>
@@ -15340,6 +15350,7 @@ async function saveCatalogGroupForm_(form) {
 
   const payload = Object.fromEntries(new FormData(form).entries());
   const name = String(payload.name || "").trim();
+  let savedGroup = null;
 
   if (!name) {
     const nameField = form.querySelector("[name=\"name\"]");
@@ -15351,13 +15362,16 @@ async function saveCatalogGroupForm_(form) {
   payload.name = name;
 
   await withLoading(async () => {
-    await apiPost("catalog.groups.save", payload);
+    savedGroup = await apiPost("catalog.groups.save", payload);
+    await loadTelegramConfig_({
+      force: true
+    });
     await loadGroupsCatalog_({
       force: true
     });
   }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
 
-  state.ui.editingGroupId = "";
+  state.ui.editingGroupId = String(savedGroup?.id || payload.id || "");
   showToast("Catalogo actualizado", "El grupo quedo guardado correctamente.", "success");
   renderApp();
 }
@@ -19798,6 +19812,34 @@ function normalizeText(value) {
 
 function V(value) {
   return String(value || "").trim();
+}
+
+function buildTelegramLeaderStartPayload_(groupId, leaderSlot) {
+  const resolvedGroupId = String(groupId || "").trim();
+  const resolvedLeaderSlot = String(leaderSlot || "").trim();
+
+  if (!resolvedGroupId || !/^[12]$/.test(resolvedLeaderSlot)) {
+    return "";
+  }
+
+  return `g${resolvedGroupId}_l${resolvedLeaderSlot}`;
+}
+
+function buildTelegramLeaderStartLink_(groupId, leaderSlot, fallbackUrl = "") {
+  const directUrl = String(fallbackUrl || "").trim();
+
+  if (directUrl) {
+    return directUrl;
+  }
+
+  const botUsername = String(state.telegramConfig?.botUsername || "").trim().replace(/^@/, "");
+  const payload = buildTelegramLeaderStartPayload_(groupId, leaderSlot);
+
+  if (!botUsername || !payload) {
+    return "";
+  }
+
+  return `https://t.me/${encodeURIComponent(botUsername)}?start=${encodeURIComponent(payload)}`;
 }
 
 function getTelegramLeaderStats_() {
