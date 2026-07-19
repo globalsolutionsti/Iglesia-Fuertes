@@ -6740,6 +6740,8 @@ function renderDashboardView() {
       ${!hasSeasonData ? `
         <div class="empty-state">Selecciona o crea una temporada para comenzar la consulta ejecutiva.</div>
       ` : `
+        ${renderDashboardReportCenter_()}
+
         <article class="detail-card dashboard-overview-card module-section-anchor" id="dashboard-overview">
           <div class="panel-head">
             <div>
@@ -7007,8 +7009,6 @@ function renderDashboardView() {
             <div class="empty-state">Selecciona un grupo para revisar el listado detallado de asistentes y su historial por sesion.</div>
           `}
         </article>
-
-        ${renderDashboardReportCenter_()}
 
         <article class="detail-card dashboard-visual-board-card module-section-anchor" id="dashboard-visual-board">
           <div class="panel-head">
