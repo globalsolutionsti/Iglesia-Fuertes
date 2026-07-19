@@ -306,6 +306,8 @@ const state = {
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
+    selectedScrapPersonId: "",
+    scrapPreview: null,
     loginMode: "admin",
     confirmation: null
   },
@@ -381,7 +383,8 @@ const state = {
     admin: {
       userSearch: "",
       groupSearch: "",
-      ministrySearch: ""
+      ministrySearch: "",
+      scrapSearch: ""
     }
   }
 };
@@ -4734,9 +4737,219 @@ function renderCatalogsView_() {
   `;
 }
 
+function getFilteredScrapCandidates_() {
+  const search = normalizeText(state.filters.admin.scrapSearch);
+  const rows = Array.isArray(state.peopleDirectory) ? state.peopleDirectory.slice() : [];
+
+  return rows
+    .filter((person) => {
+      const haystack = normalizeText([
+        person.id,
+        person.numero,
+        person.nombreCompleto || [person.nombre, person.apellidos].join(" "),
+        person.telefono,
+        person.email,
+        person.tipoPersona,
+        person.grupo
+      ].join(" "));
+
+      return !search || haystack.includes(search);
+    })
+    .sort((left, right) => {
+      const dateDiff = parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true);
+
+      if (dateDiff) {
+        return dateDiff;
+      }
+
+      return normalizeText(left.nombreCompleto || left.nombre || "").localeCompare(
+        normalizeText(right.nombreCompleto || right.nombre || "")
+      );
+    });
+}
+
+function getSelectedScrapCandidate_() {
+  const personId = String(state.ui.selectedScrapPersonId || "").trim();
+
+  if (!personId) {
+    return null;
+  }
+
+  return state.peopleDirectory.find((person) => String(person?.id || "").trim() === personId)
+    || getWelcomePersonById_(personId)
+    || null;
+}
+
+function buildScrapPreviewNotes_(preview, person, originView) {
+  const personName = preview?.personName || person?.nombreCompleto || person?.nombre || "Sin nombre";
+  const personId = preview?.personId || person?.id || "-";
+  const personNumber = preview?.personNumber || person?.numero || "Sin número";
+  const personType = preview?.personType || person?.tipoPersona || "";
+  const welcomeStatus = preview?.welcomeStatus || person?.estatusBienvenida || "";
+  const notes = [
+    personName,
+    `QR ${personId} | ${personNumber}`,
+    `Origen: ${VIEW_META[originView]?.title || originView || "Sistema"}`
+  ];
+
+  if (personType || welcomeStatus) {
+    notes.push(`Perfil: ${[getPersonTypeDisplayLabel_(personType), getWorkflowStatusLabel_(welcomeStatus)].filter(Boolean).join(" | ")}`);
+  }
+
+  if (preview?.footprint) {
+    notes.push(`Padrón base: ${preview.modules?.base || preview.footprint.people || 0}`);
+    notes.push(`Bienvenida: ${preview.modules?.welcome || 0} seguimiento(s)`);
+    notes.push(`Grupos de conexión: ${preview.modules?.groups || 0} registro(s)`);
+    notes.push(`Proceso de formación: ${preview.modules?.formation || 0} registro(s)`);
+    notes.push(`Huella total: ${preview.footprint.totalFootprint || 0} registro(s)`);
+  }
+
+  return notes;
+}
+
+function renderAdminScrapCenter_() {
+  const canDeleteScrap = canUseScrapDelete_();
+  const allMatches = getFilteredScrapCandidates_();
+  const visibleMatches = allMatches.slice(0, 8);
+  const hiddenMatches = Math.max(allMatches.length - visibleMatches.length, 0);
+  const selectedPerson = getSelectedScrapCandidate_();
+  const preview = selectedPerson && String(state.ui.scrapPreview?.personId || "") === String(selectedPerson.id || "")
+    ? state.ui.scrapPreview
+    : null;
+
+  if (!canDeleteScrap) {
+    return `
+      <article class="panel-card module-section-anchor" id="admin-scrap-center">
+        <div class="panel-head">
+          <div>
+            <h2>Centro seguro de eliminación scrap</h2>
+            <p>Esta herramienta existe para limpieza de demos y pruebas, pero solo aparece a un usuario ADMIN con el permiso activo.</p>
+          </div>
+          <span class="pill warning">Protegido</span>
+        </div>
+
+        <div class="empty-state">Tu usuario no tiene habilitado <strong>Eliminar scrap total</strong>. Si realmente estás en implementación, activa ese permiso solo de forma temporal y vuelve a entrar.</div>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="panel-card module-section-anchor" id="admin-scrap-center">
+      <div class="panel-head">
+        <div>
+          <h2>Centro seguro de eliminación scrap</h2>
+          <p>Usa esta herramienta solo para borrar ejemplos o registros de prueba. El proceso limpia Bienvenida, Grupos de Conexión, Formación y el padrón base.</p>
+        </div>
+        <span class="pill warning">Borrado total</span>
+      </div>
+
+      <div class="summary-strip scrap-guide-strip">
+        <span class="context-item"><strong>Paso 1:</strong> busca a la persona de prueba</span>
+        <span class="context-item"><strong>Paso 2:</strong> analiza la huella completa antes de borrar</span>
+        <span class="context-item"><strong>Paso 3:</strong> confirma solo si estás seguro de que no es un dato real</span>
+      </div>
+
+      <div class="view-grid columns-2 scrap-panel-grid">
+        <div class="summary-box">
+          <span class="status-chip neutral">Buscar persona</span>
+          <strong>${escapeHtml(allMatches.length ? `${allMatches.length} coincidencia(s)` : "Sin coincidencias")}</strong>
+          <span>Busca por nombre, QR, número interno o teléfono. El listado se limita a 8 resultados para evitar errores visuales.</span>
+
+          <div class="field" style="margin-top: 16px;">
+            <label for="admin-scrap-search">Búsqueda segura</label>
+            <input id="admin-scrap-search" value="${escapeHtml(state.filters.admin.scrapSearch)}" placeholder="Nombre, QR, número o teléfono">
+          </div>
+
+          <div class="results-list scrap-search-results">
+            ${visibleMatches.length ? visibleMatches.map((person) => `
+              <div class="result-card scrap-person-card ${String(selectedPerson?.id || "") === String(person.id || "") ? "is-selected" : ""}">
+                <div class="result-row">
+                  <div class="result-copy-stack">
+                    <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</strong>
+                    <span>${escapeHtml(person.id || "-")} | ${escapeHtml(person.numero || "Sin número")}</span>
+                    <span>${escapeHtml(getPersonTypeDisplayLabel_(person.tipoPersona || ""))} · ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+                  </div>
+                  <button class="btn btn-secondary" type="button" data-action="analyze-scrap-person" data-person-id="${escapeHtml(person.id || "")}">Analizar</button>
+                </div>
+              </div>
+            `).join("") : `
+              <div class="empty-state">${state.filters.admin.scrapSearch ? "No encontramos personas con esa búsqueda." : "Escribe una búsqueda para localizar el registro de prueba que deseas limpiar."}</div>
+            `}
+          </div>
+
+          ${hiddenMatches ? `<p class="footer-note">Hay ${escapeHtml(String(hiddenMatches))} resultado(s) adicionales. Ajusta la búsqueda para ubicar exactamente a la persona correcta.</p>` : ""}
+        </div>
+
+        <div class="summary-box">
+          <span class="status-chip ${preview ? "warning" : "neutral"}">Vista previa del impacto</span>
+          <strong>${escapeHtml(selectedPerson ? (selectedPerson.nombreCompleto || selectedPerson.nombre || "Persona seleccionada") : "Sin selección")}</strong>
+          <span>${selectedPerson ? "Confirma la huella completa que se eliminará antes de usar el borrado total." : "Selecciona primero a una persona y pulsa Analizar para revisar el impacto real del borrado."}</span>
+
+          ${selectedPerson ? `
+            <div class="summary-strip" style="margin-top: 16px;">
+              <span class="context-item"><strong>QR:</strong> ${escapeHtml(selectedPerson.id || "-")}</span>
+              <span class="context-item"><strong>Número:</strong> ${escapeHtml(selectedPerson.numero || "Sin número")}</span>
+              <span class="context-item"><strong>Tipo:</strong> ${escapeHtml(getPersonTypeDisplayLabel_(selectedPerson.tipoPersona || ""))}</span>
+              <span class="context-item"><strong>Ingreso:</strong> ${escapeHtml(formatDate(selectedPerson.fechaIngreso) || "Sin fecha")}</span>
+            </div>
+
+            ${preview ? `
+              <div class="summary-stack dashboard-summary-grid scrap-preview-grid">
+                <div class="summary-box">
+                  <span class="status-chip dark">Padrón base</span>
+                  <strong>${escapeHtml(String(preview.modules?.base || preview.footprint?.people || 0))}</strong>
+                  <span>Registro principal en la hoja base.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Bienvenida</span>
+                  <strong>${escapeHtml(String(preview.modules?.welcome || 0))}</strong>
+                  <span>Seguimientos y rastros pastorales.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Grupos de conexión</span>
+                  <strong>${escapeHtml(String(preview.modules?.groups || 0))}</strong>
+                  <span>Participantes y asistencias ligadas.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Formación</span>
+                  <strong>${escapeHtml(String(preview.modules?.formation || 0))}</strong>
+                  <span>Proceso, inscripciones, asistencias y cuenta.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip warning">Huella total</span>
+                  <strong>${escapeHtml(String(preview.footprint?.totalFootprint || 0))}</strong>
+                  <span>${escapeHtml(`${preview.seasonsCount || 0} temporada(s) y ${preview.groupsCount || 0} grupo(s) involucrados`)}</span>
+                </div>
+              </div>
+
+              <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-origin-view="admin-settings">Eliminar scrap total</button>
+                <button class="btn btn-ghost" type="button" data-action="clear-scrap-preview">Limpiar selección</button>
+              </div>
+            ` : `
+              <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-primary" type="button" data-action="analyze-scrap-person" data-person-id="${escapeHtml(selectedPerson.id || "")}">Analizar borrado</button>
+                <button class="btn btn-ghost" type="button" data-action="clear-scrap-preview">Limpiar selección</button>
+              </div>
+            `}
+          ` : `
+            <div class="empty-state" style="margin-top: 16px;">Todavía no hay una persona seleccionada para analizar.</div>
+          `}
+
+          <div class="scrap-danger-note">
+            <strong>Uso delicado en producción</strong>
+            <span>Nunca borres personas reales activas. Usa esta herramienta únicamente cuando estés limpiando ejemplos de implementación, demos o pruebas controladas.</span>
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
 function renderAdminSettingsView_() {
   const permissions = getUserPermissions_();
   const currentModule = getCurrentModule_();
+  const canDeleteScrap = canUseScrapDelete_();
   const usersSupport = state.adminUsersSupport;
   const telegramConfig = state.telegramConfig || {
     enabled: false,
@@ -4767,7 +4980,8 @@ function renderAdminSettingsView_() {
         ],
         actions: [
           { label: "Usuarios", variant: "primary", view: "admin-users" },
-          { label: "Probar API", variant: "secondary", action: "test-api-connection" }
+          { label: "Probar API", variant: "secondary", action: "test-api-connection" },
+          ...(canDeleteScrap ? [{ label: "Eliminar scrap", variant: "ghost", sectionId: "admin-scrap-center" }] : [])
         ]
       })}
 
@@ -4870,6 +5084,8 @@ function renderAdminSettingsView_() {
           `}
         </article>
       </div>
+
+      ${renderAdminScrapCenter_()}
 
       <article class="panel-card">
         <div class="panel-head">
@@ -10245,7 +10461,7 @@ function renderParticipantsView() {
                         </button>
                         <button class="btn btn-danger" data-action="deactivate-participant" data-participant-id="${escapeHtml(participant.id)}">Dar de baja</button>
                         ${canDeleteScrap ? `
-                          <button class="btn btn-danger" data-action="prompt-scrap-delete-season-person" data-person-id="${escapeHtml(participant.personId)}">Eliminar scrap</button>
+                          <button class="btn btn-danger" data-action="prompt-scrap-delete-season-person" data-person-id="${escapeHtml(participant.personId)}">Quitar solo de temporada</button>
                         ` : ""}
                       </div>
                     </td>
@@ -11891,13 +12107,12 @@ async function handleClick(event) {
       return;
     }
 
-    if (action === "prompt-scrap-delete-person") {
-      const personId = String(button.dataset.personId || "");
-      const originView = String(button.dataset.originView || state.currentView || "");
+    if (action === "analyze-scrap-person") {
+      const personId = String(button.dataset.personId || state.ui.selectedScrapPersonId || "");
       const person = state.peopleDirectory.find((item) => String(item.id || "") === personId) || getWelcomePersonById_(personId);
 
       if (!canUseScrapDelete_()) {
-        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap puede usar esta acción.", "warning");
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
         return;
       }
 
@@ -11906,18 +12121,56 @@ async function handleClick(event) {
         return;
       }
 
+      const preview = await loadScrapDeletePreview_(personId, {
+        force: true,
+        message: "Analizando impacto del borrado total..."
+      });
+      if (!preview) {
+        showToast("Vista previa no disponible", "La API publicada todavía no incluye la ruta scrap.previewPerson. Actualiza el backend y vuelve a publicar la Web App.", "warning");
+      }
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
+    if (action === "clear-scrap-preview") {
+      state.ui.selectedScrapPersonId = "";
+      state.ui.scrapPreview = null;
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
+    if (action === "prompt-scrap-delete-person") {
+      const personId = String(button.dataset.personId || "");
+      const originView = String(button.dataset.originView || state.currentView || "");
+      const person = state.peopleDirectory.find((item) => String(item.id || "") === personId) || getWelcomePersonById_(personId);
+      let preview = null;
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!personId || !person) {
+        showToast("Persona no disponible", "Recarga el módulo e intenta nuevamente.", "warning");
+        return;
+      }
+
+      preview = await loadScrapDeletePreview_(personId, {
+        message: "Preparando confirmación del borrado..."
+      });
+
       openSystemConfirmation_({
         kind: "scrap-delete-person",
-        title: "Eliminar scrap del sistema",
-        copy: "Se borrará por completo el congregante de prueba junto con su historial relacionado. Úsalo solo durante implementación.",
-        badge: "Eliminar scrap",
+        title: "Eliminar scrap total del sistema",
+        copy: preview
+          ? "Se borrará toda la huella detectada de la persona en padrón base, Bienvenida, Grupos de Conexión y Proceso de Formación. Revisa el impacto antes de confirmar."
+          : "Se borrará por completo el congregante de prueba junto con su historial relacionado. Úsalo solo durante implementación.",
+        badge: "Borrado total",
         confirmLabel: "Eliminar definitivo",
         tone: "danger",
-        notes: [
-          `${person.nombreCompleto || person.nombre || "Sin nombre"}`,
-          `QR ${person.id || "-"} | ${person.numero || "Sin número"}`,
-          `Origen: ${VIEW_META[originView]?.title || originView || "Sistema"}`
-        ],
+        notes: buildScrapPreviewNotes_(preview, person, originView),
         payload: {
           personId,
           originView
@@ -12369,7 +12622,7 @@ async function handleClick(event) {
       const seasonName = resolveSeasonName_(state.filters.participants.seasonId) || state.filters.participants.seasonId || "Temporada";
 
       if (!canUseScrapDelete_()) {
-        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap puede usar esta acción.", "warning");
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
         return;
       }
 
@@ -13464,6 +13717,12 @@ function handleInput(event) {
 
   if (target.id === "admin-ministry-search") {
     state.filters.admin.ministrySearch = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
+  if (target.id === "admin-scrap-search") {
+    state.filters.admin.scrapSearch = target.value;
     rerenderPreservingInput_(target);
     return;
   }
@@ -16323,6 +16582,52 @@ async function executeScrapDeleteSeasonPerson_(personId, seasonId) {
   renderApp();
 }
 
+async function loadScrapDeletePreview_(personId, options = {}) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    state.ui.selectedScrapPersonId = "";
+    state.ui.scrapPreview = null;
+    return null;
+  }
+
+  if (
+    !options.force &&
+    String(state.ui.selectedScrapPersonId || "") === cleanPersonId &&
+    String(state.ui.scrapPreview?.personId || "") === cleanPersonId
+  ) {
+    return state.ui.scrapPreview;
+  }
+
+  const task = async () => {
+    let preview = null;
+
+    try {
+      preview = await apiGet("scrap.previewPerson", {
+        personId: cleanPersonId
+      });
+    } catch (error) {
+      if (isUnknownActionError_(error, "scrap.previewPerson")) {
+        state.ui.selectedScrapPersonId = cleanPersonId;
+        state.ui.scrapPreview = null;
+        return null;
+      }
+
+      throw error;
+    }
+
+    state.ui.selectedScrapPersonId = cleanPersonId;
+    state.ui.scrapPreview = preview;
+    return preview;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Analizando impacto del borrado...");
+}
+
 function applyScrapDeletePersonLocally_(personId) {
   const cleanPersonId = String(personId || "").trim();
 
@@ -16336,6 +16641,15 @@ function applyScrapDeletePersonLocally_(personId) {
   state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((item) => String(item?.personId || "").trim() !== cleanPersonId);
   state.formationRecords = (Array.isArray(state.formationRecords) ? state.formationRecords : []).filter((item) => String(item?.personId || "").trim() !== cleanPersonId);
   state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((item) => String(item?.personId || "").trim() !== cleanPersonId);
+  state.formationProfilesByKey = {};
+  state.ui.scrapPreview = String(state.ui.scrapPreview?.personId || "") === cleanPersonId ? null : state.ui.scrapPreview;
+  state.ui.selectedScrapPersonId = String(state.ui.selectedScrapPersonId || "") === cleanPersonId ? "" : state.ui.selectedScrapPersonId;
+
+  if (String(state.ui.selectedFormationPersonId || "") === cleanPersonId) {
+    state.ui.selectedFormationPersonId = "";
+    state.formationProfile = null;
+  }
+
   state.metrics.peopleCount = state.people.length;
   state.metrics.directoryCount = state.peopleDirectory.length;
 }
@@ -16364,6 +16678,11 @@ async function executeScrapDeletePerson_(personId, originView) {
       state.ui.welcomeModal = null;
     }
 
+    if (String(state.ui.selectedScrapPersonId || "") === cleanPersonId) {
+      state.ui.selectedScrapPersonId = "";
+      state.ui.scrapPreview = null;
+    }
+
     const refreshResults = await Promise.allSettled([
       refreshPeopleSources_(),
       loadWelcomePeople_({
@@ -16374,6 +16693,18 @@ async function executeScrapDeletePerson_(personId, originView) {
         ? loadParticipantSeasonAssignments_({
           force: true,
           seasonId: state.filters.participants.seasonId,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      (state.loaded.formationRecords || state.loaded.formationCandidates)
+        ? loadFormationData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      (state.loaded.formationOfferings || state.loaded.formationEnrollments)
+        ? loadFormationOperationsData_({
+          force: true,
           showLoading: false
         })
         : Promise.resolve()
@@ -16395,11 +16726,26 @@ async function executeScrapDeletePerson_(personId, originView) {
         console.error("SCRAP participants reload warning", error);
       }
     }
+
+    if (state.currentView === "formation") {
+      try {
+        await ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        });
+        await ensureFormationOperationsViewData_({
+          force: true,
+          showLoading: false
+        });
+      } catch (error) {
+        console.error("SCRAP formation reload warning", error);
+      }
+    }
   }, "Eliminando registro scrap...");
 
   showToast(
     "Registro scrap eliminado",
-    `${response?.personName || "La persona"} fue borrada del padrón base y se limpiaron ${response?.deletedParticipants || 0} participante(s), ${response?.deletedAttendances || 0} asistencia(s), ${response?.deletedFollowups || 0} seguimiento(s) y ${response?.deletedFormationRecords || 0} registro(s) de formación.`,
+    `${response?.personName || "La persona"} fue borrada del padrón base y se limpiaron ${response?.deletedParticipants || 0} participante(s), ${response?.deletedAttendances || 0} asistencia(s), ${response?.deletedFollowups || 0} seguimiento(s), ${response?.deletedFormationRecords || 0} registro(s) de formación, ${response?.deletedFormationEnrollments || 0} inscripción(es), ${response?.deletedFormationLevelAttendances || 0} asistencia(s) por nivel y ${response?.deletedFormationAccounts || 0} cuenta(s) portal.`,
     "success"
   );
 
@@ -16407,6 +16753,11 @@ async function executeScrapDeletePerson_(personId, originView) {
 
   if (originView === "welcome-followup" || originView === "welcome-prospects" || originView === "congregants-new") {
     scrollToSection_("welcome-new-list");
+    return;
+  }
+
+  if (originView === "admin-settings") {
+    scrollToSection_("admin-scrap-center");
   }
 }
 
@@ -19661,7 +20012,7 @@ function getPermissionLabel_(permission) {
     formation: "Formación",
     "admin-settings": "Configuracion",
     "admin-users": "Usuarios",
-    "delete-scrap": "Eliminar scrap"
+    "delete-scrap": "Eliminar scrap total"
   };
 
   return labels[permission] || permission;
@@ -19681,7 +20032,7 @@ function getPermissionDescription_(permission) {
     formation: "Prospectos, validaciones, catálogo de niveles e historial formativo.",
     "admin-settings": "URL de API y conexion del sistema.",
     "admin-users": "Alta de usuarios, perfiles y permisos.",
-    "delete-scrap": "Permite borrar registros de prueba en Bienvenida, Congregantes y Grupos de Conexión. Solo debe activarse a ADMIN durante implementación."
+    "delete-scrap": "Permite abrir el centro seguro de borrado total para limpiar demos en Bienvenida, Grupos de Conexión, Formación y padrón base. Solo debe activarse a ADMIN durante implementación."
   };
 
   return descriptions[permission] || "Ficha operativa del sistema.";
@@ -20430,6 +20781,8 @@ function resetRuntimeState() {
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
+    selectedScrapPersonId: "",
+    scrapPreview: null,
     loginMode: "admin",
     confirmation: null
   };
@@ -20504,7 +20857,8 @@ function resetRuntimeState() {
   state.filters.admin = {
     userSearch: "",
     groupSearch: "",
-    ministrySearch: ""
+    ministrySearch: "",
+    scrapSearch: ""
   };
   initializeDateFilters_();
 
