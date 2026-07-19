@@ -1710,6 +1710,42 @@ function renderStudentPortalLoginView_() {
           <p>Tu camino de formacion, paso a paso.</p>
         </div>
 
+        <article class="student-portal-access-direct-card">
+          <div class="student-portal-access-direct-copy">
+            <strong>Ingresa al portal</strong>
+            <span>Accede con tu QR o usuario y tu PIN para revisar tu proceso de formacion.</span>
+          </div>
+
+          <form id="student-login-form-mobile" class="student-portal-auth-card student-portal-auth-card-mobile">
+            <div class="field">
+              <label for="student-login-username-mobile">QR / Usuario</label>
+              <input id="student-login-username-mobile" name="username" type="text" placeholder="Ingresa tu QR o usuario" required>
+            </div>
+
+            <div class="field">
+              <label for="student-login-password-mobile">PIN</label>
+              <input id="student-login-password-mobile" name="password" type="password" inputmode="numeric" placeholder="Ingresa tu PIN" required>
+            </div>
+
+            <div class="student-portal-auth-meta">
+              <label class="checkbox">
+                <input type="checkbox" name="remember">
+                <span>Recordarme</span>
+              </label>
+              <button class="btn btn-link student-portal-auth-link" type="button" data-action="student-portal-help">Olvidaste tu contrasena?</button>
+            </div>
+
+            <button class="btn btn-primary student-portal-auth-submit" type="submit">Ingresar al portal</button>
+
+            <p class="student-portal-auth-note">No tienes cuenta? <button class="btn btn-link student-portal-auth-link" type="button" data-action="student-portal-help">Consulta a tu lider</button></p>
+          </form>
+
+          <div class="student-portal-login-foot student-portal-login-foot-mobile">
+            <span class="student-portal-login-foot-icon">${renderStudentPortalIcon_("shield")}</span>
+            <span>Tus datos estan protegidos</span>
+          </div>
+        </article>
+
         <div class="student-portal-access-benefits">
           <article class="student-portal-access-benefit">
             <span class="student-portal-access-benefit-icon">${renderStudentPortalIcon_("growth")}</span>
@@ -13873,7 +13909,7 @@ async function handleSubmit(event) {
   event.preventDefault();
 
   try {
-    if (form.id === "student-login-form") {
+    if (form.id === "student-login-form" || form.id === "student-login-form-mobile") {
       const username = form.username.value.trim();
       const password = form.password.value;
 
