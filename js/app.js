@@ -308,6 +308,8 @@ const state = {
     formationFilterDraft: null,
     selectedScrapPersonId: "",
     scrapPreview: null,
+    studentPortalTab: "home",
+    studentPortalProfileTab: "summary",
     loginMode: "admin",
     confirmation: null
   },
@@ -1555,6 +1557,10 @@ async function syncRuntimeAfterRender_() {
 function renderLoginView() {
   const loginMode = state.ui.loginMode === "student" ? "student" : "admin";
 
+  if (loginMode === "student") {
+    return renderStudentPortalLoginView_();
+  }
+
   return `
     <div class="login-shell login-shell-modern">
       <section class="login-hero-card">
@@ -1685,6 +1691,105 @@ function renderLoginView() {
   `;
 }
 
+function renderStudentPortalLoginView_() {
+  return `
+    <div class="student-portal-access-shell">
+      <section class="student-portal-access-intro">
+        <div class="student-portal-access-top">
+          <div class="login-mode-switch login-mode-switch-modern student-portal-access-switch">
+            <button class="btn btn-ghost" data-action="set-login-mode" data-login-mode="admin">Administracion</button>
+            <button class="btn btn-primary" data-action="set-login-mode" data-login-mode="student">Asistente</button>
+          </div>
+        </div>
+
+        <img class="brand-logo student-portal-access-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+
+        <div class="student-portal-access-copy">
+          <span class="eyebrow">IGLESIA FUERTES V2</span>
+          <h1>PORTAL DEL ASISTENTE</h1>
+          <p>Tu camino de formacion, paso a paso.</p>
+        </div>
+
+        <div class="student-portal-access-benefits">
+          <article class="student-portal-access-benefit">
+            <span class="student-portal-access-benefit-icon">${renderStudentPortalIcon_("growth")}</span>
+            <strong>Tu crecimiento es importante</strong>
+          </article>
+          <article class="student-portal-access-benefit">
+            <span class="student-portal-access-benefit-icon">${renderStudentPortalIcon_("book")}</span>
+            <strong>Contenido de calidad</strong>
+          </article>
+          <article class="student-portal-access-benefit">
+            <span class="student-portal-access-benefit-icon">${renderStudentPortalIcon_("team")}</span>
+            <strong>Acompañamiento personal</strong>
+          </article>
+          <article class="student-portal-access-benefit">
+            <span class="student-portal-access-benefit-icon">${renderStudentPortalIcon_("target")}</span>
+            <strong>Proposito y transformacion</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="student-portal-device-stage">
+        <div class="student-portal-device student-portal-device-login">
+          <div class="student-portal-device-frame">
+            <div class="student-portal-device-notch"></div>
+
+            <div class="student-portal-device-screen">
+              <div class="student-portal-device-statusbar">
+                <span>9:41</span>
+                <div class="student-portal-device-status-icons">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+
+              <div class="student-portal-login-screen">
+                <div class="student-portal-login-hero">
+                  <img class="brand-logo student-portal-login-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+                  <span class="student-portal-login-divider">+</span>
+                  <h2>Tu proceso de formacion</h2>
+                  <p>Consulta tu avance, proximos pasos, materiales y asistencia en cada nivel de tu formacion.</p>
+                </div>
+
+                <form id="student-login-form" class="student-portal-auth-card">
+                  <div class="field">
+                    <label for="student-login-username">Correo electronico o QR</label>
+                    <input id="student-login-username" name="username" type="text" placeholder="Ingresa tu correo o tu QR" required>
+                  </div>
+
+                  <div class="field">
+                    <label for="student-login-password">Contrasena o PIN</label>
+                    <input id="student-login-password" name="password" type="password" placeholder="Ingresa tu contrasena o PIN" required>
+                  </div>
+
+                  <div class="student-portal-auth-meta">
+                    <label class="checkbox">
+                      <input type="checkbox" name="remember">
+                      <span>Recordarme</span>
+                    </label>
+                    <button class="btn btn-link student-portal-auth-link" type="button" data-action="student-portal-help">Olvidaste tu contrasena?</button>
+                  </div>
+
+                  <button class="btn btn-primary student-portal-auth-submit" type="submit">Ingresar al portal</button>
+
+                  <p class="student-portal-auth-note">No tienes cuenta? <button class="btn btn-link student-portal-auth-link" type="button" data-action="student-portal-help">Consulta a tu lider</button></p>
+                </form>
+
+                <div class="student-portal-login-foot">
+                  <span class="student-portal-login-foot-icon">${renderStudentPortalIcon_("shield")}</span>
+                  <span>Tus datos estan protegidos</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderStudentPortalView_() {
   const portal = state.studentPortal;
   const person = portal?.person || {};
@@ -1692,267 +1797,936 @@ function renderStudentPortalView_() {
   const nextLevel = portal?.nextLevel || null;
   const levels = Array.isArray(portal?.levels) ? portal.levels : [];
   const records = Array.isArray(portal?.records) ? portal.records : [];
-  const approvedLevels = Number(portal?.summary?.approvedLevels || 0);
-  const totalLevels = Number(portal?.summary?.totalLevels || levels.length || 0);
-  const progressPercent = totalLevels ? Math.round((approvedLevels / totalLevels) * 100) : 0;
   const currentRecord = getStudentPortalCurrentRecord_(portal, currentLevel);
   const supportUrl = getStudentPortalSupportUrl_(person, currentLevel, currentRecord);
   const payment = getStudentPortalPaymentSnapshot_(currentRecord);
+  const activeTab = state.ui.studentPortalTab || "home";
+  const profileTab = state.ui.studentPortalProfileTab || "summary";
   const attendance = currentLevel?.attendance || {
     attendedSessions: 0,
     capturedSessions: 0,
     totalSessions: 0,
     completed: false
   };
+  const approvedLevels = Number(portal?.summary?.approvedLevels || 0);
+  const totalLevels = Number(portal?.summary?.totalLevels || levels.length || 0);
+  const routePercent = totalLevels ? Math.round((approvedLevels / totalLevels) * 100) : 0;
+  const attendancePercent = getStudentPortalAttendancePercent_(attendance);
+  const progressPercent = getStudentPortalVisualProgress_(routePercent, attendancePercent, currentLevel);
   const examApproved = Boolean(currentLevel?.enrollment?.examApproved);
-  const currentStatus = String(currentLevel?.status || "").trim().toUpperCase();
-  const currentStatusLabel = getStudentPortalStatusLabel_(currentStatus || "BLOQUEADO");
-  const headlineCopy = getStudentPortalHeadlineCopy_(currentLevel, currentRecord, nextLevel);
-  const portalUsername = portal?.account?.username || state.user?.username || state.user?.personId || "-";
-  const accountLastAccess = portal?.account?.lastAccessAt
-    ? formatDateTime_(portal.account.lastAccessAt)
-    : "Sin acceso anterior";
+  const assistantName = person.nombreCompleto || state.user?.name || "Asistente";
+  const assistantFirstName = getStudentPortalShortName_(assistantName);
   const currentStageName = currentLevel?.levelName || portal?.summary?.currentLevelName || "Tu proceso";
   const nextStageName = nextLevel?.levelName || portal?.summary?.nextLevelName || "Por definir";
-  const materialCopy = [
-    currentLevel?.offering?.description,
-    currentLevel?.enrollment?.comments,
-    currentRecord?.notes,
-    currentRecord?.reason
-  ].find((item) => String(item || "").trim()) || "";
-  const helperCopy = materialCopy
-    ? "Estas son las indicaciones activas que hoy acompañan tu proceso."
-    : "Tu líder podrá cargar aquí materiales, indicaciones y notas prácticas conforme avances.";
-  const levelDescription = materialCopy || `Sigue pendiente de ${currentStageName}. Tu siguiente paso y tus materiales aparecerán aquí conforme tu nivel avance.`;
-  const statusBadge = renderStudentPortalStatusPill_(currentStatus || "BLOQUEADO");
-  const progressStyle = `--student-progress:${Math.max(0, Math.min(progressPercent, 100))};`;
-  const supportButton = supportUrl
-    ? `<a class="btn btn-primary" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">WhatsApp de apoyo</a>`
-    : `<button class="btn btn-secondary" type="button" disabled>Soporte pendiente</button>`;
-  const coordinatorButton = String(currentRecord?.coordinatorWhatsappUrl || "").trim()
-    ? `<a class="btn btn-ghost" href="${escapeHtml(currentRecord.coordinatorWhatsappUrl)}" target="_blank" rel="noreferrer">Coordinación</a>`
-    : "";
+  const portalUsername = portal?.account?.username || state.user?.username || state.user?.personId || "-";
+  const leaderName = currentLevel?.offering?.leaderName || currentRecord?.leaderName || "Lider pendiente";
+  const leaderPhone = currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone || "";
+  const levelDescription = getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, currentStageName);
+  const materials = buildStudentPortalMaterials_(portal, currentLevel, currentRecord);
+  const sessionItems = buildStudentPortalSessionTimeline_(currentLevel, attendance);
+  const nextSession = getStudentPortalNextSession_(currentLevel, sessionItems, attendance);
+  const profileMessage = currentLevel?.status === "ACREDITADO"
+    ? `Bien hecho, ${assistantFirstName}`
+    : `Vamos bien, ${assistantFirstName}`;
+  const portalContext = {
+    portal,
+    person,
+    currentLevel,
+    nextLevel,
+    levels,
+    records,
+    currentRecord,
+    supportUrl,
+    payment,
+    activeTab,
+    profileTab,
+    attendance,
+    attendancePercent,
+    routePercent,
+    progressPercent,
+    examApproved,
+    assistantName,
+    assistantFirstName,
+    currentStageName,
+    nextStageName,
+    portalUsername,
+    leaderName,
+    leaderPhone,
+    levelDescription,
+    materials,
+    sessionItems,
+    nextSession,
+    profileMessage
+  };
+
+  let screenContent = `
+    <section class="student-portal-loading-card">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <strong>Cargando tu formacion...</strong>
+      <span>En unos segundos veras tus niveles y tu avance.</span>
+    </section>
+  `;
+
+  if (portal) {
+    if (activeTab === "path") {
+      screenContent = renderStudentPortalPathScreen_(portalContext);
+    } else if (activeTab === "materials") {
+      screenContent = renderStudentPortalMaterialsScreen_(portalContext);
+    } else if (activeTab === "profile") {
+      screenContent = renderStudentPortalProfileScreen_(portalContext);
+    } else {
+      screenContent = renderStudentPortalHomeScreen_(portalContext);
+    }
+  }
 
   return `
-    <div class="student-portal-shell">
-      <section class="student-portal-panel">
-        <header class="student-portal-head">
-          <div class="student-portal-brand">
-            <img class="brand-logo student-portal-logo" src="assets/logo-fuertes.png" alt="Fuertes">
-            <div>
-              <span class="eyebrow">Portal del asistente</span>
-              <h1 class="student-portal-title">Mi formación</h1>
-              <p class="student-portal-copy">Consulta tu avance real, tus niveles desbloqueados, tu asistencia, evaluación y el siguiente paso dentro de tu proceso formativo.</p>
+    <div class="student-portal-shell student-portal-shell-app">
+      <section class="student-portal-stage">
+        <div class="student-portal-stage-copy">
+          <img class="brand-logo student-portal-stage-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+          <div>
+            <span class="eyebrow">Portal del asistente</span>
+            <h1>Tu proceso de formacion</h1>
+            <p>Una experiencia tipo app para seguir tu avance, ver materiales, revisar tu asistencia y consultar lo que sigue dentro de tu ruta.</p>
+          </div>
+        </div>
+
+        <div class="student-portal-device student-portal-device-app">
+          <div class="student-portal-device-frame">
+            <div class="student-portal-device-notch"></div>
+
+            <div class="student-portal-device-screen">
+              <div class="student-portal-device-statusbar">
+                <span>9:41</span>
+                <div class="student-portal-device-status-icons">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+
+              ${renderStudentPortalTopBar_(portalContext)}
+
+              <main class="student-portal-device-content">
+                ${screenContent}
+              </main>
+
+              ${renderStudentPortalBottomNav_(activeTab)}
             </div>
           </div>
-          <div class="actions-row student-portal-head-actions">
-            <span class="status-chip neutral">${escapeHtml(person.nombreCompleto || state.user?.name || "Asistente")}</span>
-            <span class="status-chip dark">Usuario ${escapeHtml(portalUsername)}</span>
-            <button class="btn btn-ghost" data-action="refresh-student-portal">Actualizar</button>
-            <button class="btn btn-primary" data-action="logout">Salir</button>
-          </div>
-        </header>
-
-        ${portal ? `
-          <section class="student-stage-grid">
-            <article class="student-stage-hero">
-              <div class="student-stage-copy">
-                <span class="eyebrow">Etapa actual</span>
-                <h2>${escapeHtml(currentStageName)}</h2>
-                <p>${escapeHtml(headlineCopy)}</p>
-              </div>
-
-              <div class="student-stage-meta">
-                ${statusBadge}
-                ${currentRecord?.groupName ? `<span class="pill neutral">Grupo ${escapeHtml(currentRecord.groupName)}</span>` : ""}
-                ${person.numero ? `<span class="pill neutral">${escapeHtml(person.numero)}</span>` : ""}
-                ${person.id ? `<span class="pill neutral">QR ${escapeHtml(person.id)}</span>` : ""}
-              </div>
-
-              <div class="student-stage-progress-block">
-                <div class="student-stage-progress-head">
-                  <strong>Asistencia del nivel</strong>
-                  <span>${escapeHtml(`${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} sesiones`)}</span>
-                </div>
-                ${renderStudentPortalProgressBar_(attendance)}
-                <div class="student-stage-progress-foot">
-                  <span>${escapeHtml(attendance.completed ? "Cumpliste con todas tus asistencias." : "Sigue asistiendo a cada sesión programada.")}</span>
-                  <span>${escapeHtml(examApproved ? "Examen acreditado" : "Evaluación pendiente o en revisión")}</span>
-                </div>
-              </div>
-
-              <div class="actions-row student-stage-actions">
-                ${supportButton}
-                ${coordinatorButton}
-              </div>
-            </article>
-
-            <aside class="student-account-card">
-              <div class="student-progress-ring" style="${escapeHtml(progressStyle)}">
-                <div class="student-progress-ring-inner">
-                  <strong>${escapeHtml(String(progressPercent))}%</strong>
-                  <span>avance total</span>
-                </div>
-              </div>
-
-              <div class="student-account-copy">
-                <span class="eyebrow">Tu cuenta</span>
-                <strong>${escapeHtml(portalUsername)}</strong>
-                <span>${escapeHtml(accountLastAccess)}</span>
-              </div>
-
-              <div class="student-account-stack">
-                <div class="student-account-item">
-                  <span>Siguiente paso</span>
-                  <strong>${escapeHtml(nextStageName)}</strong>
-                </div>
-                <div class="student-account-item">
-                  <span>Ruta acreditada</span>
-                  <strong>${escapeHtml(`${approvedLevels}/${totalLevels || 0} niveles`)}</strong>
-                </div>
-                <div class="student-account-item">
-                  <span>Estado actual</span>
-                  <strong>${escapeHtml(currentStatusLabel)}</strong>
-                </div>
-              </div>
-            </aside>
-          </section>
-
-          <section class="student-kpi-grid">
-            ${renderStudentPortalStatCard_({
-              tone: "dark",
-              eyebrow: "Tu acceso",
-              value: person.nombreCompleto || state.user?.name || "-",
-              copy: `${person.numero || "-"} • QR ${person.id || state.user?.personId || "-"}`.replace(/^-\s•\s/, "").replace(/\s•\s-$/, "")
-            })}
-            ${renderStudentPortalStatCard_({
-              tone: "gold",
-              eyebrow: "Lider del nivel",
-              value: currentLevel?.offering?.leaderName || currentRecord?.leaderName || "Pendiente de asignar",
-              copy: currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone || "Sin telefono registrado"
-            })}
-            ${renderStudentPortalStatCard_({
-              tone: payment.kind,
-              eyebrow: "Pago del proceso",
-              value: payment.title,
-              copy: payment.copy
-            })}
-            ${renderStudentPortalStatCard_({
-              tone: examApproved ? "green" : "slate",
-              eyebrow: "Evaluacion",
-              value: currentLevel?.enrollment?.examScore || "Pendiente",
-              copy: examApproved ? "Tu examen ya quedo acreditado." : "Tu examen o validacion sigue en proceso."
-            })}
-          </section>
-
-          <section class="student-current-level-card">
-            <div class="panel-head">
-              <div>
-                <h2>Resumen de tu nivel actual</h2>
-                <p>${escapeHtml(helperCopy)}</p>
-              </div>
-              ${nextLevel ? `<span class="pill dark">Sigue ${escapeHtml(nextLevel.levelName)}</span>` : `<span class="pill success">Ruta al dia</span>`}
-            </div>
-
-            <div class="student-detail-grid">
-              <article class="student-detail-block">
-                <span class="status-chip neutral">Curso programado</span>
-                <strong>${escapeHtml(currentLevel?.offering?.name || "Asignacion pendiente")}</strong>
-                <span>${escapeHtml(levelDescription)}</span>
-              </article>
-              <article class="student-detail-block">
-                <span class="status-chip neutral">Fechas clave</span>
-                <strong>${escapeHtml(formatDate(currentLevel?.offering?.startDate || currentLevel?.enrollment?.startDate || "") || "Sin fecha definida")}</strong>
-                <span>${escapeHtml(currentLevel?.offering?.endDate ? `Finaliza ${formatDate(currentLevel.offering.endDate)}` : "Fecha final pendiente")}</span>
-              </article>
-              <article class="student-detail-block">
-                <span class="status-chip neutral">Observacion pastoral</span>
-                <strong>${escapeHtml(currentRecord?.result || currentRecord?.reason || currentLevel?.enrollment?.comments || "Sin observaciones registradas")}</strong>
-                <span>${escapeHtml(currentRecord?.reviewedBy ? `Revisado por ${currentRecord.reviewedBy}` : "Tu avance sera actualizado por el lider o coordinador.")}</span>
-              </article>
-              <article class="student-detail-block">
-                <span class="status-chip neutral">Siguiente desbloqueo</span>
-                <strong>${escapeHtml(nextStageName)}</strong>
-                <span>${escapeHtml(nextLevel ? `Se liberara cuando acredites ${currentStageName}.` : "Tu ruta quedara al dia cuando este nivel concluya correctamente.")}</span>
-              </article>
-            </div>
-          </section>
-
-          <section class="student-levels-section">
-            <div class="panel-head">
-              <div>
-                <h2>Ruta completa de formacion</h2>
-                <p>Los niveles se desbloquean cuando completas asistencia y acreditas el nivel anterior. Aqui ves toda tu ruta de forma simple y clara.</p>
-              </div>
-              ${nextLevel ? `<span class="pill warning">Siguiente nivel: ${escapeHtml(nextLevel.levelName)}</span>` : `<span class="pill success">Ruta actualizada</span>`}
-            </div>
-
-            <div class="student-level-grid">
-              ${levels.map((level) => renderStudentPortalLevelCard_(level, {
-                currentLevelId: currentLevel?.levelId || "",
-                nextLevelId: nextLevel?.levelId || ""
-              })).join("")}
-            </div>
-          </section>
-
-          <section class="student-portal-bottom-grid">
-            <section class="student-history-section">
-              <div class="panel-head">
-                <div>
-                  <h2>Historial de tu proceso</h2>
-                  <p>Este historial explica como has ido avanzando desde tu ingreso al proceso de formacion.</p>
-                </div>
-              </div>
-
-              <div class="student-history-stack">
-                ${records.length ? records.map((record, index) => renderStudentPortalRecordCard_(record, index)).join("") : `
-                  <div class="empty-state">Todavia no hay movimientos formativos registrados en tu historial.</div>
-                `}
-              </div>
-            </section>
-
-            <section class="student-history-section student-support-section">
-              <div class="panel-head">
-                <div>
-                  <h2>Apoyo y materiales</h2>
-                  <p>Todo lo que el asistente necesita ver de un vistazo: ayuda, indicaciones y estado actual del proceso.</p>
-                </div>
-              </div>
-
-              <div class="student-support-stack">
-                <article class="student-support-card">
-                  <span class="status-chip neutral">Indicaciones del nivel</span>
-                  <strong>${escapeHtml(currentStageName)}</strong>
-                  <p>${escapeHtml(levelDescription)}</p>
-                </article>
-                <article class="student-support-card">
-                  <span class="status-chip neutral">Tu siguiente paso</span>
-                  <strong>${escapeHtml(nextStageName)}</strong>
-                  <p>${escapeHtml(nextLevel ? `Cuando acredites ${currentStageName}, el sistema liberara automaticamente ${nextStageName}.` : "Tu lider te notificara cuando exista un nuevo nivel disponible para continuar.")}</p>
-                </article>
-                <article class="student-support-card">
-                  <span class="status-chip neutral">Contacto formativo</span>
-                  <strong>${escapeHtml(currentLevel?.offering?.leaderName || currentRecord?.leaderName || "Lider pendiente")}</strong>
-                  <p>${escapeHtml(currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone || "Sin telefono disponible por el momento.")}</p>
-                  <div class="actions-row">
-                    ${supportButton}
-                  </div>
-                </article>
-              </div>
-            </section>
-          </section>
-        ` : `
-          <section class="student-current-level-card">
-            <div class="formation-profile-loading">
-              <span class="loading-spinner" aria-hidden="true"></span>
-              <strong>Cargando tu formación...</strong>
-              <span>En unos segundos verás tus niveles y tu avance.</span>
-            </div>
-          </section>
-        `}
+        </div>
       </section>
     </div>
   `;
+}
+
+function renderStudentPortalTopBar_(context) {
+  const activeTab = context?.activeTab || "home";
+  const showBack = activeTab !== "home";
+
+  return `
+    <header class="student-portal-topbar">
+      ${showBack ? `
+        <button class="student-portal-topbar-icon" type="button" data-action="set-student-portal-tab" data-tab="home" aria-label="Volver a inicio">
+          ${renderStudentPortalIcon_("back")}
+        </button>
+      ` : `
+        <span class="student-portal-topbar-icon is-static" aria-hidden="true">
+          ${renderStudentPortalIcon_("menu")}
+        </span>
+      `}
+
+      <img class="brand-logo student-portal-topbar-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+
+      <button class="student-portal-topbar-icon" type="button" data-action="refresh-student-portal" aria-label="Actualizar portal">
+        ${renderStudentPortalIcon_("bell")}
+      </button>
+    </header>
+  `;
+}
+
+function renderStudentPortalBottomNav_(activeTab) {
+  const items = [
+    { id: "home", label: "Inicio", icon: "home" },
+    { id: "path", label: "Mi camino", icon: "path" },
+    { id: "materials", label: "Materiales", icon: "materials" },
+    { id: "profile", label: "Perfil", icon: "profile" }
+  ];
+
+  return `
+    <nav class="student-portal-bottom-nav" aria-label="Navegacion del portal del asistente">
+      ${items.map((item) => `
+        <button
+          class="student-portal-bottom-nav-item ${activeTab === item.id ? "is-active" : ""}"
+          type="button"
+          data-action="set-student-portal-tab"
+          data-tab="${escapeHtml(item.id)}"
+        >
+          <span class="student-portal-bottom-nav-icon">${renderStudentPortalIcon_(item.icon)}</span>
+          <span>${escapeHtml(item.label)}</span>
+        </button>
+      `).join("")}
+    </nav>
+  `;
+}
+
+function renderStudentPortalHomeScreen_(context) {
+  const {
+    assistantFirstName,
+    currentLevel,
+    currentStageName,
+    attendance,
+    attendancePercent,
+    leaderName,
+    payment,
+    nextSession,
+    levels,
+    supportUrl
+  } = context;
+  const currentStatus = String(currentLevel?.status || "BLOQUEADO").trim().toUpperCase();
+
+  return `
+    <section class="student-portal-screen student-portal-screen-home">
+      <div class="student-portal-greeting">
+        <h2>Hola, ${escapeHtml(assistantFirstName)}!</h2>
+        <p>Vamos juntos en tu proceso de formacion.</p>
+      </div>
+
+      <article class="student-portal-home-card student-portal-stage-card">
+        <div class="student-portal-stage-card-head">
+          <div>
+            <span class="status-chip warning">Etapa actual</span>
+            <h3>${escapeHtml(currentStageName)}</h3>
+          </div>
+          ${renderStudentPortalCompactStatusBadge_(currentStatus)}
+        </div>
+
+        <div class="student-portal-stage-card-meta">
+          <span>${renderStudentPortalIcon_("calendar")} Inicio: ${escapeHtml(formatDate(currentLevel?.offering?.startDate || currentLevel?.enrollment?.startDate || "") || "Por confirmar")}</span>
+          <span>${renderStudentPortalIcon_("leader")} Lider: ${escapeHtml(leaderName)}</span>
+          <span>${renderStudentPortalIcon_("wallet")} Pago: ${escapeHtml(payment.title)}</span>
+        </div>
+
+        <div class="student-portal-stage-progress">
+          <div class="student-portal-stage-progress-head">
+            <strong>Asistencia</strong>
+            <span>${escapeHtml(`${attendance.attendedSessions || 0} de ${attendance.totalSessions || 0} sesiones`)}</span>
+          </div>
+          ${renderStudentPortalProgressBar_(attendance)}
+          <div class="student-portal-stage-progress-foot">
+            <span>${escapeHtml(`${attendancePercent}%`)}</span>
+            <span>${escapeHtml(attendance.completed ? "Completado" : "En curso")}</span>
+          </div>
+        </div>
+
+        <button class="student-portal-next-session" type="button" data-action="set-student-portal-tab" data-tab="profile">
+          <div class="student-portal-next-session-copy">
+            <span class="status-chip neutral">${escapeHtml(nextSession.eyebrow)}</span>
+            <strong>${escapeHtml(nextSession.title)}</strong>
+            <span>${escapeHtml(nextSession.copy)}</span>
+          </div>
+          <span class="student-portal-next-session-icon">${renderStudentPortalIcon_("arrow-right")}</span>
+        </button>
+      </article>
+
+      <section class="student-portal-card-list">
+        <div class="student-portal-section-head">
+          <div>
+            <h3>Tu camino de formacion</h3>
+            <p>Ve claramente lo que ya cursaste, lo que sigue y lo que aun esta bloqueado.</p>
+          </div>
+        </div>
+
+        <div class="student-portal-level-preview-list">
+          ${levels.map((level) => renderStudentPortalCompactLevelRow_(level, {
+            currentLevelId: currentLevel?.levelId || "",
+            nextLevelId: context.nextLevel?.levelId || ""
+          })).join("")}
+        </div>
+      </section>
+
+      ${supportUrl ? `
+        <a class="student-portal-primary-action" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">
+          ${renderStudentPortalIcon_("whatsapp")}
+          <span>Soporte por WhatsApp</span>
+        </a>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderStudentPortalPathScreen_(context) {
+  const { currentLevel, nextLevel, levels } = context;
+
+  return `
+    <section class="student-portal-screen student-portal-screen-path">
+      <div class="student-portal-section-head">
+        <div>
+          <h2>Mi camino de formacion</h2>
+          <p>Avanza nivel por nivel y sigue creciendo.</p>
+        </div>
+      </div>
+
+      <div class="student-portal-journey-stack">
+        ${levels.map((level, index) => renderStudentPortalJourneyCard_(level, {
+          index,
+          total: levels.length,
+          currentLevelId: currentLevel?.levelId || "",
+          nextLevelId: nextLevel?.levelId || ""
+        })).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderStudentPortalMaterialsScreen_(context) {
+  const { currentStageName, levelDescription, materials, supportUrl, leaderName, leaderPhone } = context;
+
+  return `
+    <section class="student-portal-screen student-portal-screen-materials">
+      <div class="student-portal-section-head">
+        <div>
+          <h2>Materiales del nivel</h2>
+          <p>Todo lo que necesitas consultar para avanzar correctamente en tu proceso.</p>
+        </div>
+      </div>
+
+      <article class="student-portal-material-hero">
+        <span class="status-chip warning">Etapa activa</span>
+        <strong>${escapeHtml(currentStageName)}</strong>
+        <p>${escapeHtml(levelDescription)}</p>
+      </article>
+
+      <section class="student-portal-material-list">
+        ${materials.map((item, index) => renderStudentPortalMaterialItem_(item, index)).join("")}
+      </section>
+
+      <article class="student-portal-leader-card">
+        <div class="student-portal-leader-avatar">${escapeHtml(getStudentPortalLeaderInitials_(leaderName))}</div>
+        <div class="student-portal-leader-copy">
+          <span class="status-chip neutral">Lider del nivel</span>
+          <strong>${escapeHtml(leaderName)}</strong>
+          <span>${escapeHtml(leaderPhone || "Telefono pendiente")}</span>
+        </div>
+      </article>
+
+      ${supportUrl ? `
+        <a class="student-portal-primary-action" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">
+          ${renderStudentPortalIcon_("whatsapp")}
+          <span>Hablar con mi lider</span>
+        </a>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderStudentPortalProfileScreen_(context) {
+  const profileTab = context.profileTab || "summary";
+  const progressStyle = `--student-progress:${Math.max(0, Math.min(context.progressPercent || 0, 100))};`;
+  let tabContent = renderStudentPortalProfileSummaryTab_(context);
+
+  if (profileTab === "attendance") {
+    tabContent = renderStudentPortalProfileAttendanceTab_(context);
+  } else if (profileTab === "exams") {
+    tabContent = renderStudentPortalProfileExamsTab_(context);
+  }
+
+  return `
+    <section class="student-portal-screen student-portal-screen-profile">
+      <article class="student-portal-profile-hero-card">
+        <div class="student-progress-ring student-progress-ring-light" style="${escapeHtml(progressStyle)}">
+          <div class="student-progress-ring-inner student-progress-ring-inner-light">
+            <strong>${escapeHtml(String(context.progressPercent || 0))}%</strong>
+          </div>
+        </div>
+
+        <div class="student-portal-profile-hero-copy">
+          <span>Mi progreso general</span>
+          <strong>${escapeHtml(context.profileMessage)}</strong>
+          <p>${escapeHtml(context.currentLevel?.status === "ACREDITADO" ? "Tu siguiente nivel ya puede prepararse contigo." : "Sigue asi, vas por buen camino.")}</p>
+        </div>
+      </article>
+
+      <div class="student-portal-profile-tabs">
+        ${renderStudentPortalProfileTabButton_("summary", "Resumen", profileTab)}
+        ${renderStudentPortalProfileTabButton_("attendance", "Asistencia", profileTab)}
+        ${renderStudentPortalProfileTabButton_("exams", "Examenes", profileTab)}
+      </div>
+
+      ${tabContent}
+    </section>
+  `;
+}
+
+function renderStudentPortalProfileSummaryTab_(context) {
+  const { currentLevel, currentStageName, attendance, examApproved, leaderName, leaderPhone, supportUrl, materials, nextLevel } = context;
+  const examScore = currentLevel?.enrollment?.examScore || "Pendiente";
+
+  return `
+    <div class="student-portal-profile-stack">
+      <article class="student-portal-profile-stage-card">
+        <div class="student-portal-profile-stage-head">
+          <div class="student-portal-profile-stage-icon">${renderStudentPortalIcon_("materials")}</div>
+          <div class="student-portal-profile-stage-copy">
+            <span>Etapa actual</span>
+            <strong>${escapeHtml(currentStageName)}</strong>
+            <small>${escapeHtml(getStudentPortalCompletionCopy_(currentLevel))}</small>
+          </div>
+          ${renderStudentPortalCompactStatusBadge_(currentLevel?.status || "BLOQUEADO")}
+        </div>
+
+        <div class="student-portal-profile-metrics">
+          ${renderStudentPortalMiniMetric_("Asistencia", `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0}`, attendance.totalSessions ? `${getStudentPortalAttendancePercent_(attendance)}%` : "Sin sesiones", attendance.completed ? "success" : "neutral")}
+          ${renderStudentPortalMiniMetric_("Examen", escapeHtml(String(examScore)), examApproved ? "Aprobado" : "Pendiente", examApproved ? "success" : "warning")}
+          ${renderStudentPortalMiniMetric_("Calificacion final", examApproved ? "Aprobado" : "En proceso", examApproved ? "Listo" : "Sin cierre", examApproved ? "success" : "slate")}
+        </div>
+      </article>
+
+      <article class="student-portal-leader-card">
+        <div class="student-portal-leader-avatar">${escapeHtml(getStudentPortalLeaderInitials_(leaderName))}</div>
+        <div class="student-portal-leader-copy">
+          <span class="status-chip neutral">Lider del nivel</span>
+          <strong>${escapeHtml(leaderName)}</strong>
+          <span>${escapeHtml(leaderPhone || "Telefono pendiente")}</span>
+        </div>
+        ${supportUrl ? `
+          <a class="student-portal-circle-action" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer" aria-label="Contactar por WhatsApp">
+            ${renderStudentPortalIcon_("whatsapp")}
+          </a>
+        ` : ""}
+      </article>
+
+      <article class="student-portal-profile-material-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h3>Materiales del nivel</h3>
+            <p>Contenido visible para el asistente.</p>
+          </div>
+        </div>
+
+        ${materials.length ? `
+          <div class="student-portal-material-inline-list">
+            ${materials.slice(0, 2).map((item, index) => renderStudentPortalMaterialItem_(item, index, true)).join("")}
+          </div>
+        ` : `<div class="empty-state">Todavia no hay materiales publicados para este nivel.</div>`}
+
+        <button class="student-portal-inline-link" type="button" data-action="set-student-portal-tab" data-tab="materials">
+          Ver todos los materiales (${escapeHtml(String(materials.length))})
+        </button>
+      </article>
+
+      <article class="student-portal-alert-card">
+        <span class="student-portal-alert-icon">${renderStudentPortalIcon_("target")}</span>
+        <div>
+          <strong>${escapeHtml(nextLevel ? `${nextLevel.levelName} disponible` : "Sigue avanzando")}</strong>
+          <p>${escapeHtml(nextLevel ? `Inicia cuando tu lider te lo indique.` : "Tu siguiente paso aparecera aqui cuando el equipo lo habilite.")}</p>
+        </div>
+      </article>
+
+      ${supportUrl ? `
+        <a class="student-portal-primary-action" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">
+          ${renderStudentPortalIcon_("whatsapp")}
+          <span>Soporte por WhatsApp</span>
+        </a>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderStudentPortalProfileAttendanceTab_(context) {
+  const { currentStageName, attendance, sessionItems } = context;
+
+  return `
+    <div class="student-portal-profile-stack">
+      <article class="student-portal-profile-stage-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h3>Asistencia del nivel</h3>
+            <p>${escapeHtml(currentStageName)}</p>
+          </div>
+          <span class="pill dark">${escapeHtml(`${attendance.attendedSessions || 0}/${attendance.totalSessions || 0}`)}</span>
+        </div>
+
+        ${renderStudentPortalProgressBar_(attendance)}
+
+        <div class="student-portal-session-grid">
+          ${sessionItems.map((item) => `
+            <article class="student-portal-session-card status-${escapeHtml(String(item.status || "PENDIENTE").toLowerCase())}">
+              <strong>S${escapeHtml(String(item.sessionNumber))}</strong>
+              <span>${escapeHtml(item.label)}</span>
+              <small>${escapeHtml(item.copy)}</small>
+            </article>
+          `).join("")}
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function renderStudentPortalProfileExamsTab_(context) {
+  const { currentLevel, currentRecord } = context;
+  const examScore = String(currentLevel?.enrollment?.examScore || "").trim();
+  const evaluatedAt = formatDate(currentLevel?.enrollment?.evaluatedAt || "") || "Pendiente";
+  const evaluatedBy = currentLevel?.enrollment?.evaluatedBy || currentRecord?.reviewedBy || "Equipo formativo";
+  const comments = currentLevel?.enrollment?.comments || currentRecord?.result || currentRecord?.notes || "Todavia no hay observaciones publicadas.";
+
+  return `
+    <div class="student-portal-profile-stack">
+      <article class="student-portal-profile-stage-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h3>Evaluacion del nivel</h3>
+            <p>Resultado visible para el asistente.</p>
+          </div>
+          ${renderStudentPortalCompactStatusBadge_(currentLevel?.enrollment?.examApproved ? "ACREDITADO" : "EN_CURSO")}
+        </div>
+
+        <div class="student-portal-exam-grid">
+          ${renderStudentPortalMiniMetric_("Calificacion", examScore || "Pendiente", currentLevel?.enrollment?.examApproved ? "Aprobado" : "En revision", currentLevel?.enrollment?.examApproved ? "success" : "warning")}
+          ${renderStudentPortalMiniMetric_("Revision", evaluatedAt, `Por ${evaluatedBy}`, "neutral")}
+        </div>
+
+        <article class="student-portal-note-card">
+          <span class="status-chip neutral">Comentarios</span>
+          <p>${escapeHtml(comments)}</p>
+        </article>
+      </article>
+    </div>
+  `;
+}
+
+function renderStudentPortalCompactLevelRow_(level, options = {}) {
+  const currentLevelId = String(options.currentLevelId || "");
+  const nextLevelId = String(options.nextLevelId || "");
+  const levelId = String(level?.levelId || "");
+  const status = String(level?.status || "").trim().toUpperCase();
+  const isCurrent = currentLevelId && currentLevelId === levelId;
+  const isNext = nextLevelId && nextLevelId === levelId;
+  const iconName = status === "ACREDITADO" ? "check" : (status === "BLOQUEADO" ? "lock" : "path");
+  const description = isCurrent
+    ? "En curso"
+    : isNext
+      ? "Siguiente paso"
+      : getStudentPortalCompactStatusLabel_(status);
+
+  return `
+    <button class="student-portal-level-preview ${isCurrent ? "is-current" : ""}" type="button" data-action="set-student-portal-tab" data-tab="${escapeHtml(isCurrent || isNext ? "profile" : "path")}">
+      <span class="student-portal-level-preview-icon">${renderStudentPortalIcon_(iconName)}</span>
+      <span class="student-portal-level-preview-copy">
+        <strong>${escapeHtml(level?.levelName || "Nivel")}</strong>
+        <small>${escapeHtml(description)}</small>
+      </span>
+      <span class="student-portal-level-preview-lock">${status === "BLOQUEADO" ? renderStudentPortalIcon_("lock") : renderStudentPortalIcon_("arrow-right")}</span>
+    </button>
+  `;
+}
+
+function renderStudentPortalJourneyCard_(level, options = {}) {
+  const status = String(level?.status || "").trim().toUpperCase();
+  const attendance = level?.attendance || {
+    attendedSessions: 0,
+    totalSessions: 0
+  };
+  const isLast = Number(options.index || 0) === Number(options.total || 0) - 1;
+  const isCurrent = String(options.currentLevelId || "") === String(level?.levelId || "");
+  const isNext = String(options.nextLevelId || "") === String(level?.levelId || "");
+  const helperCopy = status === "ACREDITADO"
+    ? `Completado el ${formatDate(level?.enrollment?.endDate || level?.enrollment?.evaluatedAt || "") || "nivel anterior"}.`
+    : status === "DISPONIBLE"
+      ? "Puedes iniciar este nivel cuando tu lider confirme tu registro."
+      : status === "BLOQUEADO"
+        ? `Se desbloquea al acreditar ${getStudentPortalPreviousLevelName_(level?.order)}.`
+        : "Este es tu nivel activo en este momento.";
+
+  return `
+    <div class="student-portal-journey-item">
+      <div class="student-portal-journey-rail">
+        <span class="student-portal-journey-step status-${escapeHtml(String(status || "BLOQUEADO").toLowerCase())}">
+          ${status === "ACREDITADO" ? renderStudentPortalIcon_("check") : escapeHtml(String(level?.order || Number(options.index || 0) + 1))}
+        </span>
+        ${!isLast ? `<span class="student-portal-journey-line"></span>` : ""}
+      </div>
+
+      <article class="student-portal-journey-card status-${escapeHtml(String(status || "BLOQUEADO").toLowerCase())}">
+        <div class="student-portal-journey-card-head">
+          <div>
+            <h3>${escapeHtml(level?.levelName || "Nivel")}</h3>
+            <p>${escapeHtml(helperCopy)}</p>
+          </div>
+          ${renderStudentPortalCompactStatusBadge_(status)}
+        </div>
+
+        <div class="student-portal-journey-card-body">
+          <span>${renderStudentPortalIcon_("calendar")} ${escapeHtml(level?.offering?.startDate ? `Inicio ${formatDate(level.offering.startDate)}` : "Fecha por confirmar")}</span>
+          <span>${renderStudentPortalIcon_("leader")} ${escapeHtml(level?.offering?.leaderName || "Lider por asignar")}</span>
+          <span>${renderStudentPortalIcon_("check")} ${escapeHtml(`${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} asistencias`)}</span>
+        </div>
+
+        ${(isCurrent || isNext || status === "ACREDITADO") ? `
+          <div class="student-portal-journey-actions">
+            <button class="btn btn-primary" type="button" data-action="set-student-portal-tab" data-tab="materials">Ver materiales</button>
+            <button class="btn btn-ghost" type="button" data-action="set-student-portal-tab" data-tab="profile">Ver detalle</button>
+          </div>
+        ` : ""}
+      </article>
+    </div>
+  `;
+}
+
+function renderStudentPortalMaterialItem_(item, index, compact = false) {
+  return `
+    <article class="student-portal-material-item ${compact ? "is-compact" : ""}">
+      <div class="student-portal-material-item-icon">${renderStudentPortalIcon_(item?.icon || "materials")}</div>
+      <div class="student-portal-material-item-copy">
+        <strong>${escapeHtml(item?.title || `Material ${index + 1}`)}</strong>
+        <span>${escapeHtml(item?.type || "Contenido digital")}</span>
+        <p>${escapeHtml(item?.summary || "Contenido disponible dentro del proceso.")}</p>
+      </div>
+      <span class="student-portal-material-item-action">${renderStudentPortalIcon_(compact ? "arrow-right" : "download")}</span>
+    </article>
+  `;
+}
+
+function renderStudentPortalMiniMetric_(label, value, note, tone = "neutral") {
+  return `
+    <article class="student-portal-mini-metric tone-${escapeHtml(tone)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "-")}</strong>
+      <small>${escapeHtml(note || "")}</small>
+    </article>
+  `;
+}
+
+function renderStudentPortalProfileTabButton_(tabId, label, activeTab) {
+  return `
+    <button
+      class="student-portal-profile-tab ${activeTab === tabId ? "is-active" : ""}"
+      type="button"
+      data-action="set-student-portal-profile-tab"
+      data-profile-tab="${escapeHtml(tabId)}"
+    >
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function renderStudentPortalCompactStatusBadge_(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  const tone = normalized === "ACREDITADO"
+    ? "success"
+    : normalized === "EN_CURSO" || normalized === "DISPONIBLE"
+      ? "warning"
+      : normalized === "NO_ACREDITADO"
+        ? "danger"
+        : "dark";
+
+  return `<span class="pill ${tone}">${escapeHtml(getStudentPortalCompactStatusLabel_(normalized))}</span>`;
+}
+
+function getStudentPortalAttendancePercent_(attendance) {
+  const attended = Number(attendance?.attendedSessions || 0);
+  const total = Number(attendance?.totalSessions || 0);
+
+  if (!total) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round((attended / total) * 100)));
+}
+
+function getStudentPortalVisualProgress_(routePercent, attendancePercent, currentLevel) {
+  const status = String(currentLevel?.status || "").trim().toUpperCase();
+
+  if (status === "ACREDITADO") {
+    return Math.max(routePercent, 100);
+  }
+
+  return Math.max(routePercent, attendancePercent);
+}
+
+function getStudentPortalShortName_(fullName) {
+  const cleanName = String(fullName || "").trim();
+
+  if (!cleanName) {
+    return "Asistente";
+  }
+
+  return cleanName.split(/\s+/)[0] || cleanName;
+}
+
+function getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, fallbackName) {
+  const description = [
+    currentLevel?.offering?.description,
+    currentLevel?.enrollment?.comments,
+    currentRecord?.notes,
+    currentRecord?.reason,
+    currentRecord?.result
+  ].find((item) => String(item || "").trim());
+
+  if (description) {
+    return description;
+  }
+
+  return `Sigue pendiente de ${fallbackName}. Tu lider ira compartiendo materiales e indicaciones conforme avances.`;
+}
+
+function buildStudentPortalMaterials_(portal, currentLevel, currentRecord) {
+  const currentStageName = currentLevel?.levelName || portal?.summary?.currentLevelName || "tu nivel";
+  const levelDescription = getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, currentStageName);
+  const items = [];
+
+  items.push({
+    title: `Manual del ${currentStageName}`,
+    type: "Documento principal",
+    summary: currentLevel?.offering?.description || `Contenido base para ${currentStageName}.`,
+    icon: "materials"
+  });
+
+  if (levelDescription) {
+    items.push({
+      title: "Indicaciones del nivel",
+      type: "Seguimiento pastoral",
+      summary: levelDescription,
+      icon: "book"
+    });
+  }
+
+  if (currentRecord?.notes || currentRecord?.result || currentRecord?.reason) {
+    items.push({
+      title: "Observaciones del proceso",
+      type: "Bitacora",
+      summary: currentRecord?.notes || currentRecord?.result || currentRecord?.reason,
+      icon: "growth"
+    });
+  }
+
+  if (currentLevel?.offering?.leaderName || currentRecord?.leaderName) {
+    items.push({
+      title: "Contacto del lider",
+      type: "Acompañamiento",
+      summary: `${currentLevel?.offering?.leaderName || currentRecord?.leaderName}${currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone ? ` • ${currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone}` : ""}`,
+      icon: "team"
+    });
+  }
+
+  return items.slice(0, 5);
+}
+
+function buildStudentPortalSessionTimeline_(currentLevel, attendance) {
+  const totalSessions = Math.max(Number(attendance?.totalSessions || 0), 0);
+  const attendedSessions = Math.max(Number(attendance?.attendedSessions || 0), 0);
+  const capturedSessions = Math.max(Number(attendance?.capturedSessions || 0), 0);
+  const explicitSessions = Array.isArray(currentLevel?.enrollment?.attendanceSessions)
+    ? currentLevel.enrollment.attendanceSessions
+    : [];
+  const explicitIndex = {};
+  const items = [];
+
+  explicitSessions.forEach((item) => {
+    explicitIndex[String(item.sessionNumber)] = item;
+  });
+
+  for (let sessionNumber = 1; sessionNumber <= totalSessions; sessionNumber += 1) {
+    const explicit = explicitIndex[String(sessionNumber)];
+    let status = "PENDIENTE";
+    let label = "Sin captura";
+    let copy = "Pendiente";
+
+    if (explicit) {
+      status = String(explicit.attended || "").trim().toUpperCase() === "SI" ? "SI" : "NO";
+    } else if (sessionNumber <= attendedSessions) {
+      status = "SI";
+    } else if (sessionNumber <= capturedSessions) {
+      status = "NO";
+    }
+
+    if (status === "SI") {
+      label = "Asistio";
+      copy = explicit?.registeredAt ? formatDate(explicit.registeredAt) || "Marcado" : "Registrado";
+    } else if (status === "NO") {
+      label = "No asistio";
+      copy = explicit?.registeredAt ? formatDate(explicit.registeredAt) || "Capturado" : "Capturado";
+    }
+
+    items.push({
+      sessionNumber,
+      status,
+      label,
+      copy
+    });
+  }
+
+  if (!items.length) {
+    items.push({
+      sessionNumber: 1,
+      status: "PENDIENTE",
+      label: "Sin sesiones",
+      copy: "Por confirmar"
+    });
+  }
+
+  return items;
+}
+
+function getStudentPortalNextSession_(currentLevel, sessionItems, attendance) {
+  const nextPending = sessionItems.find((item) => item.status === "PENDIENTE");
+
+  if (nextPending) {
+    return {
+      eyebrow: "Proxima sesion",
+      title: `Sesion ${nextPending.sessionNumber}`,
+      copy: currentLevel?.offering?.endDate
+        ? `${formatDate(currentLevel.offering.endDate) || currentLevel.offering.endDate} • fecha operativa`
+        : "Fecha y horario por confirmar"
+    };
+  }
+
+  if (attendance?.completed) {
+    return {
+      eyebrow: "Nivel actual",
+      title: "Asistencia completa",
+      copy: "Ya cubriste todas las sesiones de este nivel."
+    };
+  }
+
+  return {
+    eyebrow: "Seguimiento",
+    title: "Sesiones por confirmar",
+    copy: "Tu lider actualizara las siguientes sesiones."
+  };
+}
+
+function getStudentPortalCompactStatusLabel_(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+
+  if (normalized === "EN_CURSO") {
+    return "Inscrito";
+  }
+
+  if (normalized === "ACREDITADO") {
+    return "Acreditado";
+  }
+
+  if (normalized === "DISPONIBLE") {
+    return "Disponible";
+  }
+
+  if (normalized === "NO_ACREDITADO") {
+    return "Revision";
+  }
+
+  if (normalized === "BLOQUEADO") {
+    return "Bloqueado";
+  }
+
+  return normalized || "Pendiente";
+}
+
+function getStudentPortalCompletionCopy_(currentLevel) {
+  if (!currentLevel) {
+    return "Sin informacion";
+  }
+
+  const completedAt = formatDate(currentLevel?.enrollment?.endDate || currentLevel?.enrollment?.evaluatedAt || "") || "";
+
+  if (String(currentLevel.status || "").trim().toUpperCase() === "ACREDITADO") {
+    return completedAt ? `Completado el ${completedAt}` : "Nivel acreditado";
+  }
+
+  return completedAt ? `Actualizado el ${completedAt}` : "En seguimiento";
+}
+
+function getStudentPortalLeaderInitials_(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+
+  if (!parts.length) {
+    return "L";
+  }
+
+  return parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join("");
+}
+
+function getStudentPortalPreviousLevelName_(order) {
+  const previousOrder = Math.max(Number(order || 1) - 1, 1);
+  return `Nivel ${previousOrder}`;
+}
+
+function renderStudentPortalIcon_(name) {
+  const icon = String(name || "").trim().toLowerCase();
+
+  if (icon === "growth") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18V10M12 18V6M18 18v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "book" || icon === "materials") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h7a3 3 0 0 1 3 3v11H9a3 3 0 0 0-3 3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M18 5h-5a3 3 0 0 0-3 3v11h7a3 3 0 0 1 3 3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "team" || icon === "leader") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 19a7 7 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "target") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 7.5 21 3m0 0v4m0-4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "shield") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 6 6.5v5.7c0 3.8 2.4 7.2 6 8.8 3.6-1.6 6-5 6-8.8V6.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "menu") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "bell") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a4 4 0 0 0-4 4v2.2c0 1-.3 2-.9 2.8L5.8 15h12.4l-1.3-2c-.6-.8-.9-1.8-.9-2.8V8a4 4 0 0 0-4-4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "back") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "calendar") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v3M17 4v3M5 9h14M6.5 6h11A1.5 1.5 0 0 1 19 7.5v10A1.5 1.5 0 0 1 17.5 19h-11A1.5 1.5 0 0 1 5 17.5v-10A1.5 1.5 0 0 1 6.5 6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "wallet") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5A2.5 2.5 0 0 1 7.5 6H18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H7.5A2.5 2.5 0 0 1 5 15.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 10h10.5a2.5 2.5 0 1 1 0 5H5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="15.5" cy="12.5" r=".8" fill="currentColor"/></svg>`;
+  }
+
+  if (icon === "check") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5.5 12.5 4.2 4.2L18.5 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "lock") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 11V8.5a3 3 0 0 1 6 0V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "home") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 11 8-6 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10.5V19h10v-8.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "path") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 18c4 0 8-2 8-6V8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "profile") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 19a7 7 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "whatsapp") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 0 0-6.5 11.2L4.5 20l4.5-1A7.5 7.5 0 1 0 12 4.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.5 9.5c.2 1.8 1.5 3.1 3.3 3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
+  if (icon === "download") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "arrow-right") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l8 7-8 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
 }
 
 function getStudentPortalCurrentRecord_(portal, currentLevel) {
@@ -11638,6 +12412,31 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-student-portal-tab") {
+      const nextTab = String(button.dataset.tab || "").trim() || "home";
+      state.ui.studentPortalTab = nextTab;
+
+      if (nextTab !== "profile") {
+        state.ui.studentPortalProfileTab = "summary";
+      }
+
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
+    if (action === "set-student-portal-profile-tab") {
+      state.ui.studentPortalTab = "profile";
+      state.ui.studentPortalProfileTab = String(button.dataset.profileTab || "").trim() || "summary";
+      renderApp();
+      return;
+    }
+
+    if (action === "student-portal-help") {
+      showToast("Ayuda del portal", "Si olvidaste tu acceso o aun no tienes cuenta, consulta a tu lider o coordinador para regenerar tu PIN.", "warning");
+      return;
+    }
+
     if (action === "toggle-mobile-nav") {
       state.ui.mobileNavOpen = !state.ui.mobileNavOpen;
       renderApp();
@@ -13087,6 +13886,8 @@ async function handleSubmit(event) {
       state.user = data.user;
       state.studentPortal = data.portal || null;
       state.loaded.studentPortal = Boolean(data.portal);
+      state.ui.studentPortalTab = "home";
+      state.ui.studentPortalProfileTab = "summary";
       setStoredUser(data.user);
       state.currentView = "student-portal";
       renderApp();
@@ -20783,6 +21584,8 @@ function resetRuntimeState() {
     formationFilterDraft: null,
     selectedScrapPersonId: "",
     scrapPreview: null,
+    studentPortalTab: "home",
+    studentPortalProfileTab: "summary",
     loginMode: "admin",
     confirmation: null
   };
