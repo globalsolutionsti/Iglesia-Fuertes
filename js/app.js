@@ -290,6 +290,7 @@ const state = {
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
+    editingWelcomeNewId: "",
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     editingFormationOfferingId: "",
@@ -2469,6 +2470,8 @@ function renderWelcomeNewView_() {
   const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
   const withBirthDateCount = rows.filter((row) => String(row.fechaNacimiento || "").trim()).length;
   const withFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
+  const editingPerson = getWelcomePersonById_(state.ui.editingWelcomeNewId);
+  const isEditing = Boolean(editingPerson?.id);
 
   return `
     <section class="view-grid">
@@ -2506,9 +2509,9 @@ function renderWelcomeNewView_() {
           <span>Listos para iniciar seguimiento inmediato.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip neutral">Con historial</span>
+          <span class="status-chip neutral">Con seguimientos</span>
           <strong>${escapeHtml(String(withFollowupCount))}</strong>
-          <span>Ya cuentan con al menos un contacto registrado.</span>
+          <span>Ya cuentan con al menos un seguimiento registrado.</span>
         </article>
       </div>
 
@@ -2516,18 +2519,21 @@ function renderWelcomeNewView_() {
         <article class="panel-card module-section-anchor welcome-new-create-card" id="welcome-new-create">
           <div class="panel-head">
             <div>
-              <h2>Alta de nuevo congregante</h2>
-              <p>Este registro nace como <strong>NUEVO</strong> dentro de Bienvenida y después continuará a Seguimientos o Prospectos.</p>
+              <h2>${isEditing ? "Editar nuevo congregante" : "Alta de nuevo congregante"}</h2>
+              <p>${isEditing
+                ? "Actualiza los datos base del nuevo congregante antes de continuar con su seguimiento pastoral."
+                : "Este registro nace como <strong>NUEVO</strong> dentro de Bienvenida y después continuará a Seguimientos o Prospectos."}</p>
             </div>
           </div>
 
           <div class="welcome-new-chip-row" aria-label="Estado del flujo de bienvenida">
             <span class="pill dark">Bienvenida</span>
             <span class="pill neutral">Nuevo</span>
-            <span class="pill success">Alta rápida</span>
+            <span class="pill success">${isEditing ? "Edición activa" : "Alta rápida"}</span>
           </div>
 
           <form id="welcome-new-form">
+            <input type="hidden" name="id" value="${escapeHtml(editingPerson?.id || "")}">
             <input type="hidden" name="tipoPersona" value="NUEVO">
             <input type="hidden" name="estado" value="ACTIVO">
             <input type="hidden" name="estatusBienvenida" value="NUEVO">
@@ -2536,40 +2542,41 @@ function renderWelcomeNewView_() {
             <div class="field-grid two welcome-new-form-grid">
               <div class="field">
                 <label for="welcome-new-nombre">Nombre</label>
-                <input id="welcome-new-nombre" name="nombre" placeholder="Ingrese Nombre" autocomplete="given-name" required>
+                <input id="welcome-new-nombre" name="nombre" value="${escapeHtml(editingPerson?.nombre || "")}" placeholder="Ingrese Nombre" autocomplete="given-name" required>
               </div>
               <div class="field">
                 <label for="welcome-new-apellidos">Apellidos</label>
-                <input id="welcome-new-apellidos" name="apellidos" placeholder="Ingrese Apellidos" autocomplete="family-name" required>
+                <input id="welcome-new-apellidos" name="apellidos" value="${escapeHtml(editingPerson?.apellidos || "")}" placeholder="Ingrese Apellidos" autocomplete="family-name" required>
               </div>
               <div class="field">
                 <label for="welcome-new-telefono">Teléfono</label>
-                <input id="welcome-new-telefono" name="telefono" placeholder="Ingrese Teléfono" autocomplete="tel" inputmode="tel">
+                <input id="welcome-new-telefono" name="telefono" value="${escapeHtml(editingPerson?.telefono || "")}" placeholder="Ingrese Teléfono" autocomplete="tel" inputmode="tel">
               </div>
               <div class="field">
                 <label for="welcome-new-email">Email</label>
-                <input id="welcome-new-email" name="email" type="email" placeholder="Ingrese Email" autocomplete="email">
+                <input id="welcome-new-email" name="email" type="email" value="${escapeHtml(editingPerson?.email || "")}" placeholder="Ingrese Email" autocomplete="email">
               </div>
               <div class="field">
                 <label for="welcome-new-estado-civil">Estado civil</label>
-                <input id="welcome-new-estado-civil" name="estadoCivil" placeholder="Ingrese Estado civil">
+                <input id="welcome-new-estado-civil" name="estadoCivil" value="${escapeHtml(editingPerson?.estadoCivil || "")}" placeholder="Ingrese Estado civil">
               </div>
               <div class="field">
                 <label for="welcome-new-edad">Edad</label>
-                <input id="welcome-new-edad" name="edad" type="number" min="0" placeholder="Ingrese Edad" inputmode="numeric">
+                <input id="welcome-new-edad" name="edad" type="number" min="0" value="${escapeHtml(String(editingPerson?.edad || ""))}" placeholder="Ingrese Edad" inputmode="numeric">
               </div>
               <div class="field">
                 <label for="welcome-new-fecha-nacimiento">Fecha de nacimiento</label>
-                <input id="welcome-new-fecha-nacimiento" name="fechaNacimiento" type="date" placeholder="Ingrese Fecha de nacimiento">
+                <input id="welcome-new-fecha-nacimiento" name="fechaNacimiento" type="date" value="${escapeHtml(formatDateForInput_(editingPerson?.fechaNacimiento) || "")}" placeholder="Ingrese Fecha de nacimiento">
               </div>
               <div class="field">
                 <label for="welcome-new-fecha">Fecha de llegada</label>
-                <input id="welcome-new-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(new Date()))}" placeholder="Ingrese Fecha de llegada">
+                <input id="welcome-new-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(editingPerson?.fechaIngreso) || formatDateForInput_(new Date()))}" placeholder="Ingrese Fecha de llegada">
               </div>
             </div>
 
             <div class="actions-row welcome-new-create-actions">
-              <button class="btn btn-primary" type="submit">Registrar nuevo</button>
+              <button class="btn btn-primary" type="submit">${isEditing ? "Guardar cambios" : "Registrar nuevo"}</button>
+              ${isEditing ? `<button class="btn btn-secondary" type="button" data-action="cancel-welcome-new-edit">Cancelar edición</button>` : ""}
             </div>
           </form>
         </article>
@@ -2640,7 +2647,7 @@ function renderWelcomeNewView_() {
                 <th>Contacto</th>
                 <th>Perfil</th>
                 <th>Seguimiento</th>
-                <th>Acción</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -2659,12 +2666,13 @@ function renderWelcomeNewView_() {
                     <span class="row-meta">Edad ${escapeHtml(String(row.edad || "Sin dato"))} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "Sin fecha")}</span>
                   </td>
                   <td>
-                    <span class="row-title">${escapeHtml(row.followupsCount ? `${row.followupsCount} contacto(s)` : "Sin contactos")}</span>
-                    <span class="row-meta">${escapeHtml(row.lastFollowupResult || "Pendiente")}</span>
+                    <span class="row-title">${escapeHtml(getWelcomeLastFollowupSummary_(row).title)}</span>
+                    <span class="row-meta">${escapeHtml(getWelcomeLastFollowupSummary_(row).meta)}</span>
                   </td>
                   <td>
                     <div class="inline-actions">
-                      <button class="btn btn-secondary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Seguimientos</button>
+                      <button class="btn btn-secondary" data-action="edit-welcome-new-person" data-person-id="${escapeHtml(row.id || "")}">Editar</button>
+                      <button class="btn btn-primary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Ir a seguimientos</button>
                       ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="congregants-new">Eliminar scrap</button>` : ""}
                     </div>
                   </td>
@@ -11930,6 +11938,31 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "edit-welcome-new-person") {
+      const personId = String(button.dataset.personId || "");
+      const person = state.peopleDirectory.find((item) => String(item.id || "") === personId) || getWelcomePersonById_(personId);
+
+      if (!personId || !person) {
+        showToast("Persona no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
+        return;
+      }
+
+      state.ui.editingWelcomeNewId = personId;
+      renderApp();
+      scrollToSection_("welcome-new-create");
+      setTimeout(() => {
+        document.getElementById("welcome-new-nombre")?.focus();
+      }, 0);
+      return;
+    }
+
+    if (action === "cancel-welcome-new-edit") {
+      state.ui.editingWelcomeNewId = "";
+      renderApp();
+      scrollToSection_("welcome-new-create");
+      return;
+    }
+
     if (action === "open-welcome-history") {
       await loadWelcomeProfile_(button.dataset.personId || "", {
         force: true,
@@ -11977,6 +12010,7 @@ async function handleClick(event) {
       });
 
       if (state.currentView === "congregants-new") {
+        state.ui.editingWelcomeNewId = "";
         state.currentView = "welcome-followup";
         state.ui.welcomeWorkbenchMode = "followup";
       }
@@ -12894,6 +12928,7 @@ async function handleSubmit(event) {
       const savedPerson = await saveAssistant(payload);
 
       if (savedPerson) {
+        state.ui.editingWelcomeNewId = "";
         form.reset();
         const arrivalField = form.querySelector("[name=\"fechaIngreso\"]");
 
@@ -15083,9 +15118,10 @@ async function saveAssistant(rawPayload) {
 
   const existing = findExistingPersonMatch_(payload);
   const isWelcomeWorkflow = payload.workflowOrigin === "welcome";
+  const isEditing = Boolean(payload.id);
   let savedPerson = null;
 
-  if (existing) {
+  if (existing && String(existing.id || "") !== String(payload.id || "")) {
     showToast(
       "Registro duplicado",
       `Ya existe ${existing.nombreCompleto || existing.nombre || "esta persona"} con el folio ${existing.numero || existing.id}.`,
@@ -15111,13 +15147,21 @@ async function saveAssistant(rawPayload) {
       state.welcomeProfile = null;
       state.ui.selectedWelcomePersonId = "";
     }
-  }, isWelcomeWorkflow ? "Registrando nuevo en Bienvenida..." : "Guardando congregante...");
+  }, isWelcomeWorkflow
+    ? (isEditing ? "Actualizando nuevo en Bienvenida..." : "Registrando nuevo en Bienvenida...")
+    : (isEditing ? "Actualizando congregante..." : "Guardando congregante..."));
 
   showToast(
-    isWelcomeWorkflow ? "Nuevo registrado" : "Congregante guardado",
     isWelcomeWorkflow
-      ? "La persona quedó dada de alta en Bienvenida con estatus NUEVO."
-      : "La persona ya forma parte del padrón base del sistema.",
+      ? (isEditing ? "Nuevo actualizado" : "Nuevo registrado")
+      : (isEditing ? "Congregante actualizado" : "Congregante guardado"),
+    isWelcomeWorkflow
+      ? (isEditing
+        ? "Los datos del nuevo congregante quedaron actualizados correctamente."
+        : "La persona quedó dada de alta en Bienvenida con estatus NUEVO.")
+      : (isEditing
+        ? "Los datos del congregante ya quedaron actualizados."
+        : "La persona ya forma parte del padrón base del sistema."),
     "success"
   );
 
@@ -17609,6 +17653,53 @@ function getWelcomeFollowupHealth_(person) {
   };
 }
 
+function getWelcomeFollowupTypeLabel_(value) {
+  const key = String(value || "").trim().toUpperCase();
+
+  if (key === "LLAMADA") {
+    return "Llamada";
+  }
+
+  if (key === "CORREO") {
+    return "Correo";
+  }
+
+  if (key === "WHATSAPP") {
+    return "WhatsApp";
+  }
+
+  if (key === "SEGUIMIENTO") {
+    return "Seguimiento";
+  }
+
+  if (key === "PROSPECTO_GC") {
+    return "Pase a Prospecto GC";
+  }
+
+  return value ? String(value) : "";
+}
+
+function getWelcomeLastFollowupSummary_(person) {
+  const followupsCount = Number(person?.followupsCount || 0);
+
+  if (!followupsCount) {
+    return {
+      title: "No tiene seguimientos",
+      meta: "Ir a Seguimientos para registrar el primero."
+    };
+  }
+
+  const result = String(person?.lastFollowupResult || "").trim();
+  const actionType = getWelcomeFollowupTypeLabel_(person?.lastActionType || "");
+  const contactDate = formatDate(person?.lastContactAt);
+  const metaParts = [actionType, contactDate].filter(Boolean);
+
+  return {
+    title: result || "Seguimiento registrado",
+    meta: metaParts.length ? metaParts.join(" · ") : "Último seguimiento disponible."
+  };
+}
+
 function renderWelcomeFollowupHealthPill_(person) {
   const health = getWelcomeFollowupHealth_(person);
   return `<span class="pill ${health.tone === "danger" ? "danger" : "success"}">${escapeHtml(health.label)}</span>`;
@@ -18477,6 +18568,7 @@ function formatDateTimeCompact_(value) {
 
 function sanitizeAssistantPayload_(payload) {
   const clean = {
+    id: V(payload.id),
     nombre: V(payload.nombre),
     apellidos: V(payload.apellidos),
     telefono: V(payload.telefono),
@@ -20322,6 +20414,7 @@ function resetRuntimeState() {
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
+    editingWelcomeNewId: "",
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     editingFormationOfferingId: "",
