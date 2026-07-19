@@ -3176,6 +3176,59 @@ tbody tr:hover {
   background: #f5f5f5;
 }
 
+.scrap-panel-grid {
+  margin-top: 18px;
+  align-items: start;
+}
+
+.scrap-search-results {
+  margin-top: 16px;
+}
+
+.scrap-person-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.scrap-person-card.is-selected {
+  border-color: rgba(174, 42, 42, 0.24);
+  box-shadow: 0 16px 30px rgba(174, 42, 42, 0.1);
+  transform: translateY(-1px);
+}
+
+.scrap-preview-grid {
+  margin-top: 16px;
+}
+
+.scrap-preview-actions {
+  margin-top: 16px;
+}
+
+.scrap-guide-strip {
+  margin-top: 14px;
+}
+
+.scrap-danger-note {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(174, 42, 42, 0.18);
+  background: linear-gradient(180deg, rgba(255, 246, 246, 0.98) 0%, rgba(255, 238, 238, 0.96) 100%);
+  display: grid;
+  gap: 6px;
+}
+
+.scrap-danger-note strong {
+  font-size: 15px;
+  font-weight: 900;
+  color: #7b1f1f;
+}
+
+.scrap-danger-note span {
+  color: #7b1f1f;
+  line-height: 1.65;
+}
+
 .result-row {
   display: flex;
   justify-content: space-between;
@@ -5676,6 +5729,21 @@ tbody tr:hover {
 
   .app-shell.view-congregants-new .welcome-new-create-actions {
     margin-top: 4px;
+  }
+
+  .app-shell.view-admin-settings .scrap-panel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-admin-settings .scrap-person-card .result-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .app-shell.view-admin-settings .scrap-person-card .btn,
+  .app-shell.view-admin-settings .scrap-preview-actions .btn {
+    width: 100%;
+    flex: 1 1 100%;
   }
 
   .app-shell.view-formation .formation-encounter-card {
