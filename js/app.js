@@ -1400,7 +1400,7 @@ function renderWelcomeActionModal_() {
 
   return `
     <div class="system-modal-backdrop">
-      <section class="system-modal-card" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
+      <section class="system-modal-card welcome-prospect-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
         <div class="panel-head">
           <div>
             <h2 id="welcome-modal-title">Prospecto GC</h2>
@@ -1409,7 +1409,7 @@ function renderWelcomeActionModal_() {
           <span class="pill ${escapeHtml(pillTone)}">${escapeHtml(workflow.label)}</span>
         </div>
 
-        <div class="summary-stack" style="margin-bottom: 18px;">
+        <div class="summary-stack welcome-prospect-modal-summary" style="margin-bottom: 18px;">
           <div class="summary-box">
             <span class="status-chip neutral">Persona</span>
             <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</strong>
@@ -1467,7 +1467,7 @@ function renderWelcomeActionModal_() {
             </div>
           </div>
 
-          <div class="actions-row">
+          <div class="actions-row welcome-prospect-modal-actions">
             <button class="btn btn-primary" type="submit">${escapeHtml(workflow.stage === "READY" ? "Convertir a Prospecto GC" : "Guardar prospecto")}</button>
             <button class="btn btn-secondary" type="button" data-action="save-and-send-welcome-prospect" data-person-id="${escapeHtml(person.id || "")}" ${groupId ? "" : "disabled"}>Guardar y abrir WhatsApp</button>
             <button class="btn btn-ghost" type="button" data-action="close-welcome-modal">Cerrar</button>
@@ -1480,7 +1480,7 @@ function renderWelcomeActionModal_() {
           ${workflow.alertStatus ? `<span class="context-item">${escapeHtml(workflow.alertStatus)}</span>` : ""}
         </div>
 
-        <div class="actions-row" style="margin-top: 18px;">
+        <div class="actions-row welcome-prospect-modal-actions" style="margin-top: 18px;">
           ${renderWelcomeProspectLeaderButtons_(leaderTargets)}
         </div>
       </section>
@@ -13725,10 +13725,11 @@ async function handleClick(event) {
       const personId = String(button.dataset.personId || "");
       const person = getWelcomePersonById_(personId);
 
-      await loadWelcomeProfile_(personId, {
-        force: true,
-        showLoading: false
-      });
+      if (!personId || !person) {
+        showToast("Prospecto no disponible", "Recarga la ficha de Bienvenida e intenta nuevamente.", "warning");
+        return;
+      }
+
       state.ui.welcomeWorkbenchMode = "";
       state.ui.welcomeModal = {
         kind: "prospect",
@@ -13742,6 +13743,15 @@ async function handleClick(event) {
         notes: String(person?.lastFollowupNotes || person?.notasBienvenida || "")
       };
       renderApp();
+
+      void loadWelcomeProfile_(personId, {
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.ui.welcomeModal?.kind === "prospect" && String(state.ui.welcomeModal?.personId || "") === personId) {
+          renderApp();
+        }
+      }).catch(() => {});
       return;
     }
 
