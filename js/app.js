@@ -3506,15 +3506,18 @@ function renderWelcomeNewView_() {
 }
 
 function renderWelcomeFollowupView_() {
+  const buckets = getWelcomeFollowupBuckets_();
   const rows = getWelcomeFollowupPeople_();
   const canDeleteScrap = canUseScrapDelete_();
   const selectedProfile = state.welcomeProfile;
   const selectedPerson = selectedProfile?.person || null;
   const mode = state.ui.welcomeWorkbenchMode || "";
+  const activeScope = String(state.filters.welcome.status || "ALL").toUpperCase();
   const selectedHealth = selectedPerson ? getWelcomeFollowupHealth_(selectedPerson) : null;
-  const overdueCount = rows.filter((row) => getWelcomeFollowupHealth_(row).overdue).length;
-  const withHistoryCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
-  const withSuggestedGroupCount = rows.filter((row) => row.suggestedGroupId).length;
+  const overdueCount = buckets.overdueRows.length;
+  const withoutFollowupCount = buckets.noFollowupRows.length;
+  const withFollowupCount = buckets.withFollowupRows.length;
+  const prospectQueueCount = buckets.prospectRows.length;
   const groupOptions = renderOptions(
     state.catalogs.groups.map((group) => ({
       value: String(group.id),
@@ -3523,6 +3526,31 @@ function renderWelcomeFollowupView_() {
     state.filters.welcome.groupId,
     "Todos los grupos"
   );
+  const scopeMeta = ({
+    ALL: {
+      title: "Listado operativo de Bienvenida",
+      copy: "Aquí conviven nuevos y prospectos GC hasta que Grupos de Conexión los registre dentro del grupo."
+    },
+    SIN_SEGUIMIENTO: {
+      title: "Nuevos sin seguimiento",
+      copy: "Solo aparecen personas NUEVO que todavía no tienen ningún contacto pastoral registrado."
+    },
+    CON_SEGUIMIENTO: {
+      title: "Nuevos con seguimiento",
+      copy: "Aquí ves a los nuevos que ya tienen al menos un seguimiento y todavía siguen bajo Bienvenida."
+    },
+    VENCIDOS: {
+      title: "Seguimientos vencidos",
+      copy: "Solo aparecen nuevos con fecha comprometida de seguimiento ya vencida y sin actualización posterior."
+    },
+    PROSPECTOS_GC: {
+      title: "Lista de prospectos para Grupos de Conexión",
+      copy: "Bienvenida ya entregó estos casos al flujo de grupos, pero el líder todavía no los registra dentro del grupo."
+    }
+  })[activeScope] || {
+    title: "Listado operativo de Bienvenida",
+    copy: "Aquí conviven nuevos y prospectos GC hasta que Grupos de Conexión los registre dentro del grupo."
+  };
 
   return `
     <section class="view-grid">
@@ -3530,16 +3558,18 @@ function renderWelcomeFollowupView_() {
         tone: "assistants",
         eyebrow: "Ministerio de Bienvenida",
         title: "Seguimientos",
-        copy: "Abre cada nueva persona, revisa su historial completo y registra cada contacto con claridad.",
+        copy: "Abre cada nueva persona, revisa su historial completo y entiende con claridad cuándo Bienvenida sigue a cargo y cuándo el caso ya pasó a Grupos de Conexión.",
         badge: {
-          label: overdueCount ? `${overdueCount} por atender` : "Bitácora al día",
+          label: activeScope === "ALL"
+            ? (overdueCount ? `${overdueCount} vencidos por atender` : `${buckets.trackedRows.length} casos en flujo`)
+            : scopeMeta.title,
           kind: overdueCount ? "warning" : "success"
         },
         metrics: [
-          { label: "Nuevos", value: String(rows.length) },
-          { label: "Con historial", value: String(withHistoryCount) },
-          { label: "Listos PGC", value: String(withSuggestedGroupCount) },
-          { label: "Pendientes", value: String(overdueCount) }
+          { label: "Sin seg.", value: String(withoutFollowupCount) },
+          { label: "Con seg.", value: String(withFollowupCount) },
+          { label: "Vencidos", value: String(overdueCount) },
+          { label: "Prospectos GC", value: String(prospectQueueCount) }
         ],
         actions: [
           { label: "Nuevos", variant: "secondary", view: "congregants-new" },
@@ -3547,37 +3577,52 @@ function renderWelcomeFollowupView_() {
         ]
       })}
 
-      <div class="stats-grid assistants-stats-grid">
-        <article class="stat-card">
-          <span class="status-chip neutral">En seguimiento</span>
-          <strong>${escapeHtml(String(rows.length))}</strong>
-          <span>Listado de personas NUEVO que Bienvenida está trabajando actualmente.</span>
-        </article>
-        <article class="stat-card">
-          <span class="status-chip success">Con bitácora</span>
-          <strong>${escapeHtml(String(withHistoryCount))}</strong>
-          <span>Ya tienen al menos un seguimiento registrado en su expediente pastoral.</span>
-        </article>
-        <article class="stat-card">
-          <span class="status-chip danger">Vencidos</span>
-          <strong>${escapeHtml(String(overdueCount))}</strong>
-          <span>Sin seguimiento o con próximo contacto ya vencido.</span>
-        </article>
-        <article class="stat-card">
-          <span class="status-chip neutral">Listos para Prospectos</span>
-          <strong>${escapeHtml(String(withSuggestedGroupCount))}</strong>
-          <span>Ya tienen suficiente contexto para pasar a Prospectos GC.</span>
-        </article>
+      <div class="stats-grid assistants-stats-grid welcome-followup-stats-grid">
+        ${renderWelcomeFollowupScopeCard_({
+          scope: "SIN_SEGUIMIENTO",
+          label: "Sin seguimiento",
+          value: withoutFollowupCount,
+          copy: "Nuevos que todavía no tienen ningún seguimiento pastoral registrado.",
+          tone: "warning",
+          active: activeScope === "SIN_SEGUIMIENTO"
+        })}
+        ${renderWelcomeFollowupScopeCard_({
+          scope: "CON_SEGUIMIENTO",
+          label: "Con seguimiento",
+          value: withFollowupCount,
+          copy: "Nuevos con al menos un seguimiento ya registrado por Bienvenida.",
+          tone: "success",
+          active: activeScope === "CON_SEGUIMIENTO"
+        })}
+        ${renderWelcomeFollowupScopeCard_({
+          scope: "VENCIDOS",
+          label: "Vencidos",
+          value: overdueCount,
+          copy: "Nuevos con fecha de seguimiento ya pasada y todavía sin actualización.",
+          tone: "danger",
+          active: activeScope === "VENCIDOS"
+        })}
+        ${renderWelcomeFollowupScopeCard_({
+          scope: "PROSPECTOS_GC",
+          label: "Lista de prospectos para Grupos de Conexión",
+          value: prospectQueueCount,
+          copy: "Casos ya pasados a Prospecto GC y aún pendientes por registrar en el grupo.",
+          tone: "neutral",
+          active: activeScope === "PROSPECTOS_GC"
+        })}
       </div>
 
       <div class="view-grid columns-2">
-        <article class="detail-card">
+        <article class="detail-card module-section-anchor" id="welcome-followup-list">
           <div class="panel-head">
             <div>
-              <h2>Personas nuevas en seguimiento</h2>
-              <p>Primero selecciona una acción por persona: seguimiento, historial o pase a Prospecto GC.</p>
+              <h2>${escapeHtml(scopeMeta.title)}</h2>
+              <p>${escapeHtml(scopeMeta.copy)}</p>
             </div>
-            <button class="btn btn-secondary" data-action="refresh-welcome">Actualizar</button>
+            <div class="inline-actions">
+              <button class="btn ${activeScope === "ALL" ? "btn-primary" : "btn-secondary"}" data-action="set-welcome-followup-scope" data-scope="ALL">Ver todos</button>
+              <button class="btn btn-secondary" data-action="refresh-welcome">Actualizar</button>
+            </div>
           </div>
 
           <div class="field-grid two">
@@ -3596,7 +3641,7 @@ function renderWelcomeFollowupView_() {
           <div class="panel-head" style="margin-top: 18px;">
             <div>
               <h2>Listado operativo</h2>
-              <p>Usa las tres acciones por persona para trabajar sin salirte del flujo.</p>
+              <p>Usa las acciones por persona para registrar seguimiento, revisar historial o empujar el caso a Prospecto GC cuando corresponda.</p>
             </div>
             <span class="pill dark">${escapeHtml(String(rows.length))} resultados</span>
           </div>
@@ -3634,7 +3679,7 @@ function renderWelcomeFollowupView_() {
                 </tr>
               `).join("") : `
                 <tr>
-                  <td colspan="3"><div class="empty-state">No hay personas nuevas en seguimiento que coincidan con los filtros actuales.</div></td>
+                  <td colspan="3"><div class="empty-state">No hay personas para esta vista dentro de los filtros actuales.</div></td>
                 </tr>
               `}
             </tbody>
@@ -3647,6 +3692,34 @@ function renderWelcomeFollowupView_() {
         </article>
       </div>
     </section>
+  `;
+}
+
+function renderWelcomeFollowupScopeCard_(options = {}) {
+  const scope = String(options.scope || "ALL").toUpperCase();
+  const label = String(options.label || "Vista");
+  const value = Number(options.value || 0);
+  const copy = String(options.copy || "");
+  const tone = ["warning", "success", "danger", "neutral", "dark"].includes(String(options.tone || "").toLowerCase())
+    ? String(options.tone || "").toLowerCase()
+    : "neutral";
+  const active = Boolean(options.active);
+  const chipTone = tone === "dark" ? "neutral" : tone;
+
+  return `
+    <button
+      class="stat-card welcome-followup-scope-card tone-${escapeHtml(tone)} ${active ? "is-active" : ""}"
+      type="button"
+      data-action="set-welcome-followup-scope"
+      data-scope="${escapeHtml(scope)}"
+    >
+      <div class="welcome-followup-scope-card-head">
+        <span class="status-chip ${escapeHtml(chipTone)}">${escapeHtml(label)}</span>
+        ${active ? `<span class="pill dark">Activa</span>` : ""}
+      </div>
+      <strong>${escapeHtml(String(value))}</strong>
+      <span>${escapeHtml(copy)}</span>
+    </button>
   `;
 }
 
@@ -3671,6 +3744,9 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
       <button class="btn btn-ghost" data-action="promote-welcome-pgc" data-person-id="${escapeHtml(selectedPerson.id || "")}">PGC</button>
     </div>
   `;
+  const selectedHealthTone = ["success", "warning", "danger", "dark", "neutral"].includes(String(selectedHealth?.tone || ""))
+    ? String(selectedHealth?.tone || "")
+    : "neutral";
 
   if (mode === "history") {
     return `
@@ -3689,7 +3765,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
           <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
         </div>
         <div class="summary-box">
-          <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semáforo</span>
+          <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
           <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
           <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto")}</span>
         </div>
@@ -3747,7 +3823,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
         <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
       </div>
       <div class="summary-box">
-        <span class="status-chip ${selectedHealth?.tone === "danger" ? "danger" : "success"}">Semáforo</span>
+        <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
         <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
         <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Programa el siguiente contacto")}</span>
       </div>
@@ -12677,7 +12753,7 @@ async function handleClick(event) {
       state.currentView = button.dataset.view;
       state.ui.welcomeModal = null;
       if (state.currentView === "welcome-followup") {
-        state.filters.welcome.status = "NUEVO";
+        state.filters.welcome.status = "ALL";
         state.ui.welcomeWorkbenchMode = "";
         state.welcomeProfile = null;
         state.ui.selectedWelcomePersonId = "";
@@ -12942,6 +13018,23 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-welcome-followup-scope") {
+      state.filters.welcome.status = String(button.dataset.scope || "ALL").toUpperCase() || "ALL";
+
+      if (
+        state.ui.selectedWelcomePersonId
+        && !getWelcomeFollowupPeople_().some((row) => String(row.id || "") === String(state.ui.selectedWelcomePersonId || ""))
+      ) {
+        state.ui.selectedWelcomePersonId = "";
+        state.ui.welcomeWorkbenchMode = "";
+        state.welcomeProfile = null;
+      }
+
+      renderApp();
+      scrollToSection_("welcome-followup-list");
+      return;
+    }
+
     if (action === "analyze-scrap-person") {
       const personId = String(button.dataset.personId || state.ui.selectedScrapPersonId || "");
       const person = state.peopleDirectory.find((item) => String(item.id || "") === personId) || getWelcomePersonById_(personId);
@@ -13015,6 +13108,9 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-followup") {
+      if (state.currentView !== "welcome-followup") {
+        state.filters.welcome.status = "ALL";
+      }
       await loadWelcomeProfile_(button.dataset.personId || "", {
         force: true,
         showLoading: false
@@ -13052,6 +13148,9 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-history") {
+      if (state.currentView !== "welcome-followup") {
+        state.filters.welcome.status = "ALL";
+      }
       await loadWelcomeProfile_(button.dataset.personId || "", {
         force: true,
         showLoading: false
@@ -13092,6 +13191,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-profile") {
+      state.filters.welcome.status = "ALL";
       await loadWelcomeProfile_(button.dataset.personId || "", {
         force: true,
         showLoading: false
@@ -18751,32 +18851,100 @@ function getWelcomeNewPeople_() {
   });
 }
 
-function getWelcomeFollowupPeople_() {
-  const search = normalizeText(state.filters.welcome.search);
-  const requestedStatus = String(state.filters.welcome.status || "NUEVO").toUpperCase();
-  const groupId = String(state.filters.welcome.groupId || "");
+function matchesWelcomeSearchAndGroup_(person, search, groupId) {
+  const haystack = normalizeText([
+    person.id,
+    person.numero,
+    person.nombreCompleto || [person.nombre, person.apellidos].join(" "),
+    person.telefono,
+    person.email,
+    person.suggestedGroupName,
+    person.assignedGroupName,
+    person.leader?.name
+  ].join(" "));
 
-  return state.welcomePeople.filter((person) => {
-    const status = String(person.welcomeStatus || "").toUpperCase();
-    const haystack = normalizeText([
-      person.id,
-      person.numero,
-      person.nombreCompleto || [person.nombre, person.apellidos].join(" "),
-      person.telefono,
-      person.email,
-      person.suggestedGroupName,
-      person.assignedGroupName,
-      person.leader?.name
-    ].join(" "));
-    const isWelcomeTracked = status === "NUEVO" || status === "PROSPECTO GP";
-    const matchesSearch = !search || haystack.includes(search);
-    const matchesStatus = requestedStatus === "ALL" ? isWelcomeTracked : status === requestedStatus;
-    const matchesGroup = !groupId
-      || String(person.suggestedGroupId || "") === groupId
-      || String(person.assignedGroupId || "") === groupId;
+  const matchesSearch = !search || haystack.includes(search);
+  const matchesGroup = !groupId
+    || String(person.suggestedGroupId || "") === groupId
+    || String(person.assignedGroupId || "") === groupId;
 
-    return isWelcomeTracked && matchesSearch && matchesStatus && matchesGroup;
+  return matchesSearch && matchesGroup;
+}
+
+function sortWelcomeFollowupRows_(rows) {
+  return rows.slice().sort((left, right) => {
+    return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
+      - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
   });
+}
+
+function isWelcomeFollowupOverdue_(person) {
+  const status = String(person?.welcomeStatus || "").toUpperCase();
+  const followupsCount = Number(person?.followupsCount || 0);
+  const nextContactDate = String(formatDateForInput_(person?.nextFollowUpDate) || "");
+  const today = formatDateForInput_(new Date());
+
+  return status === "NUEVO"
+    && followupsCount > 0
+    && Boolean(nextContactDate)
+    && nextContactDate < today;
+}
+
+function getWelcomeFollowupBuckets_() {
+  const search = normalizeText(state.filters.welcome.search);
+  const groupId = String(state.filters.welcome.groupId || "");
+  const trackedRows = sortWelcomeFollowupRows_(
+    state.welcomePeople.filter((person) => {
+      const status = String(person.welcomeStatus || "").toUpperCase();
+      const isWelcomeTracked = status === "NUEVO" || status === "PROSPECTO GP";
+
+      return isWelcomeTracked && matchesWelcomeSearchAndGroup_(person, search, groupId);
+    })
+  );
+  const newRows = trackedRows.filter((person) => String(person?.welcomeStatus || "").toUpperCase() === "NUEVO");
+  const noFollowupRows = newRows.filter((person) => Number(person?.followupsCount || 0) === 0);
+  const withFollowupRows = newRows.filter((person) => Number(person?.followupsCount || 0) > 0);
+  const overdueRows = withFollowupRows.filter((person) => isWelcomeFollowupOverdue_(person));
+  const prospectRows = getPendingRegistrationWelcomePeople_({
+    search: state.filters.welcome.search,
+    groupId: state.filters.welcome.groupId
+  });
+
+  return {
+    trackedRows,
+    newRows,
+    noFollowupRows,
+    withFollowupRows,
+    overdueRows,
+    prospectRows
+  };
+}
+
+function getWelcomeFollowupPeople_() {
+  const requestedStatus = String(state.filters.welcome.status || "ALL").toUpperCase();
+  const buckets = getWelcomeFollowupBuckets_();
+
+  if (requestedStatus === "SIN_SEGUIMIENTO") {
+    return buckets.noFollowupRows;
+  }
+
+  if (requestedStatus === "CON_SEGUIMIENTO") {
+    return buckets.withFollowupRows;
+  }
+
+  if (requestedStatus === "VENCIDOS") {
+    return buckets.overdueRows;
+  }
+
+  if (requestedStatus === "PROSPECTOS_GC" || requestedStatus === "PROSPECTO GP") {
+    return buckets.prospectRows;
+  }
+
+  if (requestedStatus === "NUEVO") {
+    return buckets.newRows;
+  }
+
+  return buckets.trackedRows;
 }
 
 function getFilteredWelcomePeople_() {
@@ -18806,23 +18974,32 @@ function getFilteredWelcomePeople_() {
 }
 
 function getWelcomeFollowupHealth_(person) {
+  const status = String(person?.welcomeStatus || "").toUpperCase();
   const followupsCount = Number(person?.followupsCount || 0);
   const nextContactDate = String(formatDateForInput_(person?.nextFollowUpDate) || "");
   const today = formatDateForInput_(new Date());
 
+  if (status === "PROSPECTO GP" && !person?.assignedInLatestSeason) {
+    return {
+      label: "Prospecto GC",
+      tone: "dark",
+      overdue: false
+    };
+  }
+
   if (!followupsCount) {
     return {
       label: "Sin seguimiento",
-      tone: "danger",
-      overdue: true
+      tone: "warning",
+      overdue: false
     };
   }
 
   if (!nextContactDate) {
     return {
       label: "Sin proximo contacto",
-      tone: "danger",
-      overdue: true
+      tone: "warning",
+      overdue: false
     };
   }
 
@@ -18890,7 +19067,10 @@ function getWelcomeLastFollowupSummary_(person) {
 
 function renderWelcomeFollowupHealthPill_(person) {
   const health = getWelcomeFollowupHealth_(person);
-  return `<span class="pill ${health.tone === "danger" ? "danger" : "success"}">${escapeHtml(health.label)}</span>`;
+  const tone = ["success", "warning", "danger", "dark", "neutral"].includes(String(health.tone || ""))
+    ? String(health.tone || "")
+    : "neutral";
+  return `<span class="pill ${tone}">${escapeHtml(health.label)}</span>`;
 }
 
 function getWelcomeLeaderWhatsappTargets_(person) {
@@ -21644,7 +21824,7 @@ function resetRuntimeState() {
   };
   state.filters.welcome = {
     search: "",
-    status: "NUEVO",
+    status: "ALL",
     groupId: ""
   };
   state.filters.seasons = {
