@@ -4925,6 +4925,26 @@ tbody tr:hover {
   min-height: 48px;
 }
 
+.welcome-prospect-telegram-box,
+.welcome-prospect-fallback-box {
+  border: 1px solid var(--line);
+}
+
+.welcome-prospect-telegram-box.tone-success,
+.welcome-prospect-fallback-box.tone-success {
+  background: linear-gradient(180deg, rgba(32, 120, 76, 0.08) 0%, rgba(255, 255, 255, 0.96) 100%);
+}
+
+.welcome-prospect-telegram-box.tone-warning,
+.welcome-prospect-fallback-box.tone-warning {
+  background: linear-gradient(180deg, rgba(196, 126, 18, 0.08) 0%, rgba(255, 255, 255, 0.96) 100%);
+}
+
+.welcome-prospect-telegram-box.tone-danger,
+.welcome-prospect-fallback-box.tone-danger {
+  background: linear-gradient(180deg, rgba(177, 52, 52, 0.08) 0%, rgba(255, 255, 255, 0.96) 100%);
+}
+
 .system-modal-notes {
   display: flex;
   flex-wrap: wrap;
