@@ -3278,13 +3278,14 @@ function renderConnectionAttendanceView_() {
 function renderWelcomeNewView_() {
   const rows = getWelcomeNewPeople_();
   const allNewRows = state.welcomePeople.filter((person) => String(person.welcomeStatus || "").toUpperCase() === "NUEVO");
-  const canDeleteScrap = canUseScrapDelete_();
   const hiddenNewCount = Math.max(allNewRows.length - rows.length, 0);
   const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
-  const withBirthDateCount = rows.filter((row) => String(row.fechaNacimiento || "").trim()).length;
   const withFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
+  const withoutFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) === 0).length;
+  const overdueFirstFollowupCount = rows.filter((row) => getWelcomeInitialFollowupSummary_(row).overdue).length;
   const editingPerson = getWelcomePersonById_(state.ui.editingWelcomeNewId);
   const isEditing = Boolean(editingPerson?.id);
+  const currentAuditUser = getCurrentSystemUserAudit_();
 
   return `
     <section class="view-grid">
@@ -3301,7 +3302,7 @@ function renderWelcomeNewView_() {
           { label: "Nuevos", value: String(rows.length) },
           { label: "Telefonos", value: String(withPhoneCount) },
           { label: "Seguimientos", value: String(withFollowupCount) },
-          { label: "Nacimiento", value: String(withBirthDateCount) }
+          { label: "Vencidos", value: String(overdueFirstFollowupCount) }
         ],
         actions: [
           { label: "Alta", variant: "primary", sectionId: "welcome-new-create" },
@@ -3335,7 +3336,7 @@ function renderWelcomeNewView_() {
               <h2>${isEditing ? "Editar nuevo congregante" : "Alta de nuevo congregante"}</h2>
               <p>${isEditing
                 ? "Actualiza los datos base del nuevo congregante antes de continuar con su seguimiento pastoral."
-                : "Este registro nace como <strong>NUEVO</strong> dentro de Bienvenida y después continuará a Seguimientos o Prospectos."}</p>
+                : "Este registro nace como <strong>NUEVO</strong> dentro de Bienvenida y desde aquí ya sale con su primer seguimiento programado."}</p>
             </div>
           </div>
 
@@ -3343,6 +3344,14 @@ function renderWelcomeNewView_() {
             <span class="pill dark">Bienvenida</span>
             <span class="pill neutral">Nuevo</span>
             <span class="pill success">${isEditing ? "Edición activa" : "Alta rápida"}</span>
+          </div>
+
+          <div class="summary-stack" style="margin-top: 18px;">
+            <div class="summary-box">
+              <span class="status-chip neutral">Usuario capturando</span>
+              <strong>${escapeHtml(currentAuditUser.name || "Sin sesión")}</strong>
+              <span>${escapeHtml(currentAuditUser.email || "El sistema guardará esta alta en la bitácora de Bienvenida.")}</span>
+            </div>
           </div>
 
           <form id="welcome-new-form">
@@ -3384,6 +3393,16 @@ function renderWelcomeNewView_() {
               <div class="field">
                 <label for="welcome-new-fecha">Fecha de llegada</label>
                 <input id="welcome-new-fecha" name="fechaIngreso" type="date" value="${escapeHtml(formatDateForInput_(editingPerson?.fechaIngreso) || formatDateForInput_(new Date()))}" placeholder="Ingrese Fecha de llegada">
+              </div>
+              <div class="field">
+                <label for="welcome-new-primer-seguimiento">Fecha del primer seguimiento</label>
+                <input
+                  id="welcome-new-primer-seguimiento"
+                  name="proximoSeguimiento"
+                  type="date"
+                  value="${escapeHtml(formatDateForInput_(editingPerson?.nextFollowUpDate || editingPerson?.proximoSeguimiento) || "")}"
+                  required
+                >
               </div>
             </div>
 
@@ -3430,14 +3449,14 @@ function renderWelcomeNewView_() {
 
           <div class="summary-stack" style="margin-top: 18px;">
             <div class="summary-box">
-              <span class="status-chip neutral">Pendientes de seguimiento</span>
-              <strong>${escapeHtml(String(rows.filter((row) => !row.followupsCount).length))}</strong>
-              <span>Nuevos sin bitácora todavía.</span>
+              <span class="status-chip neutral">Sin seguimiento</span>
+              <strong>${escapeHtml(String(withoutFollowupCount))}</strong>
+              <span>Nuevos que todavía no tienen ningún evento en su bitácora.</span>
             </div>
             <div class="summary-box">
-              <span class="status-chip neutral">Con fecha de nacimiento</span>
-              <strong>${escapeHtml(String(withBirthDateCount))}</strong>
-              <span>Información lista para ubicar mejor el grupo ideal.</span>
+              <span class="status-chip ${overdueFirstFollowupCount ? "danger" : "success"}">Primer seguimiento vencido</span>
+              <strong>${escapeHtml(String(overdueFirstFollowupCount))}</strong>
+              <span>${overdueFirstFollowupCount ? "Requieren atención inmediata de Bienvenida." : "No hay seguimientos iniciales vencidos hoy."}</span>
             </div>
           </div>
         </article>
@@ -3459,13 +3478,13 @@ function renderWelcomeNewView_() {
                 <th>Nombre</th>
                 <th>Contacto</th>
                 <th>Perfil</th>
-                <th>Seguimiento</th>
+                <th>Primer seguimiento</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               ${rows.length ? rows.map((row) => `
-                <tr>
+                <tr class="${getWelcomeInitialFollowupSummary_(row).overdue ? "welcome-new-row-overdue" : ""}">
                   <td>
                     <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
                     <span class="row-meta">${escapeHtml(row.numero || "")} | QR ${escapeHtml(row.id || "")}</span>
@@ -3479,14 +3498,13 @@ function renderWelcomeNewView_() {
                     <span class="row-meta">Edad ${escapeHtml(String(row.edad || "Sin dato"))} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "Sin fecha")}</span>
                   </td>
                   <td>
-                    <span class="row-title">${escapeHtml(getWelcomeLastFollowupSummary_(row).title)}</span>
-                    <span class="row-meta">${escapeHtml(getWelcomeLastFollowupSummary_(row).meta)}</span>
+                    <span class="row-title">${renderWelcomeInitialFollowupPill_(row)}</span>
+                    <span class="row-meta">${escapeHtml(getWelcomeInitialFollowupSummary_(row).meta)}</span>
                   </td>
                   <td>
                     <div class="inline-actions">
                       <button class="btn btn-secondary" data-action="edit-welcome-new-person" data-person-id="${escapeHtml(row.id || "")}">Editar</button>
-                      <button class="btn btn-primary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Ir a seguimientos</button>
-                      ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="congregants-new">Eliminar scrap</button>` : ""}
+                      <button class="btn btn-primary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Seguimientos</button>
                     </div>
                   </td>
                 </tr>
@@ -3857,7 +3875,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
         </div>
         <div class="field">
           <label for="welcome-followup-owner">Responsable</label>
-          <input id="welcome-followup-owner" name="owner" placeholder="Bienvenida / líder / seguimiento">
+          <input id="welcome-followup-owner" name="owner" value="${escapeHtml(state.user?.name || "")}" placeholder="Bienvenida / líder / seguimiento">
         </div>
         <div class="field">
           <label for="welcome-followup-next">Próximo contacto</label>
@@ -5684,7 +5702,7 @@ function buildScrapPreviewNotes_(preview, person, originView) {
 
   if (preview?.footprint) {
     notes.push(`Padrón base: ${preview.modules?.base || preview.footprint.people || 0}`);
-    notes.push(`Bienvenida: ${preview.modules?.welcome || 0} seguimiento(s)`);
+    notes.push(`Bienvenida y bitácora: ${preview.modules?.welcome || 0} seguimiento(s)`);
     notes.push(`Grupos de conexión: ${preview.modules?.groups || 0} registro(s)`);
     notes.push(`Proceso de formación: ${preview.modules?.formation || 0} registro(s)`);
     notes.push(`Huella total: ${preview.footprint.totalFootprint || 0} registro(s)`);
@@ -5724,7 +5742,7 @@ function renderAdminScrapCenter_() {
       <div class="panel-head">
         <div>
           <h2>Centro seguro de eliminación scrap</h2>
-          <p>Usa esta herramienta solo para borrar ejemplos o registros de prueba. El proceso limpia Bienvenida, Grupos de Conexión, Formación y el padrón base.</p>
+          <p>Usa esta herramienta solo para borrar ejemplos o registros de prueba. El proceso limpia Bienvenida, su bitácora, Grupos de Conexión, Formación y el padrón base.</p>
         </div>
         <span class="pill warning">Borrado total</span>
       </div>
@@ -5789,7 +5807,7 @@ function renderAdminScrapCenter_() {
                 <div class="summary-box">
                   <span class="status-chip neutral">Bienvenida</span>
                   <strong>${escapeHtml(String(preview.modules?.welcome || 0))}</strong>
-                  <span>Seguimientos y rastros pastorales.</span>
+                  <span>Seguimientos, bitácora y rastros pastorales.</span>
                 </div>
                 <div class="summary-box">
                   <span class="status-chip neutral">Grupos de conexión</span>
@@ -14120,17 +14138,8 @@ async function handleSubmit(event) {
       if (savedPerson) {
         state.ui.editingWelcomeNewId = "";
         form.reset();
-        const arrivalField = form.querySelector("[name=\"fechaIngreso\"]");
-
-        if (arrivalField) {
-          arrivalField.value = formatDateForInput_(new Date());
-        }
-
         renderApp();
-        scrollToSection_("welcome-new-create");
-        setTimeout(() => {
-          document.getElementById("welcome-new-nombre")?.focus();
-        }, 0);
+        scrollToSection_("welcome-new-list");
       }
 
       return;
@@ -16306,7 +16315,12 @@ async function loadParticipantsData(options = {}) {
 }
 
 async function saveAssistant(rawPayload) {
-  const payload = sanitizeAssistantPayload_(rawPayload);
+  const currentAuditUser = getCurrentSystemUserAudit_();
+  const payload = sanitizeAssistantPayload_({
+    ...rawPayload,
+    systemUserName: rawPayload?.systemUserName || currentAuditUser.name,
+    systemUserEmail: rawPayload?.systemUserEmail || currentAuditUser.email
+  });
 
   if (!state.loaded.peopleDirectory) {
     await loadPeopleDirectory();
@@ -16525,6 +16539,7 @@ async function saveWelcomeProspectAssignment_(options = {}) {
   const modalState = getWelcomeProspectModalState_();
   const shouldOpenLeaderWhatsapp = Boolean(options.openLeaderWhatsapp);
   const preparedWhatsappWindow = prepareLeaderWhatsappWindow_(shouldOpenLeaderWhatsapp);
+  const currentAuditUser = getCurrentSystemUserAudit_();
 
   if (!modalState || !modalState.person?.id) {
     openLeaderWhatsappWindow_(preparedWhatsappWindow, "");
@@ -16544,6 +16559,8 @@ async function saveWelcomeProspectAssignment_(options = {}) {
     actionType: "PROSPECTO_GC",
     result: "PENDIENTE_REGISTRO",
     owner: "BIENVENIDA",
+    systemUserName: currentAuditUser.name,
+    systemUserEmail: currentAuditUser.email,
     nextFollowUpDate: modalState.person.nextFollowUpDate || "",
     status: "PROSPECTO GP",
     suggestedGroupId: modalState.groupId,
@@ -16652,12 +16669,15 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
 }
 
 async function saveWelcomeFollowup_(rawPayload) {
+  const currentAuditUser = getCurrentSystemUserAudit_();
   const payload = {
     personId: V(rawPayload.personId),
     actionDate: V(rawPayload.actionDate),
     actionType: V(rawPayload.actionType),
     result: V(rawPayload.result),
-    owner: V(rawPayload.owner),
+    owner: V(rawPayload.owner) || currentAuditUser.name || "BIENVENIDA",
+    systemUserName: currentAuditUser.name,
+    systemUserEmail: currentAuditUser.email,
     nextFollowUpDate: V(rawPayload.nextFollowUpDate),
     status: V(rawPayload.status),
     suggestedGroupId: V(rawPayload.suggestedGroupId),
@@ -17682,7 +17702,7 @@ async function executeScrapDeletePerson_(personId, originView) {
 
   showToast(
     "Registro scrap eliminado",
-    `${response?.personName || "La persona"} fue borrada del padrón base y se limpiaron ${response?.deletedParticipants || 0} participante(s), ${response?.deletedAttendances || 0} asistencia(s), ${response?.deletedFollowups || 0} seguimiento(s), ${response?.deletedFormationRecords || 0} registro(s) de formación, ${response?.deletedFormationEnrollments || 0} inscripción(es), ${response?.deletedFormationLevelAttendances || 0} asistencia(s) por nivel y ${response?.deletedFormationAccounts || 0} cuenta(s) portal.`,
+    `${response?.personName || "La persona"} fue borrada del padrón base y se limpiaron ${response?.deletedParticipants || 0} participante(s), ${response?.deletedAttendances || 0} asistencia(s), ${response?.deletedFollowups || 0} seguimiento(s) de Bienvenida y bitácora, ${response?.deletedFormationRecords || 0} registro(s) de formación, ${response?.deletedFormationEnrollments || 0} inscripción(es), ${response?.deletedFormationLevelAttendances || 0} asistencia(s) por nivel y ${response?.deletedFormationAccounts || 0} cuenta(s) portal.`,
     "success"
   );
 
@@ -19065,6 +19085,62 @@ function getWelcomeLastFollowupSummary_(person) {
   };
 }
 
+function getCurrentSystemUserAudit_() {
+  return {
+    name: String(state.user?.name || "").trim(),
+    email: String(state.user?.email || "").trim()
+  };
+}
+
+function getWelcomeInitialFollowupSummary_(person) {
+  const followupsCount = Number(person?.followupsCount || 0);
+  const nextFollowUpDate = String(formatDateForInput_(person?.nextFollowUpDate || person?.proximoSeguimiento) || "");
+  const today = formatDateForInput_(new Date());
+
+  if (!nextFollowUpDate) {
+    return {
+      label: "Sin fecha",
+      tone: "warning",
+      meta: followupsCount > 0 ? "Configura el próximo seguimiento." : "Define la fecha del primer seguimiento.",
+      overdue: false
+    };
+  }
+
+  if (!followupsCount && nextFollowUpDate < today) {
+    return {
+      label: formatDate(nextFollowUpDate) || nextFollowUpDate,
+      tone: "danger",
+      meta: "Primer seguimiento vencido. Bienvenida debe contactarlo cuanto antes.",
+      overdue: true
+    };
+  }
+
+  if (!followupsCount) {
+    return {
+      label: formatDate(nextFollowUpDate) || nextFollowUpDate,
+      tone: "neutral",
+      meta: "Primer seguimiento programado desde el alta inicial.",
+      overdue: false
+    };
+  }
+
+  return {
+    label: formatDate(nextFollowUpDate) || nextFollowUpDate,
+    tone: "success",
+    meta: "Ya existe bitácora; esta fecha queda como próximo contacto.",
+    overdue: false
+  };
+}
+
+function renderWelcomeInitialFollowupPill_(person) {
+  const summary = getWelcomeInitialFollowupSummary_(person);
+  const tone = ["success", "warning", "danger", "neutral", "dark"].includes(String(summary.tone || ""))
+    ? String(summary.tone || "")
+    : "dark";
+
+  return `<span class="pill ${escapeHtml(tone)}">${escapeHtml(summary.label)}</span>`;
+}
+
 function renderWelcomeFollowupHealthPill_(person) {
   const health = getWelcomeFollowupHealth_(person);
   const tone = ["success", "warning", "danger", "dark", "neutral"].includes(String(health.tone || ""))
@@ -19943,17 +20019,24 @@ function sanitizeAssistantPayload_(payload) {
     email: V(payload.email),
     grupo: V(payload.grupo),
     fechaIngreso: V(payload.fechaIngreso) || formatDateForInput_(new Date()),
+    proximoSeguimiento: V(payload.proximoSeguimiento || payload.nextFollowUpDate),
     edad: V(payload.edad),
     estadoCivil: V(payload.estadoCivil),
     fechaNacimiento: V(payload.fechaNacimiento),
     tipoPersona: normalizePersonTypeValue_(payload.tipoPersona || "Congregante"),
     estado: V(payload.estado) || "ACTIVO",
     estatusBienvenida: V(payload.estatusBienvenida),
-    workflowOrigin: V(payload.workflowOrigin)
+    workflowOrigin: V(payload.workflowOrigin),
+    systemUserName: V(payload.systemUserName || payload.usuarioSistema || payload.usuarioRegistroBienvenida),
+    systemUserEmail: V(payload.systemUserEmail || payload.emailUsuarioSistema || payload.emailRegistroBienvenida)
   };
 
   if (!clean.nombre || !clean.apellidos) {
     throw new ApiError("Debes completar nombre y apellidos para guardar un congregante.", "VALIDATION_ERROR");
+  }
+
+  if (clean.workflowOrigin === "welcome" && !clean.proximoSeguimiento) {
+    throw new ApiError("Debes capturar la fecha del primer seguimiento antes de registrar un nuevo congregante.", "VALIDATION_ERROR");
   }
 
   return clean;
