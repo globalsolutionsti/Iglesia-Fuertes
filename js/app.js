@@ -15437,11 +15437,29 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   const task = async () => {
-    const backendRows = await apiGet("welcome.people.list", query);
-    const mergedRows = mergeWelcomePeopleSources_(backendRows, {
-      scope
-    });
-    state.welcomePeople = mergeOptimisticWelcomePeople_(mergedRows);
+    let backendRows;
+    let resolvedRows;
+
+    if (scope === "new") {
+      try {
+        backendRows = await apiGet("welcome.people.newList", query);
+      } catch (error) {
+        if (!isUnknownActionError_(error, "welcome.people.newList")) {
+          throw error;
+        }
+
+        backendRows = await apiGet("welcome.people.list", query);
+      }
+
+      resolvedRows = Array.isArray(backendRows) ? backendRows.slice() : [];
+    } else {
+      backendRows = await apiGet("welcome.people.list", query);
+      resolvedRows = mergeWelcomePeopleSources_(backendRows, {
+        scope
+      });
+    }
+
+    state.welcomePeople = mergeOptimisticWelcomePeople_(resolvedRows);
     state.loaded.welcome = true;
     state.cacheKeys.welcomePeople = requestKey;
     return state.welcomePeople;
@@ -16031,7 +16049,7 @@ async function loadFormationProfile_(personId, options = {}) {
 }
 
 async function ensureWelcomeViewData_(options = {}) {
-  if (!state.loaded.peopleDirectory && !pendingResourceLoads.peopleDirectory) {
+  if (state.currentView !== "congregants-new" && !state.loaded.peopleDirectory && !pendingResourceLoads.peopleDirectory) {
     void loadPeopleDirectory().catch(() => {});
   }
 
