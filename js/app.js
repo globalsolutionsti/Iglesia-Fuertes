@@ -16102,101 +16102,29 @@ async function ensureAssistantsViewData_() {
 }
 
 async function loadWelcomePeople_(options = {}) {
-  const scope = String(
-    options.scope
-    || (state.currentView === "congregants-new" ? "new" : "all")
-  ).trim().toLowerCase();
-  const requestKey = `welcomePeople::${scope}`;
-  const sharedLoadKey = `welcome::${scope}`;
-  const query = {};
-  const loadVersion = ++welcomePeopleLoadVersion;
-  const shouldPersistToState = options.persistToState !== false || scope !== "new" || state.currentView === "congregants-new";
-
-  if (scope === "new") {
-    query.status = "NUEVO";
-  }
+  const requestKey = "welcomePeople::all";
 
   if (!options.force && state.loaded.welcome && state.cacheKeys.welcomePeople === requestKey) {
     return state.welcomePeople;
   }
 
   const task = async () => {
-    if (scope !== "new" && !state.loaded.peopleDirectory) {
+    let backendRows = await apiGet("welcome.people.list");
+    let mergedRows = mergeWelcomePeopleSources_(backendRows);
+
+    if (!mergedRows.length && !state.loaded.peopleDirectory) {
       await loadPeopleDirectory();
+      mergedRows = mergeWelcomePeopleSources_(backendRows);
     }
 
-    if (scope === "new") {
-      state.ui.welcomeNewRefreshing = true;
-      if (state.currentView === "congregants-new") {
-        renderApp();
-      }
+    if (!mergedRows.length && state.loaded.peopleDirectory) {
+      mergedRows = mergeWelcomePeopleSources_([]);
     }
 
-    let backendRows;
-    let resolvedRows;
-
-    try {
-      if (scope === "new") {
-        try {
-          backendRows = await apiGet("welcome.people.newList", query);
-        } catch (error) {
-          if (!isUnknownActionError_(error, "welcome.people.newList")) {
-            throw error;
-          }
-
-          backendRows = await apiGet("welcome.people.list", query);
-        }
-
-        resolvedRows = mergeWelcomePeopleSources_(backendRows, {
-          scope
-        });
-      } else {
-        const [allRows, newInsightRows] = await Promise.all([
-          apiGet("welcome.people.list", query),
-          (async () => {
-            try {
-              return await apiGet("welcome.people.newList");
-            } catch (error) {
-              if (!isUnknownActionError_(error, "welcome.people.newList")) {
-                throw error;
-              }
-
-              return [];
-            }
-          })()
-        ]);
-        backendRows = mergeWelcomeNewInsightRows_(allRows, newInsightRows);
-        resolvedRows = mergeWelcomePeopleSources_(backendRows, {
-          scope
-        });
-      }
-
-      if (loadVersion !== welcomePeopleLoadVersion) {
-        return state.welcomePeople;
-      }
-
-      if (!shouldPersistToState) {
-        if (scope === "new") {
-          persistWelcomeNewSnapshot_(resolvedRows);
-        }
-        return mergeOptimisticWelcomePeople_(resolvedRows);
-      }
-
-      state.welcomePeople = mergeOptimisticWelcomePeople_(resolvedRows);
-      state.loaded.welcome = true;
-      state.cacheKeys.welcomePeople = requestKey;
-
-      if (scope === "new") {
-        persistWelcomeNewSnapshot_(state.welcomePeople);
-        state.ui.welcomeNewSnapshotSource = "";
-      }
-
-      return state.welcomePeople;
-    } finally {
-      if (scope === "new") {
-        state.ui.welcomeNewRefreshing = false;
-      }
-    }
+    state.welcomePeople = Array.isArray(mergedRows) ? mergedRows : [];
+    state.loaded.welcome = true;
+    state.cacheKeys.welcomePeople = requestKey;
+    return state.welcomePeople;
   };
 
   if (options.force) {
@@ -16204,10 +16132,10 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   if (options.showLoading === false) {
-    return runSharedLoad_(sharedLoadKey, task);
+    return runSharedLoad_("welcome", task);
   }
 
-  return withLoading(() => runSharedLoad_(sharedLoadKey, task), options.message || "Cargando seguimiento de Bienvenida...");
+  return withLoading(() => runSharedLoad_("welcome", task), options.message || "Cargando seguimiento de Bienvenida...");
 }
 
 function getWelcomeLifecycleStatus_(person) {
@@ -16349,16 +16277,13 @@ function mergeWelcomeNewInsightRows_(rows, newRows) {
   return Array.from(mergedById.values());
 }
 
-function mergeWelcomePeopleSources_(backendRows, options = {}) {
+function mergeWelcomePeopleSources_(backendRows) {
   const mergedById = new Map();
   const sourceRows = Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [];
-  const scope = String(options.scope || "all").trim().toLowerCase();
-  const fallbackStatusFilter = scope === "new" ? "NUEVO" : "";
 
   sourceRows.forEach((person) => {
     const id = String(person?.id || "").trim();
     const typeKey = getPersonTypeKey_(person?.tipoPersona || "");
-    const fallback = buildWelcomeFallbackFromDirectory_(person);
 
     if (!id || ["voluntarios", "voluntario", "lider", "coordinador", "servidor"].includes(typeKey)) {
       return;
@@ -16368,30 +16293,12 @@ function mergeWelcomePeopleSources_(backendRows, options = {}) {
       return;
     }
 
-    if (fallbackStatusFilter && String(fallback?.welcomeStatus || "").toUpperCase() !== fallbackStatusFilter) {
-      return;
-    }
-
-    mergedById.set(id, fallback);
+    mergedById.set(id, buildWelcomeFallbackFromDirectory_(person));
   });
 
   (Array.isArray(backendRows) ? backendRows : []).forEach((person) => {
     const id = String(person?.id || "").trim();
     const fallback = mergedById.get(id) || {};
-    const currentRow = (Array.isArray(state.welcomePeople) ? state.welcomePeople : []).find((item) => String(item?.id || "").trim() === id) || {};
-    const mergedFollowupsCount = Math.max(
-      Number(person?.followupsCount || 0),
-      Number(fallback?.followupsCount || 0),
-      Number(currentRow?.followupsCount || 0),
-      getWelcomePastoralFollowupsCount_(currentRow)
-    );
-    const mergedTimelineCount = Math.max(
-      Number(person?.followupTimelineCount || 0),
-      Number(fallback?.followupTimelineCount || 0),
-      Number(currentRow?.followupTimelineCount || 0),
-      Number(currentRow?.followupsCount || 0),
-      getWelcomePastoralFollowupsCount_(currentRow)
-    );
 
     if (!id) {
       return;
@@ -16409,25 +16316,20 @@ function mergeWelcomePeopleSources_(backendRows, options = {}) {
       leaderContacts: Array.isArray(person?.leaderContacts) && person.leaderContacts.length ? person.leaderContacts : (fallback?.leaderContacts || []),
       leaderWhatsappUrl: String(person?.leaderWhatsappUrl || fallback?.leaderWhatsappUrl || "").trim(),
       leaderWhatsappUrls: Array.isArray(person?.leaderWhatsappUrls) && person.leaderWhatsappUrls.length ? person.leaderWhatsappUrls : (fallback?.leaderWhatsappUrls || []),
-      lastContactAt: String(person?.lastContactAt || fallback?.lastContactAt || currentRow?.lastContactAt || "").trim(),
-      lastActionType: String(person?.lastActionType || fallback?.lastActionType || currentRow?.lastActionType || "").trim(),
-      lastFollowupResult: String(person?.lastFollowupResult || fallback?.lastFollowupResult || currentRow?.lastFollowupResult || "").trim(),
-      lastFollowupNotes: String(person?.lastFollowupNotes || fallback?.lastFollowupNotes || currentRow?.lastFollowupNotes || "").trim(),
-      nextFollowUpDate: String(
-        person?.nextFollowUpDate
-        || fallback?.nextFollowUpDate
-        || currentRow?.nextFollowUpDate
-        || currentRow?.proximoSeguimiento
-        || ""
-      ).trim(),
-      followupsCount: mergedFollowupsCount,
-      followupTimelineCount: mergedTimelineCount,
+      lastContactAt: String(person?.lastContactAt || fallback?.lastContactAt || "").trim(),
+      lastActionType: String(person?.lastActionType || fallback?.lastActionType || "").trim(),
+      lastFollowupResult: String(person?.lastFollowupResult || fallback?.lastFollowupResult || "").trim(),
+      lastFollowupNotes: String(person?.lastFollowupNotes || fallback?.lastFollowupNotes || "").trim(),
+      nextFollowUpDate: String(person?.nextFollowUpDate || fallback?.nextFollowUpDate || fallback?.proximoSeguimiento || "").trim(),
+      followupsCount: Number(person?.followupsCount || fallback?.followupsCount || 0),
+      followupTimelineCount: Number(person?.followupTimelineCount || person?.followupsCount || fallback?.followupTimelineCount || fallback?.followupsCount || 0),
       prospectWorkflowStarted: Boolean(person?.prospectWorkflowStarted || fallback?.prospectWorkflowStarted),
       prospectAlertAt: String(person?.prospectAlertAt || fallback?.prospectAlertAt || "").trim(),
       prospectAlertStatus: String(person?.prospectAlertStatus || fallback?.prospectAlertStatus || "").trim(),
       prospectAlertDetail: String(person?.prospectAlertDetail || fallback?.prospectAlertDetail || "").trim(),
       prospectPendingGroupFollowup: Boolean(person?.prospectPendingGroupFollowup || fallback?.prospectPendingGroupFollowup),
-      prospectRegisteredInGroup: Boolean(person?.prospectRegisteredInGroup || fallback?.prospectRegisteredInGroup)
+      prospectRegisteredInGroup: Boolean(person?.prospectRegisteredInGroup || fallback?.prospectRegisteredInGroup),
+      availableForAssignment: Boolean(person?.availableForAssignment || fallback?.availableForAssignment)
     });
   });
 
@@ -16857,17 +16759,13 @@ async function loadFormationProfile_(personId, options = {}) {
 }
 
 async function ensureWelcomeViewData_(options = {}) {
-  if (state.currentView !== "congregants-new" && !state.loaded.peopleDirectory) {
-    await loadPeopleDirectory();
+  if (!state.loaded.peopleDirectory && !pendingResourceLoads.peopleDirectory) {
+    void loadPeopleDirectory().catch(() => {});
   }
 
-  const welcomeScope = state.currentView === "congregants-new" ? "new" : "all";
-  const preloadTasks = [loadWelcomePeople_({
-    ...options,
-    scope: welcomeScope
-  })];
+  const preloadTasks = [loadWelcomePeople_(options)];
 
-  if (state.currentView !== "congregants-new" && !state.loaded.groups) {
+  if (!state.loaded.groups) {
     preloadTasks.push(loadGroupsCatalog_());
   }
 
@@ -16879,25 +16777,8 @@ async function ensureWelcomeViewData_(options = {}) {
       ? getWelcomeProspectPeople_()
       : (state.currentView === "welcome-followup" ? getWelcomeFollowupPeople_() : getFilteredWelcomePeople_()));
   const currentSelectedAvailable = currentRows.some((row) => String(row.id) === String(state.ui.selectedWelcomePersonId));
-  const shouldPreserveWorkbenchSelection = state.currentView === "welcome-followup"
-    && Boolean(state.ui.welcomeWorkbenchMode)
-    && Boolean(String(state.ui.selectedWelcomePersonId || "").trim());
 
   if (!currentRows.length) {
-    if (shouldPreserveWorkbenchSelection) {
-      if (
-        state.ui.welcomeWorkbenchMode === "history"
-        && (
-          !state.welcomeProfile
-          || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId || "")
-        )
-      ) {
-        await loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
-          showLoading: false
-        });
-      }
-      return;
-    }
     state.welcomeProfile = null;
     state.ui.selectedWelcomePersonId = "";
     state.ui.selectedWelcomeFollowupId = "";
@@ -16905,20 +16786,6 @@ async function ensureWelcomeViewData_(options = {}) {
   }
 
   if (!currentSelectedAvailable) {
-    if (shouldPreserveWorkbenchSelection) {
-      if (
-        state.ui.welcomeWorkbenchMode === "history"
-        && (
-          !state.welcomeProfile
-          || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId || "")
-        )
-      ) {
-        await loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
-          showLoading: false
-        });
-      }
-      return;
-    }
     state.welcomeProfile = null;
     state.ui.selectedWelcomePersonId = "";
     state.ui.selectedWelcomeFollowupId = "";
@@ -16926,12 +16793,8 @@ async function ensureWelcomeViewData_(options = {}) {
   }
 
   if (
-    state.currentView === "welcome-followup"
-    && state.ui.welcomeWorkbenchMode === "history"
-    && (
-      !state.welcomeProfile
-      || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId)
-    )
+    !state.welcomeProfile
+    || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId)
   ) {
     await loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
       showLoading: false
@@ -20547,9 +20410,9 @@ function getWelcomeFollowupBuckets_() {
     })
   );
   const newRows = trackedRows.filter((person) => String(person?.welcomeStatus || "").toUpperCase() === "NUEVO");
-  const noFollowupRows = newRows.filter((person) => getWelcomePastoralFollowupsCount_(person) === 0);
-  const withFollowupRows = newRows.filter((person) => getWelcomePastoralFollowupsCount_(person) > 0);
-  const overdueRows = newRows.filter((person) => isWelcomeFollowupOverdue_(person));
+  const noFollowupRows = newRows.filter((person) => Number(person?.followupsCount || 0) === 0);
+  const withFollowupRows = newRows.filter((person) => Number(person?.followupsCount || 0) > 0);
+  const overdueRows = withFollowupRows.filter((person) => isWelcomeFollowupOverdue_(person));
   const prospectRows = getPendingRegistrationWelcomePeople_({
     search: state.filters.welcome.search,
     groupId: state.filters.welcome.groupId
@@ -20892,14 +20755,9 @@ function getPendingRegistrationWelcomePeople_(options = {}) {
   return getWelcomeProspectPeople_(options).filter((person) => getWelcomeProspectWorkflowState_(person).stage === "PENDING");
 }
 
-function getWelcomeProspectPeople_(options = {}) {
-  const search = normalizeText(options.search || "");
-  const groupId = String(options.groupId || "");
-  const includeRegistered = options.includeRegistered === true;
-
+function getWelcomeProspectPeople_() {
   return state.welcomePeople.filter((person) => {
     const status = String(person.welcomeStatus || "").toUpperCase();
-    const workflow = getWelcomeProspectWorkflowState_(person);
     const haystack = normalizeText([
       person.id,
       person.numero,
@@ -20910,18 +20768,17 @@ function getWelcomeProspectPeople_(options = {}) {
       person.assignedGroupName,
       person.leader?.name
     ].join(" "));
-    const matchesSearch = !search || haystack.includes(search);
-    const matchesGroup = !groupId
-      || String(person.suggestedGroupId || "") === groupId
-      || String(person.assignedGroupId || "") === groupId;
+    const matchesSearch = !state.filters.welcome.search || haystack.includes(normalizeText(state.filters.welcome.search));
+    const matchesGroup = !state.filters.welcome.groupId
+      || String(person.suggestedGroupId || "") === String(state.filters.welcome.groupId || "")
+      || String(person.assignedGroupId || "") === String(state.filters.welcome.groupId || "");
 
-    return (status === "NUEVO" || status === "PROSPECTO GP" || person?.prospectWorkflowStarted || workflow.stage === "REGISTERED")
-      && (includeRegistered || workflow.stage !== "REGISTERED")
+    return !person.assignedInLatestSeason
+      && status === "PROSPECTO GP"
       && matchesSearch
       && matchesGroup;
   }).sort((left, right) => {
-    return parseDateToTimestamp_(right.prospectAlertAt || right.lastContactAt || right.fechaIngreso, true)
-      - parseDateToTimestamp_(left.prospectAlertAt || left.lastContactAt || left.fechaIngreso, true);
+    return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true) - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
   });
 }
 
