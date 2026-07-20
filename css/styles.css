@@ -2179,6 +2179,52 @@ div {
   margin-top: 2px;
 }
 
+.welcome-followup-layout {
+  align-items: flex-start;
+}
+
+.welcome-followup-layout.has-side {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+}
+
+.welcome-followup-list-card table {
+  table-layout: fixed;
+}
+
+.welcome-followup-list-card td:last-child {
+  width: 250px;
+}
+
+.btn.btn-compact {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.welcome-followup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 220px;
+}
+
+.welcome-followup-actions .btn {
+  width: 100%;
+}
+
+.welcome-followup-form-panel,
+.welcome-followup-side-panel,
+.welcome-followup-helper-card {
+  scroll-margin-top: 100px;
+}
+
+.welcome-followup-form-panel .summary-stack,
+.welcome-followup-side-panel .summary-stack {
+  gap: 14px;
+}
+
 .quick-actions {
   display: grid;
   gap: 12px;
@@ -5558,6 +5604,16 @@ tbody tr:hover {
 }
 
 @media (max-width: 960px) {
+  .welcome-followup-layout.has-side {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome-followup-side-panel,
+  .welcome-followup-form-panel,
+  .welcome-followup-helper-card {
+    width: 100%;
+  }
+
   .welcome-followup-browser {
     grid-template-columns: 1fr;
   }
@@ -5595,6 +5651,69 @@ tbody tr:hover {
 }
 
 @media (max-width: 640px) {
+  .welcome-followup-list-card thead {
+    display: none;
+  }
+
+  .welcome-followup-list-card .table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .welcome-followup-list-card table,
+  .welcome-followup-list-card tbody,
+  .welcome-followup-list-card tr,
+  .welcome-followup-list-card td {
+    display: block;
+    width: 100%;
+  }
+
+  .welcome-followup-list-card tbody {
+    display: grid;
+    gap: 14px;
+  }
+
+  .welcome-followup-list-card tr {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--white);
+    box-shadow: var(--shadow-sm);
+    padding: 16px;
+  }
+
+  .welcome-followup-list-card td {
+    padding: 0;
+    border: 0;
+    display: grid;
+    gap: 6px;
+  }
+
+  .welcome-followup-list-card td + td {
+    margin-top: 14px;
+  }
+
+  .welcome-followup-list-card td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .welcome-followup-list-card td:last-child {
+    width: 100%;
+  }
+
+  .welcome-followup-actions {
+    min-width: 0;
+  }
+
+  .welcome-followup-actions .btn {
+    min-height: 40px;
+  }
+
   .welcome-followup-history-item {
     padding: 13px 14px;
     border-radius: 16px;
