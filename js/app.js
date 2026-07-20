@@ -3423,7 +3423,7 @@ function renderWelcomeNewView_() {
             </div>
 
             <div class="actions-row welcome-new-create-actions">
-              <button class="btn btn-primary" type="submit">${isEditing ? "Guardar cambios" : "Registrar nuevo"}</button>
+              <button class="btn btn-primary" type="button" data-action="submit-welcome-new">${isEditing ? "Guardar cambios" : "Registrar nuevo"}</button>
               ${isEditing ? `<button class="btn btn-secondary" type="button" data-action="cancel-welcome-new-edit">Cancelar edición</button>` : ""}
             </div>
           </form>
@@ -12951,6 +12951,12 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "submit-welcome-new") {
+      const form = button.closest("form") || document.getElementById("welcome-new-form");
+      await submitWelcomeNewForm_(form);
+      return;
+    }
+
     if (action === "open-dashboard-session-group") {
       state.filters.dashboard.groupId = button.dataset.groupId || "";
       state.filters.dashboard.reportGroupId = button.dataset.groupId || state.filters.dashboard.reportGroupId || "";
@@ -14258,20 +14264,7 @@ async function handleSubmit(event) {
     }
 
     if (form.id === "welcome-new-form") {
-      if (!validateWelcomeNewForm_(form)) {
-        return;
-      }
-
-      const payload = Object.fromEntries(new FormData(form).entries());
-      const savedPerson = await saveAssistant(payload);
-
-      if (savedPerson) {
-        state.ui.editingWelcomeNewId = "";
-        form.reset();
-        renderApp();
-        scrollToSection_("welcome-new-list");
-      }
-
+      await submitWelcomeNewForm_(form);
       return;
     }
 
@@ -16589,6 +16582,30 @@ function validateWelcomeNewForm_(form) {
     );
   }
 
+  return true;
+}
+
+async function submitWelcomeNewForm_(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    showToast("Formulario no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
+    return false;
+  }
+
+  if (!validateWelcomeNewForm_(form)) {
+    return false;
+  }
+
+  const payload = Object.fromEntries(new FormData(form).entries());
+  const savedPerson = await saveAssistant(payload);
+
+  if (!savedPerson) {
+    return false;
+  }
+
+  state.ui.editingWelcomeNewId = "";
+  form.reset();
+  renderApp();
+  scrollToSection_("welcome-new-list");
   return true;
 }
 
