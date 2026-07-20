@@ -179,6 +179,8 @@ const MOBILE_NAV_ITEMS = [
   { module: "formation", view: "formation", label: "Formacion", description: "Proceso" },
   { module: "admin", view: "admin-settings", label: "Admin", description: "Accesos" }
 ];
+const WELCOME_NEW_SNAPSHOT_KEY = `${APP_CONFIG.storagePrefix}.welcomeNewSnapshot`;
+const WELCOME_NEW_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 const state = {
   user: initialStoredUser,
@@ -297,6 +299,8 @@ const state = {
     formationSection: "route",
     formationProfileLoading: false,
     formationProfileLoadingPersonId: "",
+    welcomeNewRefreshing: false,
+    welcomeNewSnapshotSource: "",
     selectedWelcomePersonId: "",
     selectedWelcomeFollowupId: "",
     welcomeWorkbenchMode: "",
@@ -1103,6 +1107,122 @@ function shouldShowDashboardLoading_() {
     !state.dashboardSeasonMatrix ||
     executiveSeasonId !== seasonId ||
     matrixSeasonId !== seasonId;
+}
+
+function readClientStorageJson_(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeClientStorageJson_(key, value) {
+  try {
+    if (value === null || value === undefined) {
+      localStorage.removeItem(key);
+      return;
+    }
+
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // Ignore storage issues in constrained browsers.
+  }
+}
+
+function sortWelcomePeopleByDate_(rows) {
+  return (Array.isArray(rows) ? rows.slice() : []).sort((left, right) => {
+    return parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true);
+  });
+}
+
+function normalizeWelcomeNewRows_(rows) {
+  return sortWelcomePeopleByDate_((Array.isArray(rows) ? rows : [])
+    .map((row) => buildWelcomePersonClientDto_(row))
+    .filter((row) => String(row?.welcomeStatus || "").toUpperCase() === "NUEVO"));
+}
+
+function readWelcomeNewSnapshot_() {
+  const payload = readClientStorageJson_(WELCOME_NEW_SNAPSHOT_KEY);
+
+  if (!payload || payload.apiUrl !== state.apiUrl) {
+    return null;
+  }
+
+  if ((Date.now() - Number(payload.savedAt || 0)) > WELCOME_NEW_SNAPSHOT_MAX_AGE_MS) {
+    return null;
+  }
+
+  return {
+    rows: normalizeWelcomeNewRows_(payload.rows),
+    savedAt: Number(payload.savedAt || 0)
+  };
+}
+
+function persistWelcomeNewSnapshot_(rows) {
+  writeClientStorageJson_(WELCOME_NEW_SNAPSHOT_KEY, {
+    apiUrl: state.apiUrl,
+    savedAt: Date.now(),
+    rows: normalizeWelcomeNewRows_(rows)
+  });
+}
+
+function buildWelcomeNewRowsFromDirectory_() {
+  if (!state.loaded.peopleDirectory) {
+    return [];
+  }
+
+  return sortWelcomePeopleByDate_(state.peopleDirectory
+    .map((person) => buildWelcomeFallbackFromDirectory_(person))
+    .filter((person) => String(person?.welcomeStatus || "").toUpperCase() === "NUEVO"));
+}
+
+function primeWelcomeNewView_() {
+  const currentRows = getWelcomeNewPeople_();
+
+  if (currentRows.length || (state.loaded.welcome && Array.isArray(state.welcomePeople) && state.welcomePeople.length)) {
+    state.ui.welcomeNewSnapshotSource = "";
+    return;
+  }
+
+  const snapshot = readWelcomeNewSnapshot_();
+
+  if (snapshot) {
+    state.welcomePeople = mergeOptimisticWelcomePeople_(snapshot.rows);
+    state.ui.welcomeNewSnapshotSource = "snapshot";
+    state.ui.welcomeNewRefreshing = true;
+    return;
+  }
+
+  const fallbackRows = buildWelcomeNewRowsFromDirectory_();
+
+  if (fallbackRows.length) {
+    state.welcomePeople = mergeOptimisticWelcomePeople_(fallbackRows);
+    state.ui.welcomeNewSnapshotSource = "directory";
+    state.ui.welcomeNewRefreshing = true;
+  }
+}
+
+function warmWelcomeNewInBackground_() {
+  if (!state.user || !canAccessView_("congregants-new")) {
+    return;
+  }
+
+  if (String(state.cacheKeys.welcomePeople || "") === "welcomePeople::new" && state.loaded.welcome) {
+    return;
+  }
+
+  void loadWelcomePeople_({
+    showLoading: false,
+    scope: "new"
+  })
+    .then(() => {
+      if (state.currentView === "congregants-new") {
+        renderApp();
+      }
+    })
+    .catch(() => {});
 }
 
 function loadViewDataInBackground_(view) {
@@ -3305,6 +3425,15 @@ function renderWelcomeNewView_() {
   const editingPerson = getWelcomePersonById_(state.ui.editingWelcomeNewId);
   const isEditing = Boolean(editingPerson?.id);
   const currentAuditUser = getCurrentSystemUserAudit_();
+  const isRefreshing = Boolean(state.ui.welcomeNewRefreshing);
+  const snapshotSource = String(state.ui.welcomeNewSnapshotSource || "");
+  const freshnessCopy = isRefreshing
+    ? (snapshotSource === "snapshot"
+      ? "Mostrando la última versión guardada mientras actualizamos el listado real."
+      : (snapshotSource === "directory"
+        ? "Mostrando una vista inmediata desde el padrón mientras llega el listado real."
+        : "Actualizando el listado en segundo plano."))
+    : "El listado ya está actualizado.";
 
   return `
     <section class="view-grid">
@@ -3314,8 +3443,10 @@ function renderWelcomeNewView_() {
         title: "Nuevos congregantes",
         copy: "Registra a cada nueva persona y déjala lista para seguimiento pastoral.",
         badge: {
-          label: hiddenNewCount ? `${rows.length} visibles de ${allNewRows.length}` : `${rows.length} nuevos en periodo`,
-          kind: rows.length ? "success" : "warning"
+          label: isRefreshing
+            ? "Actualizando listado..."
+            : (hiddenNewCount ? `${rows.length} visibles de ${allNewRows.length}` : `${rows.length} nuevos en periodo`),
+          kind: isRefreshing ? "neutral" : (rows.length ? "success" : "warning")
         },
         metrics: [
           { label: "Nuevos", value: String(rows.length) },
@@ -3464,6 +3595,11 @@ function renderWelcomeNewView_() {
               <strong>${escapeHtml(formatDate(state.filters.congregants.recentFrom) || "Sin inicio")} - ${escapeHtml(formatDate(state.filters.congregants.recentTo) || "Sin fin")}</strong>
               <span>${hiddenNewCount ? `${hiddenNewCount} nuevo(s) quedan fuera del rango actual.` : "Mostrando todos los nuevos dentro del rango elegido."}</span>
             </div>
+            <div class="summary-box">
+              <span class="status-chip ${isRefreshing ? "warning" : "success"}">${isRefreshing ? "Carga inmediata" : "Listado actualizado"}</span>
+              <strong>${escapeHtml(isRefreshing ? "Vista operativa lista" : "Sincronización completa")}</strong>
+              <span>${escapeHtml(freshnessCopy)}</span>
+            </div>
           </div>
 
           <div class="summary-stack" style="margin-top: 18px;">
@@ -3530,7 +3666,11 @@ function renderWelcomeNewView_() {
               `).join("") : `
                 <tr>
                   <td colspan="5">
-                    <div class="empty-state">${hiddenNewCount ? `Hay ${hiddenNewCount} nuevo(s) fuera del rango actual. Usa "Ver todo" o ajusta las fechas.` : "No hay nuevos congregantes en el periodo seleccionado."}</div>
+                    <div class="empty-state">${isRefreshing
+                      ? "Abriendo la ficha y actualizando el listado de nuevos..."
+                      : (hiddenNewCount
+                        ? `Hay ${hiddenNewCount} nuevo(s) fuera del rango actual. Usa "Ver todo" o ajusta las fechas.`
+                        : "No hay nuevos congregantes en el periodo seleccionado.")}</div>
                   </td>
                 </tr>
               `}
@@ -12963,6 +13103,9 @@ async function handleClick(event) {
     if (action === "navigate") {
       state.currentView = button.dataset.view;
       state.ui.welcomeModal = null;
+      if (state.currentView === "congregants-new") {
+        primeWelcomeNewView_();
+      }
       if (state.currentView === "welcome-followup") {
         state.filters.welcome.status = "SIN_SEGUIMIENTO";
         state.ui.welcomeWorkbenchMode = "";
@@ -14843,6 +14986,11 @@ async function bootstrapApplication(options = {}) {
   const task = async () => {
     await loadBootstrapData_();
     syncBootstrapFilters_();
+
+    if (state.currentView === "congregants-new") {
+      primeWelcomeNewView_();
+    }
+
     await loadCurrentViewData({
       showLoading: false,
       force: options.force
@@ -14861,6 +15009,7 @@ async function bootstrapApplication(options = {}) {
   renderApp();
   warmDashboardExecutiveInBackground_();
   warmCommonDataInBackground_();
+  warmWelcomeNewInBackground_();
 }
 
 async function bootstrapStudentPortal_(options = {}) {
@@ -15437,32 +15586,51 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   const task = async () => {
+    if (scope === "new") {
+      state.ui.welcomeNewRefreshing = true;
+      if (state.currentView === "congregants-new") {
+        renderApp();
+      }
+    }
+
     let backendRows;
     let resolvedRows;
 
-    if (scope === "new") {
-      try {
-        backendRows = await apiGet("welcome.people.newList", query);
-      } catch (error) {
-        if (!isUnknownActionError_(error, "welcome.people.newList")) {
-          throw error;
+    try {
+      if (scope === "new") {
+        try {
+          backendRows = await apiGet("welcome.people.newList", query);
+        } catch (error) {
+          if (!isUnknownActionError_(error, "welcome.people.newList")) {
+            throw error;
+          }
+
+          backendRows = await apiGet("welcome.people.list", query);
         }
 
+        resolvedRows = Array.isArray(backendRows) ? backendRows.slice() : [];
+      } else {
         backendRows = await apiGet("welcome.people.list", query);
+        resolvedRows = mergeWelcomePeopleSources_(backendRows, {
+          scope
+        });
       }
 
-      resolvedRows = Array.isArray(backendRows) ? backendRows.slice() : [];
-    } else {
-      backendRows = await apiGet("welcome.people.list", query);
-      resolvedRows = mergeWelcomePeopleSources_(backendRows, {
-        scope
-      });
-    }
+      state.welcomePeople = mergeOptimisticWelcomePeople_(resolvedRows);
+      state.loaded.welcome = true;
+      state.cacheKeys.welcomePeople = requestKey;
 
-    state.welcomePeople = mergeOptimisticWelcomePeople_(resolvedRows);
-    state.loaded.welcome = true;
-    state.cacheKeys.welcomePeople = requestKey;
-    return state.welcomePeople;
+      if (scope === "new") {
+        persistWelcomeNewSnapshot_(state.welcomePeople);
+        state.ui.welcomeNewSnapshotSource = "";
+      }
+
+      return state.welcomePeople;
+    } finally {
+      if (scope === "new") {
+        state.ui.welcomeNewRefreshing = false;
+      }
+    }
   };
 
   if (options.force) {
@@ -16916,7 +17084,8 @@ function upsertWelcomePersonInState_(person) {
   state.welcomePeople = [nextPerson, ...state.welcomePeople.filter((item) => String(item.id || "") !== nextId)]
     .sort((left, right) => parseDateToTimestamp_(right.fechaIngreso, true) - parseDateToTimestamp_(left.fechaIngreso, true));
   state.loaded.welcome = true;
-  state.cacheKeys.welcomePeople = "welcomePeople::all";
+  state.cacheKeys.welcomePeople = state.cacheKeys.welcomePeople || "welcomePeople::new";
+  persistWelcomeNewSnapshot_(state.welcomePeople);
 }
 
 function prepareLeaderWhatsappWindow_(enabled) {
@@ -22351,6 +22520,8 @@ function resetRuntimeState() {
   state.dashboardSessionInsights = null;
   state.dashboardSeasonMatrix = null;
   state.welcomePeople = [];
+  state.ui.welcomeNewRefreshing = false;
+  state.ui.welcomeNewSnapshotSource = "";
   state.welcomeProfile = null;
   state.formationCatalog = [];
   state.formationRecords = [];
