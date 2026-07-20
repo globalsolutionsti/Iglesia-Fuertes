@@ -3841,7 +3841,10 @@ function renderWelcomeFollowupView_() {
                 </tr>
               </thead>
               <tbody>
-                ${rows.length ? rows.map((row) => `
+                ${rows.length ? rows.map((row) => {
+                  const lastFollowupSummary = getWelcomeLastFollowupSummary_(row);
+                  const followupScope = getWelcomeFollowupDefaultScope_(row);
+                  return `
                   <tr class="${getWelcomeFollowupHealth_(row).overdue ? "welcome-new-row-overdue" : ""}">
                   <td data-label="Congregante">
                     <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
@@ -3853,19 +3856,20 @@ function renderWelcomeFollowupView_() {
                   </td>
                   <td data-label="Último seguimiento">
                     ${renderWelcomeFollowupHealthPill_(row)}
-                    <span class="row-meta">${escapeHtml(getWelcomeLastFollowupSummary_(row).title)}</span>
-                    <span class="row-meta">${escapeHtml(getWelcomeLastFollowupSummary_(row).meta)}</span>
+                    <span class="row-meta">${escapeHtml(lastFollowupSummary.title)}</span>
+                    <span class="row-meta">${escapeHtml(lastFollowupSummary.meta)}</span>
                   </td>
                   <td data-label="Acciones">
                     <div class="welcome-followup-actions">
-                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}">${Number(row.followupsCount || 0) ? "Seguimiento" : "Primer seg."}</button>
-                      <button class="btn btn-secondary btn-compact" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}">Historial</button>
+                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(row.followupsCount || 0) ? "Seguimiento" : "Primer seg."}</button>
+                      <button class="btn btn-secondary btn-compact" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}" data-scope="CON_SEGUIMIENTO">Historial</button>
                       <button class="btn btn-ghost btn-compact" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${String(row.welcomeStatus || "").toUpperCase() === "PROSPECTO GP" || row.prospectWorkflowStarted ? "PGC" : "Prospectar"}</button>
                       ${canDeleteScrap ? `<button class="btn btn-danger btn-compact" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-followup">Scrap</button>` : ""}
                     </div>
                   </td>
                 </tr>
-              `).join("") : `
+              `;
+                }).join("") : `
                 <tr>
                   <td colspan="4"><div class="empty-state">No hay personas para esta vista dentro de los filtros actuales.</div></td>
                 </tr>
@@ -3959,6 +3963,7 @@ function getWelcomeFollowupColumnConfig_(rows, activeScope) {
 
 function renderWelcomeFollowupScheduleCell_(person, mode) {
   const summary = getWelcomeDisplayedFollowupSummary_(person, mode);
+  const followupScope = getWelcomeFollowupDefaultScope_(person);
   const pillTone = ["success", "warning", "danger", "neutral", "dark"].includes(String(summary.tone || ""))
     ? String(summary.tone || "")
     : "neutral";
@@ -3966,11 +3971,15 @@ function renderWelcomeFollowupScheduleCell_(person, mode) {
   return `
     <div class="welcome-followup-date-cell">
       ${summary.clickable
-        ? `<button class="welcome-inline-link" type="button" data-action="open-welcome-followup" data-person-id="${escapeHtml(person.id || "")}">${escapeHtml(summary.label)}</button>`
+        ? `<button class="welcome-inline-link" type="button" data-action="open-welcome-followup" data-person-id="${escapeHtml(person.id || "")}" data-scope="${escapeHtml(followupScope)}">${escapeHtml(summary.label)}</button>`
         : `<span class="pill ${escapeHtml(pillTone)}">${escapeHtml(summary.label)}</span>`}
       <span class="row-meta">${escapeHtml(summary.meta)}</span>
     </div>
   `;
+}
+
+function getWelcomeFollowupDefaultScope_(person) {
+  return Number(person?.followupsCount || 0) > 0 ? "CON_SEGUIMIENTO" : "SIN_SEGUIMIENTO";
 }
 
 function renderWelcomeFollowupScopeCard_(options = {}) {
@@ -4076,10 +4085,11 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
     ? "Gestionar PGC"
     : "Prospectar GC";
   const selectedFollowup = getSelectedWelcomeFollowupRecord_(selectedProfile);
+  const followupScope = getWelcomeFollowupDefaultScope_(selectedPerson);
   const switchActions = `
-    <div class="actions-row" style="margin-top: 18px;">
-      <button class="btn ${mode === "followup" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}">${Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Primer seguimiento"}</button>
-      <button class="btn ${mode === "history" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-history" data-person-id="${escapeHtml(selectedPerson.id || "")}">Ver seguimientos</button>
+    <div class="actions-row welcome-followup-switch-actions" style="margin-top: 18px;">
+      <button class="btn ${mode === "followup" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Primer seguimiento"}</button>
+      <button class="btn ${mode === "history" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-history" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="CON_SEGUIMIENTO">Ver seguimientos</button>
       <button class="btn btn-ghost" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(selectedPerson.id || "")}">${escapeHtml(workflowButtonLabel)}</button>
     </div>
   `;
@@ -4100,7 +4110,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
           <span class="pill dark">Cargando</span>
         </div>
 
-        <div class="summary-stack">
+        <div class="welcome-followup-summary-grid">
           <div class="summary-box">
             <span class="status-chip neutral">Persona</span>
             <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
@@ -4128,7 +4138,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
         <span class="pill dark">${escapeHtml(String(selectedProfile?.summary?.timelineCount || selectedProfile?.followups?.length || 0))} eventos</span>
       </div>
 
-      <div class="summary-stack">
+      <div class="welcome-followup-summary-grid">
         <div class="summary-box">
           <span class="status-chip neutral">Persona</span>
           <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
@@ -4167,7 +4177,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
 
           <div class="welcome-followup-history-detail">
             ${selectedFollowup ? `
-              <div class="summary-stack">
+              <div class="welcome-followup-summary-grid compact">
                 <div class="summary-box">
                   <span class="status-chip neutral">Fecha del seguimiento</span>
                   <strong>${escapeHtml(formatDateTimeCompact_(selectedFollowup.actionDate) || "-")}</strong>
@@ -4210,7 +4220,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
       <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
     </div>
 
-    <div class="summary-stack">
+    <div class="welcome-followup-summary-grid">
       <div class="summary-box">
         <span class="status-chip neutral">Persona</span>
         <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
@@ -13524,7 +13534,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-followup") {
-      openWelcomeWorkbench_(button.dataset.personId || "", "followup", "SIN_SEGUIMIENTO");
+      openWelcomeWorkbench_(button.dataset.personId || "", "followup", button.dataset.scope || "SIN_SEGUIMIENTO");
       return;
     }
 
@@ -13554,7 +13564,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-history") {
-      openWelcomeWorkbench_(button.dataset.personId || "", "history", "CON_SEGUIMIENTO");
+      openWelcomeWorkbench_(button.dataset.personId || "", "history", button.dataset.scope || "CON_SEGUIMIENTO");
       return;
     }
 
@@ -13591,7 +13601,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-profile") {
-      openWelcomeWorkbench_(button.dataset.personId || "", "followup", "SIN_SEGUIMIENTO");
+      openWelcomeWorkbench_(button.dataset.personId || "", "followup", button.dataset.scope || "SIN_SEGUIMIENTO");
       return;
     }
 
@@ -17145,6 +17155,94 @@ function upsertWelcomePersonInState_(person) {
   persistWelcomeNewSnapshot_(state.welcomePeople);
 }
 
+function applyWelcomeProfileToLocalState_(profile, options = {}) {
+  const nextProfile = profile || null;
+  const nextPerson = nextProfile?.person || null;
+  const nextId = String(nextPerson?.id || "").trim();
+
+  if (!nextPerson || !nextId) {
+    if (options.persistProfile !== false) {
+      state.welcomeProfile = nextProfile;
+    }
+    return;
+  }
+
+  rememberOptimisticWelcomePerson_(nextPerson);
+  upsertWelcomePersonInState_(nextPerson);
+  upsertPeopleListInState_(nextPerson);
+
+  if (state.loaded.peopleDirectory) {
+    const existingDirectoryPerson = state.peopleDirectory.find((item) => String(item?.id || "").trim() === nextId) || {};
+
+    upsertPeopleDirectoryInState_({
+      ...existingDirectoryPerson,
+      ...nextPerson,
+      id: nextId,
+      nombre: nextPerson.nombre || existingDirectoryPerson.nombre || "",
+      apellidos: nextPerson.apellidos || existingDirectoryPerson.apellidos || "",
+      nombreCompleto: nextPerson.nombreCompleto || existingDirectoryPerson.nombreCompleto || "",
+      telefono: nextPerson.telefono || existingDirectoryPerson.telefono || "",
+      email: nextPerson.email || existingDirectoryPerson.email || "",
+      fechaIngreso: nextPerson.fechaIngreso || existingDirectoryPerson.fechaIngreso || "",
+      proximoSeguimiento: nextPerson.nextFollowUpDate || nextPerson.proximoSeguimiento || existingDirectoryPerson.proximoSeguimiento || "",
+      estatusBienvenida: nextPerson.welcomeStatus || nextPerson.estatusBienvenida || existingDirectoryPerson.estatusBienvenida || "",
+      notasBienvenida: nextPerson.lastFollowupNotes || nextPerson.notasBienvenida || existingDirectoryPerson.notasBienvenida || ""
+    });
+  }
+
+  if (options.persistProfile !== false) {
+    state.welcomeProfile = nextProfile;
+  }
+}
+
+function buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload) {
+  const sourceProfile = response?.profile || {};
+  const savedFollowup = response?.followup || null;
+  const previousPerson = getWelcomePersonById_(payload?.personId) || sourceProfile.person || {};
+  const sourcePerson = sourceProfile.person || {};
+  const followups = Array.isArray(sourceProfile.followups) ? sourceProfile.followups : [];
+  const actionType = String(savedFollowup?.actionType || payload?.actionType || "").trim().toUpperCase();
+  const isProspectTransition = actionType === "PROSPECTO_GC";
+  const pastoralCountFromTimeline = followups.filter((item) => {
+    return String(item?.actionType || "").trim().toUpperCase() !== "PROSPECTO_GC";
+  }).length;
+  const nextFollowupsCount = Math.max(
+    Number(sourcePerson.followupsCount || 0),
+    pastoralCountFromTimeline,
+    Number(previousPerson.followupsCount || 0) + (isProspectTransition ? 0 : 1)
+  );
+  const nextTimelineCount = Math.max(
+    Number(sourcePerson.followupTimelineCount || 0),
+    Number(sourceProfile.summary?.timelineCount || 0),
+    followups.length
+  );
+
+  return {
+    ...sourceProfile,
+    person: {
+      ...previousPerson,
+      ...sourcePerson,
+      followupsCount: nextFollowupsCount,
+      followupTimelineCount: nextTimelineCount,
+      lastContactAt: String(savedFollowup?.actionDate || sourcePerson.lastContactAt || previousPerson.lastContactAt || "").trim(),
+      lastActionType: String(savedFollowup?.actionType || sourcePerson.lastActionType || previousPerson.lastActionType || "").trim(),
+      lastFollowupResult: String(savedFollowup?.result || sourcePerson.lastFollowupResult || previousPerson.lastFollowupResult || "").trim(),
+      lastFollowupNotes: String(savedFollowup?.notes || sourcePerson.lastFollowupNotes || previousPerson.lastFollowupNotes || "").trim(),
+      nextFollowUpDate: String(
+        savedFollowup?.nextFollowUpDate !== undefined
+          ? savedFollowup.nextFollowUpDate
+          : (sourcePerson.nextFollowUpDate || previousPerson.nextFollowUpDate || payload?.nextFollowUpDate || "")
+      ).trim(),
+      welcomeStatus: String(sourcePerson.welcomeStatus || payload?.status || previousPerson.welcomeStatus || "NUEVO").trim()
+    },
+    summary: {
+      ...(sourceProfile.summary || {}),
+      followupsCount: nextFollowupsCount,
+      timelineCount: nextTimelineCount
+    }
+  };
+}
+
 function prepareLeaderWhatsappWindow_(enabled) {
   if (!enabled) {
     return null;
@@ -17354,6 +17452,7 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
 
 async function saveWelcomeFollowup_(rawPayload) {
   const currentAuditUser = getCurrentSystemUserAudit_();
+  const currentScope = String(state.filters.welcome.status || "ALL").toUpperCase();
   const payload = {
     personId: V(rawPayload.personId),
     actionDate: V(rawPayload.actionDate),
@@ -17373,20 +17472,30 @@ async function saveWelcomeFollowup_(rawPayload) {
     return;
   }
 
+  let response = null;
+
   await withLoading(async () => {
-    const response = await apiPost("welcome.followups.save", payload);
-    state.welcomeProfile = response.profile;
-    state.ui.selectedWelcomeFollowupId = String(response?.followup?.id || "");
-    await refreshPeopleSources_();
-    invalidateWelcomeCache_();
-    await loadWelcomePeople_({
-      force: true,
-      showLoading: false
-    });
+    response = await apiPost("welcome.followups.save", payload);
+    state.viewLoadToken += 1;
+    applyWelcomeProfileToLocalState_(buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload));
+    state.ui.selectedWelcomeFollowupId = String(
+      response?.followup?.id
+      || state.welcomeProfile?.followups?.[0]?.id
+      || ""
+    );
   }, "Registrando evento de Bienvenida...");
 
   state.ui.selectedWelcomePersonId = payload.personId;
+  if (currentScope === "SIN_SEGUIMIENTO") {
+    state.filters.welcome.status = "CON_SEGUIMIENTO";
+  }
   state.ui.welcomeWorkbenchMode = "history";
+  schedulePeopleSourcesResync_({
+    refreshWelcome: true,
+    refreshProfile: true,
+    personId: payload.personId,
+    delayMs: 450
+  });
   showToast("Evento registrado", "La bitácora de seguimiento ya quedó actualizada.", "success");
   return false;
 }
@@ -19854,8 +19963,8 @@ function getWelcomeLastFollowupSummary_(person) {
 
   if (!followupsCount) {
     return {
-      title: "No tiene seguimientos",
-      meta: "Ir a Seguimientos para registrar el primero."
+      title: "Pendiente",
+      meta: "Sin seguimiento registrado."
     };
   }
 
