@@ -3697,8 +3697,9 @@ function renderWelcomeFollowupView_() {
   const mode = state.ui.welcomeWorkbenchMode || "";
   const activeScope = String(state.filters.welcome.status || "ALL").toUpperCase();
   const selectedHealth = selectedPerson ? getWelcomeFollowupHealth_(selectedPerson) : null;
-  const showHistoryPanel = mode === "history" && Boolean(selectedPerson);
-  const showFollowupForm = mode === "followup" && Boolean(selectedPerson);
+  const hasPendingSelection = Boolean(String(state.ui.selectedWelcomePersonId || "").trim());
+  const showHistoryPanel = mode === "history" && (Boolean(selectedPerson) || hasPendingSelection);
+  const showFollowupForm = mode === "followup" && (Boolean(selectedPerson) || hasPendingSelection);
   const followupColumn = getWelcomeFollowupColumnConfig_(rows, activeScope);
   const overdueCount = buckets.overdueRows.length;
   const withoutFollowupCount = buckets.noFollowupRows.length;
@@ -3896,7 +3897,7 @@ function renderWelcomeFollowupView_() {
         </article>
       ` : ""}
 
-      ${!showHistoryPanel && !showFollowupForm ? `
+      ${!mode && !showHistoryPanel && !showFollowupForm ? `
         <article class="panel-card welcome-followup-helper-card">
           <div class="panel-head">
             <div>
@@ -4084,6 +4085,32 @@ function openWelcomeWorkbench_(personId, mode, scope = "") {
 }
 
 function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode) {
+  if (mode === "history" && !selectedPerson && state.ui.selectedWelcomePersonId) {
+    return `
+      <div class="panel-head">
+        <div>
+          <h2>Seguimientos del asistente</h2>
+          <p>Estamos abriendo el historial completo para que Bienvenida continúe sin salir de la ficha.</p>
+        </div>
+        <span class="pill dark">Cargando</span>
+      </div>
+      <div class="empty-state">Preparando historial de seguimientos...</div>
+    `;
+  }
+
+  if (mode === "followup" && !selectedPerson && state.ui.selectedWelcomePersonId) {
+    return `
+      <div class="panel-head">
+        <div>
+          <h2>Registrar seguimiento</h2>
+          <p>Estamos preparando el formulario del contacto para continuar con el seguimiento pastoral.</p>
+        </div>
+        <span class="pill dark">Cargando</span>
+      </div>
+      <div class="empty-state">Preparando formulario de seguimiento...</div>
+    `;
+  }
+
   if (!selectedPerson || !mode) {
     return `
       <div class="panel-head">
@@ -16318,8 +16345,25 @@ async function ensureWelcomeViewData_(options = {}) {
       ? getWelcomeProspectPeople_()
       : (state.currentView === "welcome-followup" ? getWelcomeFollowupPeople_() : getFilteredWelcomePeople_()));
   const currentSelectedAvailable = currentRows.some((row) => String(row.id) === String(state.ui.selectedWelcomePersonId));
+  const shouldPreserveWorkbenchSelection = state.currentView === "welcome-followup"
+    && Boolean(state.ui.welcomeWorkbenchMode)
+    && Boolean(String(state.ui.selectedWelcomePersonId || "").trim());
 
   if (!currentRows.length) {
+    if (shouldPreserveWorkbenchSelection) {
+      if (
+        state.ui.welcomeWorkbenchMode === "history"
+        && (
+          !state.welcomeProfile
+          || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId || "")
+        )
+      ) {
+        await loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
+          showLoading: false
+        });
+      }
+      return;
+    }
     state.welcomeProfile = null;
     state.ui.selectedWelcomePersonId = "";
     state.ui.selectedWelcomeFollowupId = "";
@@ -16327,6 +16371,20 @@ async function ensureWelcomeViewData_(options = {}) {
   }
 
   if (!currentSelectedAvailable) {
+    if (shouldPreserveWorkbenchSelection) {
+      if (
+        state.ui.welcomeWorkbenchMode === "history"
+        && (
+          !state.welcomeProfile
+          || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId || "")
+        )
+      ) {
+        await loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
+          showLoading: false
+        });
+      }
+      return;
+    }
     state.welcomeProfile = null;
     state.ui.selectedWelcomePersonId = "";
     state.ui.selectedWelcomeFollowupId = "";
