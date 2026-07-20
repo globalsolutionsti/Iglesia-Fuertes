@@ -4176,6 +4176,16 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
       `;
     }
 
+    const followups = Array.isArray(selectedProfile?.followups) ? selectedProfile.followups : [];
+    const selectedFollowupTypeLabel = getWelcomeFollowupTypeLabel_(selectedFollowup?.actionType || "") || "Seguimiento";
+    const selectedFollowupTitle = selectedFollowup?.result || selectedFollowupTypeLabel;
+    const selectedFollowupTimestamp = formatDateTimeCompact_(selectedFollowup?.actionDate) || "-";
+    const selectedFollowupTimelineIndex = Math.max(
+      followups.findIndex((item) => String(item?.id || "") === String(selectedFollowup?.id || "")),
+      0
+    ) + 1;
+    const followupEventsLabel = `${String(selectedProfile?.summary?.timelineCount || followups.length || 0)} eventos`;
+
     return `
       <div class="panel-head">
         <div>
@@ -4183,7 +4193,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
           <p>Consulta la bitácora del más reciente al más antiguo y toca un registro para ver su detalle completo.</p>
         </div>
         <div class="inline-actions welcome-followup-panel-head-actions">
-          <span class="pill dark">${escapeHtml(String(selectedProfile?.summary?.timelineCount || selectedProfile?.followups?.length || 0))} eventos</span>
+          <span class="pill dark">${escapeHtml(followupEventsLabel)}</span>
           <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
         </div>
       </div>
@@ -4192,35 +4202,87 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
 
       ${switchActions}
 
-      ${(selectedProfile?.followups || []).length ? `
-        <div class="welcome-followup-browser">
-          <div class="welcome-followup-history-list">
-            ${(selectedProfile.followups || []).map((followup) => `
+      ${followups.length ? `
+        <div class="welcome-followup-history-summary">
+          <article class="welcome-followup-history-summary-card">
+            <span class="status-chip neutral">Último seguimiento registrado</span>
+            <strong>${escapeHtml(selectedFollowupTimestamp)}</strong>
+            <span>${escapeHtml(selectedFollowupTypeLabel)}</span>
+          </article>
+          <article class="welcome-followup-history-summary-card">
+            <span class="status-chip success">Próximo contacto</span>
+            <strong>${escapeHtml(selectedFollowup?.nextFollowUpDate ? formatDate(selectedFollowup.nextFollowUpDate) : "Sin fecha definida")}</strong>
+            <span>${escapeHtml(selectedFollowup?.nextFollowUpDate ? "Seguimiento programado" : "Todavía no se definió la próxima fecha")}</span>
+          </article>
+          <article class="welcome-followup-history-summary-card">
+            <span class="status-chip dark">Bitácora activa</span>
+            <strong>${escapeHtml(String(getWelcomePastoralFollowupsCount_(selectedPerson)))} seguimiento(s)</strong>
+            <span>${escapeHtml(selectedFollowup?.owner || "Sin responsable asignado")}</span>
+          </article>
+        </div>
+
+        <div class="welcome-followup-browser welcome-followup-browser-executive">
+          <div class="welcome-followup-history-column">
+            <div class="welcome-followup-history-column-head">
+              <span class="status-chip neutral">Bitácora pastoral</span>
+              <strong>${escapeHtml(followupEventsLabel)}</strong>
+              <span>Selecciona un evento para ver su detalle completo.</span>
+            </div>
+
+            <div class="welcome-followup-history-list">
+              ${followups.map((followup, index) => `
               <button
                 class="welcome-followup-history-item ${String(selectedFollowup?.id || "") === String(followup.id || "") ? "is-active" : ""}"
                 type="button"
                 data-action="select-welcome-followup"
                 data-followup-id="${escapeHtml(followup.id || "")}"
               >
+                <span class="welcome-followup-history-item-top">
+                  <span class="status-chip neutral">Evento ${escapeHtml(String(index + 1))}</span>
+                  <span class="row-meta">${escapeHtml(formatDateTimeCompact_(followup.actionDate) || "-")}</span>
+                </span>
                 <span class="row-title">${escapeHtml(getWelcomeFollowupTypeLabel_(followup.actionType || "") || "Seguimiento")}</span>
-                <span class="row-meta">${escapeHtml(formatDateTimeCompact_(followup.actionDate) || "-")}</span>
-                <span class="row-meta">${escapeHtml(followup.result || "Sin resultado")}</span>
+                <span class="welcome-followup-history-item-result">${escapeHtml(followup.result || "Sin resultado registrado")}</span>
               </button>
-            `).join("")}
+              `).join("")}
+            </div>
           </div>
 
-          <div class="welcome-followup-history-detail">
+          <div class="welcome-followup-history-detail welcome-followup-history-card">
             ${selectedFollowup ? `
-              <div class="context-strip welcome-followup-context-strip">
-                <span class="context-item"><strong>Fecha:</strong> ${escapeHtml(formatDateTimeCompact_(selectedFollowup.actionDate) || "-")}</span>
-                <span class="context-item"><strong>Tipo:</strong> ${escapeHtml(getWelcomeFollowupTypeLabel_(selectedFollowup.actionType || "") || "Seguimiento")}</span>
-                <span class="context-item"><strong>Resultado:</strong> ${escapeHtml(selectedFollowup.result || "Sin resultado")}</span>
-                <span class="context-item"><strong>Próximo:</strong> ${escapeHtml(selectedFollowup.nextFollowUpDate ? formatDate(selectedFollowup.nextFollowUpDate) : "Sin fecha")}</span>
-                <span class="context-item"><strong>Responsable:</strong> ${escapeHtml(selectedFollowup.owner || "Sin responsable")}</span>
-                <span class="context-item"><strong>Usuario:</strong> ${escapeHtml(selectedFollowup.systemUserName || "Sin bitácora")}${selectedFollowup.systemUserEmail ? ` · ${escapeHtml(selectedFollowup.systemUserEmail)}` : ""}</span>
+              <div class="welcome-followup-history-card-head">
+                <div>
+                  <span class="status-chip dark">Detalle seleccionado</span>
+                  <h3>${escapeHtml(selectedFollowupTitle)}</h3>
+                  <p>${escapeHtml(selectedFollowupTypeLabel)} · ${escapeHtml(selectedFollowupTimestamp)}</p>
+                </div>
+                <span class="pill dark">Evento ${escapeHtml(String(selectedFollowupTimelineIndex))}</span>
               </div>
 
-              <div class="summary-box welcome-followup-detail-note">
+              <div class="welcome-followup-history-facts">
+                <article class="welcome-followup-history-fact">
+                  <span>Fecha del seguimiento</span>
+                  <strong>${escapeHtml(selectedFollowupTimestamp)}</strong>
+                  <small>${escapeHtml(selectedFollowupTypeLabel)}</small>
+                </article>
+                <article class="welcome-followup-history-fact">
+                  <span>Próximo contacto</span>
+                  <strong>${escapeHtml(selectedFollowup?.nextFollowUpDate ? formatDate(selectedFollowup.nextFollowUpDate) : "Sin fecha")}</strong>
+                  <small>${escapeHtml(selectedFollowup?.nextFollowUpDate ? "Fecha programada" : "No se definió fecha futura")}</small>
+                </article>
+                <article class="welcome-followup-history-fact">
+                  <span>Responsable</span>
+                  <strong>${escapeHtml(selectedFollowup.owner || "Sin responsable")}</strong>
+                  <small>${escapeHtml(selectedFollowup.systemUserName || "Sin bitácora de usuario")}</small>
+                </article>
+                <article class="welcome-followup-history-fact">
+                  <span>Resultado</span>
+                  <strong>${escapeHtml(selectedFollowup.result || "Sin resultado")}</strong>
+                  <small>${escapeHtml(selectedFollowup.systemUserEmail || "Sin correo de captura")}</small>
+                </article>
+              </div>
+
+              <div class="summary-box welcome-followup-detail-note welcome-followup-history-note">
                 <span class="status-chip neutral">Detalle del seguimiento</span>
                 <strong>${escapeHtml(selectedFollowup.notes || "Sin descripción registrada")}</strong>
                 <span>${escapeHtml(selectedFollowup.leaderAlertDetail || (selectedFollowup.leaderAlertStatus ? `Telegram: ${selectedFollowup.leaderAlertStatus}` : "Este evento no tiene aviso adicional."))}</span>
@@ -15691,7 +15753,9 @@ async function loadWelcomePeople_(options = {}) {
           backendRows = await apiGet("welcome.people.list", query);
         }
 
-        resolvedRows = Array.isArray(backendRows) ? backendRows.slice() : [];
+        resolvedRows = mergeWelcomePeopleSources_(backendRows, {
+          scope
+        });
       } else {
         backendRows = await apiGet("welcome.people.list", query);
         resolvedRows = mergeWelcomePeopleSources_(backendRows, {
@@ -15849,6 +15913,20 @@ function mergeWelcomePeopleSources_(backendRows, options = {}) {
   (Array.isArray(backendRows) ? backendRows : []).forEach((person) => {
     const id = String(person?.id || "").trim();
     const fallback = mergedById.get(id) || {};
+    const currentRow = getWelcomePersonById_(id) || {};
+    const mergedFollowupsCount = Math.max(
+      Number(person?.followupsCount || 0),
+      Number(fallback?.followupsCount || 0),
+      Number(currentRow?.followupsCount || 0),
+      getWelcomePastoralFollowupsCount_(currentRow)
+    );
+    const mergedTimelineCount = Math.max(
+      Number(person?.followupTimelineCount || 0),
+      Number(fallback?.followupTimelineCount || 0),
+      Number(currentRow?.followupTimelineCount || 0),
+      Number(currentRow?.followupsCount || 0),
+      getWelcomePastoralFollowupsCount_(currentRow)
+    );
 
     if (!id) {
       return;
@@ -15866,8 +15944,19 @@ function mergeWelcomePeopleSources_(backendRows, options = {}) {
       leaderContacts: Array.isArray(person?.leaderContacts) && person.leaderContacts.length ? person.leaderContacts : (fallback?.leaderContacts || []),
       leaderWhatsappUrl: String(person?.leaderWhatsappUrl || fallback?.leaderWhatsappUrl || "").trim(),
       leaderWhatsappUrls: Array.isArray(person?.leaderWhatsappUrls) && person.leaderWhatsappUrls.length ? person.leaderWhatsappUrls : (fallback?.leaderWhatsappUrls || []),
-      followupsCount: Number(person?.followupsCount || fallback?.followupsCount || 0),
-      followupTimelineCount: Number(person?.followupTimelineCount || fallback?.followupTimelineCount || 0),
+      lastContactAt: String(person?.lastContactAt || fallback?.lastContactAt || currentRow?.lastContactAt || "").trim(),
+      lastActionType: String(person?.lastActionType || fallback?.lastActionType || currentRow?.lastActionType || "").trim(),
+      lastFollowupResult: String(person?.lastFollowupResult || fallback?.lastFollowupResult || currentRow?.lastFollowupResult || "").trim(),
+      lastFollowupNotes: String(person?.lastFollowupNotes || fallback?.lastFollowupNotes || currentRow?.lastFollowupNotes || "").trim(),
+      nextFollowUpDate: String(
+        person?.nextFollowUpDate
+        || fallback?.nextFollowUpDate
+        || currentRow?.nextFollowUpDate
+        || currentRow?.proximoSeguimiento
+        || ""
+      ).trim(),
+      followupsCount: mergedFollowupsCount,
+      followupTimelineCount: mergedTimelineCount,
       prospectWorkflowStarted: Boolean(person?.prospectWorkflowStarted || fallback?.prospectWorkflowStarted),
       prospectAlertAt: String(person?.prospectAlertAt || fallback?.prospectAlertAt || "").trim(),
       prospectAlertStatus: String(person?.prospectAlertStatus || fallback?.prospectAlertStatus || "").trim(),
