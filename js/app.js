@@ -414,6 +414,8 @@ const pendingResourceLoads = {
   studentPortal: null
 };
 
+let peopleSourcesResyncTimer = 0;
+
 const qrScannerRuntime = {
   stream: null,
   detector: null,
@@ -15182,6 +15184,52 @@ async function refreshPeopleSources_() {
   ]);
 }
 
+function schedulePeopleSourcesResync_(options = {}) {
+  const shouldRefreshWelcome = options.refreshWelcome !== false;
+  const shouldRefreshProfile = options.refreshProfile !== false;
+  const selectedWelcomePersonId = String(options.personId || state.ui.selectedWelcomePersonId || "");
+
+  if (peopleSourcesResyncTimer) {
+    window.clearTimeout(peopleSourcesResyncTimer);
+  }
+
+  peopleSourcesResyncTimer = window.setTimeout(() => {
+    peopleSourcesResyncTimer = 0;
+
+    void (async () => {
+      try {
+        await refreshPeopleSources_();
+
+        if (shouldRefreshWelcome) {
+          invalidateWelcomeCache_();
+          await loadWelcomePeople_({
+            force: true,
+            showLoading: false
+          });
+        }
+
+        if (shouldRefreshProfile && selectedWelcomePersonId && state.ui.selectedWelcomePersonId === selectedWelcomePersonId) {
+          await loadWelcomeProfile_(selectedWelcomePersonId, {
+            force: true,
+            showLoading: false
+          });
+        }
+
+        if (
+          state.currentView === "congregants-new"
+          || state.currentView === "welcome-followup"
+          || state.currentView === "welcome-prospects"
+          || state.currentView === "assistants"
+        ) {
+          renderApp();
+        }
+      } catch (error) {
+        console.warn("No se pudo resincronizar Bienvenida en segundo plano.", error);
+      }
+    })();
+  }, 180);
+}
+
 function invalidateWelcomeCache_() {
   state.loaded.welcome = false;
   state.cacheKeys.welcomePeople = "";
@@ -16465,13 +16513,13 @@ async function saveAssistant(rawPayload) {
     systemUserName: rawPayload?.systemUserName || currentAuditUser.name,
     systemUserEmail: rawPayload?.systemUserEmail || currentAuditUser.email
   });
+  const isWelcomeWorkflow = payload.workflowOrigin === "welcome";
 
-  if (!state.loaded.peopleDirectory) {
+  if (!state.loaded.peopleDirectory && !isWelcomeWorkflow) {
     await loadPeopleDirectory();
   }
 
   const existing = findExistingPersonMatch_(payload);
-  const isWelcomeWorkflow = payload.workflowOrigin === "welcome";
   const isEditing = Boolean(payload.id);
   let savedPerson = null;
 
@@ -16486,18 +16534,12 @@ async function saveAssistant(rawPayload) {
 
   await withLoading(async () => {
     savedPerson = await apiPost("servers.save", payload);
-    await refreshPeopleSources_();
-    invalidateWelcomeCache_();
+    upsertPeopleDirectoryInState_(savedPerson);
+    upsertPeopleListInState_(savedPerson);
 
     if (isWelcomeWorkflow) {
       ensureCongregantsFilterIncludesDate_(savedPerson?.fechaIngreso || payload.fechaIngreso);
-      await loadWelcomePeople_({
-        force: true,
-        showLoading: false
-      });
-      if (savedPerson?.id && !state.welcomePeople.some((person) => String(person.id) === String(savedPerson.id))) {
-        upsertWelcomePersonInState_(savedPerson);
-      }
+      upsertWelcomePersonInState_(savedPerson);
       state.welcomeProfile = null;
       state.ui.selectedWelcomePersonId = "";
       state.ui.selectedWelcomeFollowupId = "";
@@ -16519,6 +16561,11 @@ async function saveAssistant(rawPayload) {
         : "La persona ya forma parte del padrón base del sistema."),
     "success"
   );
+
+  schedulePeopleSourcesResync_({
+    refreshWelcome: isWelcomeWorkflow,
+    refreshProfile: false
+  });
 
   return savedPerson;
 }
@@ -16690,6 +16737,45 @@ function buildWelcomePersonClientDto_(person) {
     prospectRegisteredInGroup: Boolean(person?.prospectRegisteredInGroup || (person?.prospectWorkflowStarted && person?.assignedInLatestSeason)),
     availableForAssignment: welcomeStatus === "PROSPECTO GP" && !person?.assignedInLatestSeason
   };
+}
+
+function buildPeopleListClientDto_(person) {
+  const normalizedPerson = person || {};
+  return {
+    id: String(normalizedPerson.id || "").trim(),
+    numero: String(normalizedPerson.numero || "").trim(),
+    name: String(normalizedPerson.nombreCompleto || [normalizedPerson.nombre, normalizedPerson.apellidos].filter(Boolean).join(" ") || normalizedPerson.id || "").trim(),
+    type: String(normalizedPerson.tipoPersona || "CONGREGANTE").trim(),
+    status: String(normalizedPerson.estado || "ACTIVO").trim(),
+    groupId: String(normalizedPerson.grupo || "").trim(),
+    welcomeStatus: getWelcomeLifecycleStatus_(normalizedPerson)
+  };
+}
+
+function upsertPeopleDirectoryInState_(person) {
+  const nextPerson = {
+    ...(person || {})
+  };
+  const nextId = String(nextPerson.id || "").trim();
+
+  if (!nextId || !state.loaded.peopleDirectory) {
+    return;
+  }
+
+  state.peopleDirectory = [nextPerson, ...state.peopleDirectory.filter((item) => String(item?.id || "").trim() !== nextId)];
+  state.metrics.directoryCount = state.peopleDirectory.length;
+}
+
+function upsertPeopleListInState_(person) {
+  const nextPerson = buildPeopleListClientDto_(person);
+  const nextId = String(nextPerson.id || "").trim();
+
+  if (!nextId || !state.loaded.people) {
+    return;
+  }
+
+  state.people = [nextPerson, ...state.people.filter((item) => String(item?.id || "").trim() !== nextId)];
+  state.metrics.peopleCount = state.people.length;
 }
 
 function upsertWelcomePersonInState_(person) {
@@ -20400,19 +20486,23 @@ function sanitizeAssistantPayload_(payload) {
 }
 
 function findExistingPersonMatch_(payload) {
+  const sourceRows = Array.from(new Map([
+    ...(Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []),
+    ...(Array.isArray(state.welcomePeople) ? state.welcomePeople : [])
+  ].map((person) => [String(person?.id || "").trim(), person])).values());
   const normalizedEmail = normalizeText(payload.email);
   const normalizedFullName = normalizeText(payload.nombreCompleto || [payload.nombre, payload.apellidos].join(" "));
   const normalizedPhone = normalizePhone_(payload.telefono);
 
   if (normalizedEmail) {
-    const emailMatch = state.peopleDirectory.find((person) => normalizeText(person.email) === normalizedEmail);
+    const emailMatch = sourceRows.find((person) => normalizeText(person.email) === normalizedEmail);
     if (emailMatch) {
       return emailMatch;
     }
   }
 
   if (normalizedFullName && normalizedPhone) {
-    return state.peopleDirectory.find((person) => (
+    return sourceRows.find((person) => (
       normalizeText(person.nombreCompleto || [person.nombre, person.apellidos].join(" ")) === normalizedFullName
       && normalizePhone_(person.telefono) === normalizedPhone
     )) || null;
