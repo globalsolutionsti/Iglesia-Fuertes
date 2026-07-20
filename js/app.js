@@ -3545,8 +3545,10 @@ function renderWelcomeFollowupView_() {
   const buckets = getWelcomeFollowupBuckets_();
   const rows = getWelcomeFollowupPeople_();
   const canDeleteScrap = canUseScrapDelete_();
-  const selectedProfile = state.welcomeProfile;
-  const selectedPerson = selectedProfile?.person || null;
+  const selectedProfile = state.welcomeProfile && String(state.welcomeProfile?.person?.id || "") === String(state.ui.selectedWelcomePersonId || "")
+    ? state.welcomeProfile
+    : null;
+  const selectedPerson = selectedProfile?.person || getWelcomePersonById_(state.ui.selectedWelcomePersonId) || null;
   const mode = state.ui.welcomeWorkbenchMode || "";
   const activeScope = String(state.filters.welcome.status || "ALL").toUpperCase();
   const selectedHealth = selectedPerson ? getWelcomeFollowupHealth_(selectedPerson) : null;
@@ -3826,6 +3828,43 @@ function getSelectedWelcomeFollowupRecord_(profile) {
   return followups.find((item) => String(item?.id || "") === selectedId) || followups[0] || null;
 }
 
+function openWelcomeWorkbench_(personId, mode, scope = "") {
+  const cleanPersonId = String(personId || "").trim();
+  const nextMode = String(mode || "").trim();
+  const nextScope = String(scope || "").trim().toUpperCase();
+  const currentProfilePersonId = String(state.welcomeProfile?.person?.id || "").trim();
+  const hasSameLoadedProfile = cleanPersonId && currentProfilePersonId === cleanPersonId;
+
+  if (!cleanPersonId) {
+    showToast("Persona no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
+    return;
+  }
+
+  if (nextScope) {
+    state.filters.welcome.status = nextScope;
+  }
+
+  state.currentView = "welcome-followup";
+  state.ui.editingWelcomeNewId = "";
+  state.ui.selectedWelcomePersonId = cleanPersonId;
+  state.ui.welcomeWorkbenchMode = nextMode;
+  state.ui.welcomeModal = null;
+
+  if (!hasSameLoadedProfile) {
+    state.welcomeProfile = null;
+    state.ui.selectedWelcomeFollowupId = "";
+  }
+
+  renderApp();
+  window.setTimeout(() => {
+    scrollToSection_("welcome-workbench");
+  }, 0);
+
+  if (!hasSameLoadedProfile || !state.loaded.welcome) {
+    loadViewDataInBackground_("welcome-followup");
+  }
+}
+
 function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode) {
   if (!selectedPerson || !mode) {
     return `
@@ -3854,6 +3893,36 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
   const selectedHealthTone = ["success", "warning", "danger", "dark", "neutral"].includes(String(selectedHealth?.tone || ""))
     ? String(selectedHealth?.tone || "")
     : "neutral";
+  const isProfileLoading = !selectedProfile || String(selectedProfile?.person?.id || "") !== String(selectedPerson.id || "");
+
+  if (isProfileLoading) {
+    return `
+      <div class="panel-head">
+        <div>
+          <h2>${mode === "history" ? "Seguimientos del asistente" : (Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Registrar primer seguimiento")}</h2>
+          <p>Estamos abriendo el expediente completo para que Bienvenida siga trabajando sin salir del módulo.</p>
+        </div>
+        <span class="pill dark">Cargando</span>
+      </div>
+
+      <div class="summary-stack">
+        <div class="summary-box">
+          <span class="status-chip neutral">Persona</span>
+          <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
+          <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
+        </div>
+        <div class="summary-box">
+          <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
+          <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
+          <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto programado")}</span>
+        </div>
+      </div>
+
+      ${switchActions}
+
+      <div class="empty-state" style="margin-top: 18px;">Cargando expediente y bitácora del asistente...</div>
+    `;
+  }
 
   if (mode === "history") {
     return `
@@ -13258,17 +13327,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-followup") {
-      if (state.currentView !== "welcome-followup") {
-        state.filters.welcome.status = "SIN_SEGUIMIENTO";
-      }
-      await loadWelcomeProfile_(button.dataset.personId || "", {
-        force: true,
-        showLoading: false
-      });
-      state.ui.welcomeWorkbenchMode = "followup";
-      state.ui.welcomeModal = null;
-      renderApp();
-      scrollToSection_("welcome-workbench");
+      openWelcomeWorkbench_(button.dataset.personId || "", "followup", "SIN_SEGUIMIENTO");
       return;
     }
 
@@ -13298,17 +13357,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-history") {
-      if (state.currentView !== "welcome-followup") {
-        state.filters.welcome.status = "CON_SEGUIMIENTO";
-      }
-      await loadWelcomeProfile_(button.dataset.personId || "", {
-        force: true,
-        showLoading: false
-      });
-      state.ui.welcomeWorkbenchMode = "history";
-      state.ui.welcomeModal = null;
-      renderApp();
-      scrollToSection_("welcome-workbench");
+      openWelcomeWorkbench_(button.dataset.personId || "", "history", "CON_SEGUIMIENTO");
       return;
     }
 
@@ -13345,20 +13394,7 @@ async function handleClick(event) {
     }
 
     if (action === "open-welcome-profile") {
-      state.filters.welcome.status = "SIN_SEGUIMIENTO";
-      await loadWelcomeProfile_(button.dataset.personId || "", {
-        force: true,
-        showLoading: false
-      });
-
-      if (state.currentView === "congregants-new") {
-        state.ui.editingWelcomeNewId = "";
-        state.currentView = "welcome-followup";
-        state.ui.welcomeWorkbenchMode = "followup";
-      }
-
-      renderApp();
-      scrollToSection_("welcome-workbench");
+      openWelcomeWorkbench_(button.dataset.personId || "", "followup", "SIN_SEGUIMIENTO");
       return;
     }
 
