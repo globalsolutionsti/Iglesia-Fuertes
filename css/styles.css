@@ -2184,34 +2184,91 @@ div {
 }
 
 .welcome-followup-layout.has-side {
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.95fr);
+  gap: 20px;
 }
 
 .welcome-followup-list-card table {
+  min-width: 0;
   table-layout: fixed;
+  font-size: 13px;
+}
+
+.welcome-followup-list-card th,
+.welcome-followup-list-card td {
+  padding: 11px 12px;
+}
+
+.welcome-followup-list-card th:nth-child(1),
+.welcome-followup-list-card td:nth-child(1) {
+  width: 27%;
+}
+
+.welcome-followup-list-card th:nth-child(2),
+.welcome-followup-list-card td:nth-child(2) {
+  width: 18%;
+}
+
+.welcome-followup-list-card th:nth-child(3),
+.welcome-followup-list-card td:nth-child(3) {
+  width: 19%;
 }
 
 .welcome-followup-list-card td:last-child {
-  width: 250px;
+  width: 148px;
+}
+
+.welcome-followup-list-card .row-title {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.welcome-followup-list-card .row-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .btn.btn-compact {
-  min-height: 38px;
-  padding: 0 12px;
+  min-height: 36px;
+  padding: 0 11px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: -0.01em;
 }
 
 .welcome-followup-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
-  min-width: 220px;
+  min-width: 118px;
 }
 
 .welcome-followup-actions .btn {
   width: 100%;
+}
+
+.welcome-followup-switch-actions .btn {
+  min-height: 42px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.welcome-followup-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.welcome-followup-summary-grid.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.welcome-followup-form-panel .panel-head h2,
+.welcome-followup-side-panel .panel-head h2,
+.welcome-followup-helper-card .panel-head h2 {
+  font-size: 26px;
+  line-height: 1.04;
 }
 
 .welcome-followup-form-panel,
@@ -2220,9 +2277,80 @@ div {
   scroll-margin-top: 100px;
 }
 
+.welcome-followup-form-panel .summary-box,
+.welcome-followup-side-panel .summary-box,
+.welcome-followup-helper-card .summary-box {
+  padding: 16px;
+}
+
 .welcome-followup-form-panel .summary-stack,
 .welcome-followup-side-panel .summary-stack {
   gap: 14px;
+}
+
+.welcome-followup-form-panel .summary-box strong,
+.welcome-followup-side-panel .summary-box strong,
+.welcome-followup-helper-card .summary-box strong {
+  margin-top: 7px;
+  font-size: 18px;
+  line-height: 1.16;
+  letter-spacing: -0.03em;
+}
+
+.welcome-followup-form-panel .summary-box span:not(.status-chip),
+.welcome-followup-side-panel .summary-box span:not(.status-chip),
+.welcome-followup-helper-card .summary-box span:not(.status-chip) {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.welcome-followup-history-item .row-title {
+  font-size: 15px;
+  line-height: 1.18;
+}
+
+.welcome-followup-history-item .row-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.welcome-followup-browser {
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.welcome-followup-history-list {
+  align-content: start;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.welcome-followup-history-detail {
+  gap: 12px;
+}
+
+.welcome-followup-history-item {
+  padding: 12px 14px;
+  gap: 3px;
+}
+
+.welcome-followup-history-detail .summary-box strong {
+  font-size: 18px;
+  line-height: 1.18;
+}
+
+.welcome-followup-detail-note strong {
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+.welcome-followup-history-detail .summary-box strong {
+  font-size: 17px;
+  line-height: 1.14;
 }
 
 .quick-actions {
@@ -5608,6 +5736,11 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .welcome-followup-summary-grid,
+  .welcome-followup-summary-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
   .welcome-followup-side-panel,
   .welcome-followup-form-panel,
   .welcome-followup-helper-card {
@@ -5651,6 +5784,13 @@ tbody tr:hover {
 }
 
 @media (max-width: 640px) {
+  .welcome-followup-list-card,
+  .welcome-followup-form-panel,
+  .welcome-followup-side-panel,
+  .welcome-followup-helper-card {
+    border-radius: 22px;
+  }
+
   .welcome-followup-list-card thead {
     display: none;
   }
@@ -5676,10 +5816,10 @@ tbody tr:hover {
 
   .welcome-followup-list-card tr {
     border: 1px solid var(--line);
-    border-radius: 20px;
+    border-radius: 18px;
     background: var(--white);
     box-shadow: var(--shadow-sm);
-    padding: 16px;
+    padding: 12px;
   }
 
   .welcome-followup-list-card td {
@@ -5695,7 +5835,7 @@ tbody tr:hover {
 
   .welcome-followup-list-card td::before {
     content: attr(data-label);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -5707,20 +5847,87 @@ tbody tr:hover {
   }
 
   .welcome-followup-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     min-width: 0;
   }
 
   .welcome-followup-actions .btn {
+    min-height: 36px;
+    font-size: 11px;
+    padding: 0 9px;
+  }
+
+  .welcome-followup-switch-actions {
+    gap: 10px;
+  }
+
+  .welcome-followup-switch-actions .btn {
     min-height: 40px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .welcome-followup-form-panel .panel-head h2,
+  .welcome-followup-side-panel .panel-head h2,
+  .welcome-followup-helper-card .panel-head h2 {
+    font-size: 21px;
+  }
+
+  .welcome-followup-form-panel .summary-box,
+  .welcome-followup-side-panel .summary-box,
+  .welcome-followup-helper-card .summary-box {
+    padding: 13px;
+  }
+
+  .welcome-followup-form-panel .summary-box strong,
+  .welcome-followup-side-panel .summary-box strong,
+  .welcome-followup-helper-card .summary-box strong,
+  .welcome-followup-history-detail .summary-box strong {
+    font-size: 14px;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+  }
+
+  .welcome-followup-form-panel .summary-box span:not(.status-chip),
+  .welcome-followup-side-panel .summary-box span:not(.status-chip),
+  .welcome-followup-helper-card .summary-box span:not(.status-chip) {
+    font-size: 11px;
+  }
+
+  .welcome-followup-history-item .row-title {
+    font-size: 13px;
+  }
+
+  .welcome-followup-history-item .row-meta {
+    font-size: 11px;
+  }
+
+  .welcome-followup-date-cell .pill,
+  .welcome-followup-date-cell .welcome-inline-link {
+    font-size: 13px;
   }
 
   .welcome-followup-history-item {
-    padding: 13px 14px;
+    padding: 12px;
     border-radius: 16px;
   }
 
   .welcome-inline-link {
-    font-size: 15px;
+    font-size: 13px;
+  }
+
+  .welcome-followup-browser {
+    gap: 12px;
+  }
+
+  .welcome-followup-history-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .welcome-followup-detail-note strong {
+    font-size: 14px;
   }
 
   .student-portal-head,
