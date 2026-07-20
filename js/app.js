@@ -1515,7 +1515,15 @@ function getWelcomeProspectModalState_() {
     return null;
   }
 
-  const groupId = String(modal.groupId || sourcePerson.suggestedGroupId || "").trim();
+  const shouldPreserveSavedGroup = String(sourcePerson?.welcomeStatus || "").toUpperCase() === "PROSPECTO GP"
+    || Boolean(sourcePerson?.prospectWorkflowStarted)
+    || Boolean(sourcePerson?.prospectPendingGroupFollowup)
+    || Boolean(sourcePerson?.prospectRegisteredInGroup);
+  const groupId = String(
+    modal.groupId !== undefined
+      ? modal.groupId
+      : (shouldPreserveSavedGroup ? sourcePerson.suggestedGroupId : "")
+  ).trim();
   const suggestedAt = String(modal.suggestedAt || formatDateForInput_(new Date()) || "").trim();
   const notes = modal.notes !== undefined
     ? String(modal.notes || "")
@@ -13734,7 +13742,14 @@ async function handleClick(event) {
       state.ui.welcomeModal = {
         kind: "prospect",
         personId,
-        groupId: String(person?.suggestedGroupId || ""),
+        groupId: String(
+          String(person?.welcomeStatus || "").toUpperCase() === "PROSPECTO GP"
+          || person?.prospectWorkflowStarted
+          || person?.prospectPendingGroupFollowup
+          || person?.prospectRegisteredInGroup
+            ? (person?.suggestedGroupId || "")
+            : ""
+        ),
         suggestedAt: formatDateForInput_(
           person?.prospectAlertAt
             ? person.prospectAlertAt
