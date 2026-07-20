@@ -1534,7 +1534,13 @@ function getWelcomeProspectModalState_() {
     : String(sourcePerson.lastFollowupNotes || sourcePerson.notasBienvenida || "");
   const previewPerson = buildWelcomePersonClientDto_({
     ...sourcePerson,
-    suggestedGroupId: groupId
+    suggestedGroupId: groupId,
+    grupoSugerido: groupId,
+    suggestedGroupName: groupId ? sourcePerson.suggestedGroupName : "",
+    leader: groupId ? sourcePerson.leader : null,
+    leaderContacts: groupId ? sourcePerson.leaderContacts : [],
+    leaderWhatsappUrl: groupId ? sourcePerson.leaderWhatsappUrl : "",
+    leaderWhatsappUrls: groupId ? sourcePerson.leaderWhatsappUrls : []
   });
   const group = state.catalogs.groups.find((item) => String(item.id) === groupId) || null;
   const leaderTargets = buildWelcomeProspectLeaderWhatsappTargets_(previewPerson, group, suggestedAt, notes);
