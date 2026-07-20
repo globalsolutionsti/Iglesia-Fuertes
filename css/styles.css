@@ -2111,6 +2111,74 @@ div {
   gap: 10px;
 }
 
+.welcome-followup-date-cell {
+  display: grid;
+  gap: 8px;
+}
+
+.welcome-inline-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: var(--text-main);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.welcome-inline-link:hover {
+  color: var(--surface-dark);
+  text-decoration: underline;
+}
+
+.welcome-followup-browser {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.welcome-followup-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.welcome-followup-history-item {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fafafa;
+  border-radius: 18px;
+  padding: 14px 16px;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.welcome-followup-history-item:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+  background: #ffffff;
+}
+
+.welcome-followup-history-item.is-active {
+  border-color: rgba(17, 17, 17, 0.18);
+  background: rgba(17, 17, 17, 0.04);
+  box-shadow: var(--shadow-sm);
+}
+
+.welcome-followup-history-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.welcome-followup-detail-note {
+  margin-top: 2px;
+}
+
 .quick-actions {
   display: grid;
   gap: 12px;
@@ -2310,6 +2378,22 @@ tbody tr:hover {
 
 .welcome-new-row-overdue:hover td {
   background: rgba(174, 42, 42, 0.12);
+}
+
+.welcome-prospect-row-pending td {
+  background: rgba(39, 114, 186, 0.08);
+}
+
+.welcome-prospect-row-pending:hover td {
+  background: rgba(39, 114, 186, 0.12);
+}
+
+.welcome-prospect-row-registered td {
+  background: rgba(31, 122, 67, 0.08);
+}
+
+.welcome-prospect-row-registered:hover td {
+  background: rgba(31, 122, 67, 0.12);
 }
 
 .row-title {
@@ -5474,6 +5558,15 @@ tbody tr:hover {
 }
 
 @media (max-width: 960px) {
+  .welcome-followup-browser {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome-followup-history-list,
+  .welcome-followup-history-detail {
+    width: 100%;
+  }
+
   .login-mode-switch {
     flex-direction: column;
   }
@@ -5502,6 +5595,15 @@ tbody tr:hover {
 }
 
 @media (max-width: 640px) {
+  .welcome-followup-history-item {
+    padding: 13px 14px;
+    border-radius: 16px;
+  }
+
+  .welcome-inline-link {
+    font-size: 15px;
+  }
+
   .student-portal-head,
   .student-stage-hero,
   .student-account-card,
