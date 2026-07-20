@@ -2062,6 +2062,55 @@ div {
   font-weight: 700;
 }
 
+.welcome-followup-stats-grid {
+  align-items: stretch;
+}
+
+.welcome-followup-scope-card {
+  width: 100%;
+  display: block;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  appearance: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.welcome-followup-scope-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.welcome-followup-scope-card.is-active {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.welcome-followup-scope-card.tone-warning.is-active {
+  border-color: rgba(172, 107, 0, 0.28);
+}
+
+.welcome-followup-scope-card.tone-success.is-active {
+  border-color: rgba(31, 122, 67, 0.24);
+}
+
+.welcome-followup-scope-card.tone-danger.is-active {
+  border-color: rgba(174, 42, 42, 0.24);
+}
+
+.welcome-followup-scope-card.tone-neutral.is-active,
+.welcome-followup-scope-card.tone-dark.is-active {
+  border-color: rgba(17, 17, 17, 0.18);
+}
+
+.welcome-followup-scope-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .quick-actions {
   display: grid;
   gap: 12px;
