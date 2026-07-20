@@ -1386,6 +1386,108 @@ function renderSystemConfirmationDialog_() {
 }
 
 function renderWelcomeActionModal_() {
+  const activeModal = state.ui.welcomeModal;
+
+  if (!activeModal) {
+    return "";
+  }
+
+  if (activeModal.kind === "prospect-feedback") {
+    const feedbackState = getWelcomeProspectFeedbackModalState_();
+
+    if (!feedbackState) {
+      return "";
+    }
+
+    const {
+      person,
+      group,
+      actionDate,
+      notes,
+      leaderTargets,
+      selectedTargetIndex,
+      selectedTarget
+    } = feedbackState;
+    const workflow = getWelcomeProspectWorkflowState_(person);
+    const hasTargets = leaderTargets.length > 0;
+
+    return `
+      <div class="system-modal-backdrop">
+        <section class="system-modal-card welcome-prospect-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-feedback-modal-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="welcome-feedback-modal-title">WhatsApp interno al líder</h2>
+              <p>Registra la retroalimentación de Bienvenida en la bitácora y abre WhatsApp listo para contactar al liderazgo del grupo.</p>
+            </div>
+            <span class="pill dark">${escapeHtml(workflow.stage === "PENDING" ? "Pendiente por registrar" : workflow.label)}</span>
+          </div>
+
+          <div class="summary-stack welcome-prospect-modal-summary" style="margin-bottom: 16px;">
+            <div class="summary-box welcome-prospect-summary-box">
+              <span class="status-chip neutral">Prospecto</span>
+              <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</strong>
+              <span>${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+            </div>
+            <div class="summary-box welcome-prospect-summary-box">
+              <span class="status-chip neutral">Grupo actual</span>
+              <strong>${escapeHtml(group?.name || person.suggestedGroupName || "Sin grupo asignado")}</strong>
+              <span>${escapeHtml(getWelcomeLeaderContactSummary_(person))}</span>
+            </div>
+            <div class="summary-box welcome-prospect-summary-box">
+              <span class="status-chip neutral">Último aviso</span>
+              <strong>${escapeHtml(formatDate(person.prospectAlertAt) || "Sin fecha")}</strong>
+              <span>${escapeHtml(person.prospectAlertStatus || "Telegram pendiente o no registrado")}</span>
+            </div>
+            <div class="summary-box welcome-prospect-summary-box">
+              <span class="status-chip ${escapeHtml(hasTargets ? "success" : "warning")}">Canal interno</span>
+              <strong>${escapeHtml(hasTargets ? "WhatsApp disponible" : "Falta WhatsApp líder")}</strong>
+              <span>${escapeHtml(hasTargets
+                ? (selectedTarget ? `${selectedTarget.name || "Líder"}${selectedTarget.phone ? ` · ${selectedTarget.phone}` : ""}` : "Selecciona destinatario")
+                : "Configura al menos un teléfono de líder en Catálogos para usar este canal.")}</span>
+            </div>
+          </div>
+
+          <form id="welcome-prospect-feedback-form">
+            <input type="hidden" name="personId" value="${escapeHtml(person.id || "")}">
+            <div class="field-grid two">
+              <div class="field">
+                <label for="welcome-prospect-feedback-date">Fecha de contacto interno</label>
+                <input id="welcome-prospect-feedback-date" name="actionDate" type="date" value="${escapeHtml(actionDate)}">
+              </div>
+              <div class="field">
+                <label for="welcome-prospect-feedback-target">Enviar a</label>
+                <select id="welcome-prospect-feedback-target" name="targetIndex" ${hasTargets ? "" : "disabled"}>
+                  ${leaderTargets.length
+                    ? leaderTargets.map((target, index) => `
+                      <option value="${escapeHtml(String(index))}" ${index === selectedTargetIndex ? "selected" : ""}>
+                        ${escapeHtml(target.name || `Líder ${index + 1}`)}${target.phone ? ` · ${escapeHtml(target.phone)}` : ""}
+                      </option>
+                    `).join("")
+                    : `<option value="0" selected>Sin líderes con WhatsApp</option>`}
+                </select>
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="welcome-prospect-feedback-notes">Mensaje interno de Bienvenida</label>
+                <textarea id="welcome-prospect-feedback-notes" name="notes" rows="4" placeholder="Ejemplo: El prospecto sí respondió, pero todavía no confirma si asistirá al grupo este viernes.">${escapeHtml(notes)}</textarea>
+              </div>
+            </div>
+
+            <div class="summary-box welcome-prospect-fallback-box tone-neutral" style="margin-top: 18px;">
+              <span class="status-chip neutral">Bitácora pastoral</span>
+              <strong>Este contacto también quedará guardado</strong>
+              <span>Se registra quién lo envió, la fecha y el contexto compartido entre Bienvenida y Grupos de Conexión.</span>
+            </div>
+
+            <div class="actions-row welcome-prospect-modal-actions" style="margin-top: 18px;">
+              <button class="btn btn-primary" type="submit" ${hasTargets ? "" : "disabled"}>Guardar y abrir WhatsApp</button>
+              <button class="btn btn-ghost" type="button" data-action="close-welcome-modal">Cerrar</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    `;
+  }
+
   const modalState = getWelcomeProspectModalState_();
 
   if (!modalState) {
@@ -1556,6 +1658,48 @@ function getWelcomeProspectModalState_() {
   };
 }
 
+function getWelcomeProspectFeedbackModalState_() {
+  const modal = state.ui.welcomeModal;
+
+  if (!modal || modal.kind !== "prospect-feedback") {
+    return null;
+  }
+
+  const sourcePerson = getWelcomePersonById_(modal.personId);
+
+  if (!sourcePerson) {
+    return null;
+  }
+
+  const groupId = String(sourcePerson?.suggestedGroupId || sourcePerson?.assignedGroupId || "").trim();
+  const previewPerson = buildWelcomePersonClientDto_({
+    ...sourcePerson,
+    suggestedGroupId: groupId,
+    grupoSugerido: groupId
+  });
+  const group = state.catalogs.groups.find((item) => String(item.id) === groupId) || null;
+  const actionDate = String(modal.actionDate || formatDateForInput_(new Date()) || "").trim();
+  const notes = modal.notes !== undefined
+    ? String(modal.notes || "")
+    : "";
+  const leaderTargets = buildWelcomeProspectLeaderFeedbackWhatsappTargets_(previewPerson, group, actionDate, notes);
+  const normalizedTargetIndex = leaderTargets.length
+    ? Math.min(Math.max(Number(modal.targetIndex || 0), 0), leaderTargets.length - 1)
+    : 0;
+
+  return {
+    modal,
+    person: previewPerson,
+    groupId,
+    group,
+    actionDate,
+    notes,
+    leaderTargets,
+    selectedTargetIndex: normalizedTargetIndex,
+    selectedTarget: leaderTargets[normalizedTargetIndex] || null
+  };
+}
+
 function getWelcomeProspectTelegramUiState_(person, workflow, modal) {
   const notification = modal?.notification || null;
   const status = String(notification?.status || person?.prospectAlertStatus || "").trim().toUpperCase();
@@ -1661,6 +1805,72 @@ function buildWelcomeProspectLeaderWhatsappText_(person, groupName, suggestedAt,
 
   lines.push("", "Por favor contáctalo y cuando quede integrado realiza su registro en Grupos de Conexión.");
   return lines.join("\n");
+}
+
+function buildWelcomeProspectLeaderFeedbackWhatsappTargets_(person, group, actionDate, notes) {
+  const groupId = String(group?.id || person?.suggestedGroupId || "").trim();
+  const groupName = String(group?.name || person?.suggestedGroupName || "").trim();
+  const contacts = buildWelcomeLeaderContactsFromGroup_(groupId);
+
+  return contacts
+    .map((contact) => {
+      const phone = normalizeWhatsappPhone_(contact.phone);
+
+      if (!phone) {
+        return null;
+      }
+
+      return {
+        name: String(contact.name || "Líder").trim(),
+        phone: String(contact.phone || "").trim(),
+        url: `https://wa.me/${phone}?text=${encodeURIComponent(buildWelcomeProspectLeaderFeedbackWhatsappText_(person, groupName, actionDate, notes, contact.name))}`
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildWelcomeProspectLeaderFeedbackWhatsappText_(person, groupName, actionDate, notes, leaderName) {
+  const lines = [
+    `Hola ${String(leaderName || "líder").trim()},`,
+    "",
+    "Te escribimos desde Bienvenida para dar seguimiento interno a este prospecto de Grupos de Conexión.",
+    "",
+    `Nombre: ${person?.nombreCompleto || person?.nombre || "Sin nombre"}`,
+    `Teléfono: ${person?.telefono || "Sin teléfono"}`,
+    `Grupo de conexión sugerido: ${groupName || "Sin grupo"}`,
+    `Fecha de retroalimentación: ${formatDate(actionDate) || actionDate || "Sin fecha"}`
+  ];
+
+  if (notes) {
+    lines.push(`Contexto de Bienvenida: ${notes}`);
+  }
+
+  lines.push(
+    "",
+    "¿Nos apoyas confirmando si ya hubo contacto, cómo va el seguimiento y si sigue pendiente el registro en el grupo?"
+  );
+
+  return lines.join("\n");
+}
+
+function buildWelcomeProspectLeaderFeedbackRecordNote_(person, groupName, actionDate, leaderName, notes) {
+  const summary = [
+    `Bienvenida preparó WhatsApp interno para ${leaderName || "líder pendiente"}.`,
+    `Grupo: ${groupName || "Sin grupo"}.`,
+    `Fecha: ${formatDate(actionDate) || actionDate || "Sin fecha"}.`
+  ];
+
+  if (person?.telefono) {
+    summary.push(`Teléfono del prospecto: ${person.telefono}.`);
+  }
+
+  summary.push("Solicitud: confirmar contacto y avance del registro en Grupos de Conexión.");
+
+  if (notes) {
+    summary.push(`Contexto enviado: ${notes}`);
+  }
+
+  return summary.join(" ");
 }
 
 function renderWelcomeProspectLeaderButtons_(targets) {
@@ -4488,11 +4698,15 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
 
 function renderWelcomeProspectsView_() {
   const rows = getWelcomeProspectPeople_();
+  const allRows = getWelcomeProspectPeople_({
+    includeRegistered: true
+  });
   const canDeleteScrap = canUseScrapDelete_();
   const readyCount = rows.filter((row) => getWelcomeProspectWorkflowState_(row).stage === "READY").length;
   const pendingCount = rows.filter((row) => getWelcomeProspectWorkflowState_(row).stage === "PENDING").length;
-  const registeredCount = rows.filter((row) => getWelcomeProspectWorkflowState_(row).stage === "REGISTERED").length;
+  const registeredCount = allRows.filter((row) => getWelcomeProspectWorkflowState_(row).stage === "REGISTERED").length;
   const withGroupCount = rows.filter((row) => row.suggestedGroupId).length;
+  const feedbackCount = rows.filter((row) => Number(row.leaderFeedbackCount || 0) > 0).length;
 
   return `
     <section class="view-grid">
@@ -4500,15 +4714,15 @@ function renderWelcomeProspectsView_() {
         tone: "assistants",
         eyebrow: "Ministerio de Bienvenida",
         title: "Prospectos para grupos de conexión",
-        copy: "Aquí decides qué nuevos pasan a Prospecto GC, eliges su grupo correcto y dejas el aviso silencioso por Telegram al líder correspondiente.",
+        copy: "Aquí ves solamente los casos que todavía siguen pendientes de registro en grupo, conviertes a PGC y mantienes la retroalimentación interna con el liderazgo.",
         badge: {
-          label: rows.length ? `${pendingCount} pendientes y ${registeredCount} registrados` : "Sin pendientes",
+          label: rows.length ? `${pendingCount} pendientes por registrar` : "Sin pendientes",
           kind: pendingCount ? "warning" : "success"
         },
         metrics: [
           { label: "Listos", value: String(readyCount) },
           { label: "Pendientes", value: String(pendingCount) },
-          { label: "Registrados", value: String(registeredCount) },
+          { label: "Canal interno", value: String(feedbackCount) },
           { label: "Con grupo", value: String(withGroupCount) },
           { label: "Con líder", value: String(rows.filter((row) => hasWelcomeLeaderContact_(row)).length) }
         ],
@@ -4532,59 +4746,65 @@ function renderWelcomeProspectsView_() {
         <article class="stat-card">
           <span class="status-chip success">Registrados en grupo</span>
           <strong>${escapeHtml(String(registeredCount))}</strong>
-          <span>Bienvenida ya puede verlos como casos concluidos dentro del flujo de grupos.</span>
+          <span>Ya no aparecen en este listado porque el líder completó su registro en grupo.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip neutral">Con grupo sugerido</span>
-          <strong>${escapeHtml(String(withGroupCount))}</strong>
-          <span>La sugerencia pastoral ya quedó lista para no frenar la operación.</span>
+          <span class="status-chip neutral">WhatsApp interno</span>
+          <strong>${escapeHtml(String(feedbackCount))}</strong>
+          <span>Casos donde Bienvenida ya dejó al menos una retroalimentación al líder.</span>
         </article>
       </div>
 
-      <div class="view-grid columns-2">
-        <article class="detail-card">
-          <div class="panel-head">
-            <div>
-              <h2>Listado de prospectos</h2>
-              <p>Abre cada persona para elegir el grupo correcto, transformar a Prospecto GC y dejar el aviso automático por Telegram al líder.</p>
-            </div>
-            <span class="pill dark">${escapeHtml(String(rows.length))} casos</span>
+      <article class="detail-card">
+        <div class="panel-head">
+          <div>
+            <h2>Listado de prospectos</h2>
+            <p>Se muestran solo los casos que siguen pendientes por registrar en grupo. Desde aquí puedes convertirlos a PGC o abrir el canal interno con el líder.</p>
           </div>
+          <span class="pill dark">${escapeHtml(String(rows.length))} casos</span>
+        </div>
 
-          <div class="field-grid two">
-            <div class="field">
-              <label for="welcome-search">Buscar</label>
-              <input id="welcome-search" value="${escapeHtml(state.filters.welcome.search)}" placeholder="Nombre, teléfono, QR ID o grupo">
-            </div>
-            <div class="field">
-              <label for="welcome-group">Grupo sugerido</label>
-              <select id="welcome-group">
-                ${renderOptions(
-                  state.catalogs.groups.map((group) => ({
-                    value: String(group.id),
-                    label: `${group.name} (${group.id})`
-                  })),
-                  state.filters.welcome.groupId,
-                  "Todos los grupos"
-                )}
-              </select>
-            </div>
+        <div class="field-grid two">
+          <div class="field">
+            <label for="welcome-search">Buscar</label>
+            <input id="welcome-search" value="${escapeHtml(state.filters.welcome.search)}" placeholder="Nombre, teléfono, QR ID o grupo">
           </div>
+          <div class="field">
+            <label for="welcome-group">Grupo sugerido</label>
+            <select id="welcome-group">
+              ${renderOptions(
+                state.catalogs.groups.map((group) => ({
+                  value: String(group.id),
+                  label: `${group.name} (${group.id})`
+                })),
+                state.filters.welcome.groupId,
+                "Todos los grupos"
+              )}
+            </select>
+          </div>
+        </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Congregante</th>
-                  <th>Grupo sugerido</th>
-                  <th>Pendiente seguimiento de Grupos de Conexión</th>
-                  <th>Fecha aviso al líder</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rows.length ? rows.map((row) => `
-                  <tr class="${escapeHtml(getWelcomeProspectWorkflowState_(row).rowClass)}">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Congregante</th>
+                <th>Grupo sugerido</th>
+                <th>Estado operativo</th>
+                <th>Aviso al líder</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map((row) => {
+                const workflow = getWelcomeProspectWorkflowState_(row);
+                const canSendLeaderWhatsapp = workflow.stage === "PENDING" && getWelcomeLeaderWhatsappTargets_(row).length > 0;
+                const feedbackMeta = Number(row.leaderFeedbackCount || 0) > 0
+                  ? `WhatsApp interno: ${formatDate(row.lastLeaderFeedbackAt) || "Sin fecha"}${row.lastLeaderFeedbackBy ? ` · ${row.lastLeaderFeedbackBy}` : ""}`
+                  : "Sin retroalimentación interna todavía";
+
+                return `
+                  <tr class="${escapeHtml(workflow.rowClass)}">
                     <td>
                       <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
                       <span class="row-meta">${escapeHtml(row.telefono || "Sin teléfono")} | ${escapeHtml(row.numero || "-")}</span>
@@ -4598,61 +4818,31 @@ function renderWelcomeProspectsView_() {
                     <td>
                       ${renderWorkflowStatusPill_(row.welcomeStatus)}
                       ${renderWelcomePendingRegistrationPill_(row)}
-                      <span class="row-meta">${escapeHtml(getWelcomeProspectWorkflowState_(row).detail)}</span>
+                      <span class="row-meta">${escapeHtml(workflow.detail)}</span>
                     </td>
                     <td>
-                      <span class="row-title">${escapeHtml(formatDate(getWelcomeProspectWorkflowState_(row).alertAt) || "Sin aviso")}</span>
-                      <span class="row-meta">${escapeHtml(getWelcomeProspectWorkflowState_(row).alertStatus || "Telegram pendiente o no requerido todavía")}</span>
+                      <span class="row-title">${escapeHtml(formatDate(workflow.alertAt) || "Sin aviso")}</span>
+                      <span class="row-meta">${escapeHtml(workflow.alertStatus || "Telegram pendiente o no requerido todavía")}</span>
+                      <span class="row-meta">${escapeHtml(feedbackMeta)}</span>
                     </td>
                     <td>
                       <div class="inline-actions">
-                        <button class="btn btn-primary" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${escapeHtml(getWelcomeProspectWorkflowState_(row).stage === "READY" ? "Convertir a PGC" : "Gestionar")}</button>
-                        ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-prospects">Eliminar scrap</button>` : ""}
+                        <button class="btn btn-primary btn-compact" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${escapeHtml(workflow.stage === "READY" ? "Convertir a PGC" : "Gestionar")}</button>
+                        <button class="btn btn-secondary btn-compact" data-action="open-welcome-prospect-feedback-modal" data-person-id="${escapeHtml(row.id || "")}" ${canSendLeaderWhatsapp ? "" : "disabled"}>WhatsApp líder</button>
+                        ${canDeleteScrap ? `<button class="btn btn-danger btn-compact" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-prospects">Eliminar scrap</button>` : ""}
                       </div>
                     </td>
                   </tr>
-                `).join("") : `
-                  <tr>
-                    <td colspan="5"><div class="empty-state">No hay personas disponibles en esta ficha con los filtros actuales.</div></td>
-                  </tr>
-                `}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article class="panel-card">
-          <div class="panel-head">
-            <div>
-              <h2>Cómo operar Prospectos</h2>
-              <p>El flujo ideal es muy corto para evitar cuellos de botella en Bienvenida.</p>
-            </div>
-            <span class="pill dark">Flujo simple</span>
-          </div>
-
-          <div class="summary-stack">
-            <div class="summary-box">
-              <span class="status-chip neutral">Paso 1</span>
-              <strong>Abrir persona</strong>
-              <span>Usa el botón <strong>Gestionar</strong> o <strong>Convertir a PGC</strong> desde el listado.</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip neutral">Paso 2</span>
-              <strong>Asignar grupo</strong>
-              <span>Dentro del modal selecciona el grupo de conexión sugerido y guarda el prospecto.</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip neutral">Paso 3</span>
-              <strong>Avisar al líder</strong>
-              <span>Al guardar se intenta el Telegram silencioso y, si quieres, también puedes abrir el WhatsApp listo para enviar.</span>
-            </div>
-          </div>
-
-          <div class="actions-row" style="margin-top: 18px;">
-            <button class="btn btn-secondary" type="button" data-action="navigate" data-view="participants">Ir a asignación por grupo</button>
-          </div>
-        </article>
-      </div>
+                `;
+              }).join("") : `
+                <tr>
+                  <td colspan="5"><div class="empty-state">No hay personas pendientes de registrar en grupo con los filtros actuales.</div></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
     </section>
   `;
 }
@@ -13842,6 +14032,42 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "open-welcome-prospect-feedback-modal") {
+      const personId = String(button.dataset.personId || "");
+      const person = getWelcomePersonById_(personId);
+      const workflow = getWelcomeProspectWorkflowState_(person);
+
+      if (!personId || !person) {
+        showToast("Prospecto no disponible", "Recarga la ficha de Bienvenida e intenta nuevamente.", "warning");
+        return;
+      }
+
+      if (workflow.stage === "READY") {
+        showToast("Primero convierte a PGC", "Antes del WhatsApp interno asigna el grupo y guarda el pase a Prospecto GC.", "warning");
+        return;
+      }
+
+      state.ui.welcomeWorkbenchMode = "";
+      state.ui.welcomeModal = {
+        kind: "prospect-feedback",
+        personId,
+        actionDate: formatDateForInput_(new Date()) || "",
+        notes: "",
+        targetIndex: 0
+      };
+      renderApp();
+
+      void loadWelcomeProfile_(personId, {
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.ui.welcomeModal?.kind === "prospect-feedback" && String(state.ui.welcomeModal?.personId || "") === personId) {
+          renderApp();
+        }
+      }).catch(() => {});
+      return;
+    }
+
     if (action === "save-and-send-welcome-prospect") {
       await saveWelcomeProspectAssignment_({
         openLeaderWhatsapp: true,
@@ -14740,6 +14966,11 @@ async function handleSubmit(event) {
       return;
     }
 
+    if (form.id === "welcome-prospect-feedback-form") {
+      await saveWelcomeProspectLeaderFeedback_();
+      return;
+    }
+
     if (form.id === "welcome-followup-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
       const movedToProspects = await saveWelcomeFollowup_(payload);
@@ -14907,6 +15138,21 @@ async function handleChange(event) {
       if (state.ui.welcomeModal?.kind === "prospect") {
         state.ui.welcomeModal.suggestedAt = target.value;
         state.ui.welcomeModal.notification = null;
+      }
+      return;
+    }
+
+    if (target.id === "welcome-prospect-feedback-date") {
+      if (state.ui.welcomeModal?.kind === "prospect-feedback") {
+        state.ui.welcomeModal.actionDate = target.value;
+      }
+      return;
+    }
+
+    if (target.id === "welcome-prospect-feedback-target") {
+      if (state.ui.welcomeModal?.kind === "prospect-feedback") {
+        state.ui.welcomeModal.targetIndex = Number(target.value || 0);
+        renderApp();
       }
       return;
     }
@@ -15186,6 +15432,13 @@ function handleInput(event) {
     if (state.ui.welcomeModal?.kind === "prospect") {
       state.ui.welcomeModal.notes = target.value;
       state.ui.welcomeModal.notification = null;
+    }
+    return;
+  }
+
+  if (target.id === "welcome-prospect-feedback-notes") {
+    if (state.ui.welcomeModal?.kind === "prospect-feedback") {
+      state.ui.welcomeModal.notes = target.value;
     }
     return;
   }
@@ -17553,19 +17806,23 @@ function buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload) {
   const sourcePerson = sourceProfile.person || {};
   const followups = Array.isArray(sourceProfile.followups) ? sourceProfile.followups : [];
   const actionType = String(savedFollowup?.actionType || payload?.actionType || "").trim().toUpperCase();
-  const isProspectTransition = actionType === "PROSPECTO_GC";
+  const isNonPastoralAction = isWelcomeNonPastoralActionType_(actionType);
   const pastoralCountFromTimeline = followups.filter((item) => {
-    return String(item?.actionType || "").trim().toUpperCase() !== "PROSPECTO_GC";
+    return !isWelcomeNonPastoralActionType_(item?.actionType);
   }).length;
   const nextFollowupsCount = Math.max(
     Number(sourcePerson.followupsCount || 0),
     pastoralCountFromTimeline,
-    Number(previousPerson.followupsCount || 0) + (isProspectTransition ? 0 : 1)
+    Number(previousPerson.followupsCount || 0) + (isNonPastoralAction ? 0 : 1)
   );
   const nextTimelineCount = Math.max(
     Number(sourcePerson.followupTimelineCount || 0),
     Number(sourceProfile.summary?.timelineCount || 0),
     followups.length
+  );
+  const nextLeaderFeedbackCount = Math.max(
+    Number(sourcePerson.leaderFeedbackCount || 0),
+    Number(previousPerson.leaderFeedbackCount || 0) + (actionType === "WHATSAPP_LIDER_GC" ? 1 : 0)
   );
 
   return {
@@ -17575,16 +17832,53 @@ function buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload) {
       ...sourcePerson,
       followupsCount: nextFollowupsCount,
       followupTimelineCount: nextTimelineCount,
-      lastContactAt: String(savedFollowup?.actionDate || sourcePerson.lastContactAt || previousPerson.lastContactAt || "").trim(),
-      lastActionType: String(savedFollowup?.actionType || sourcePerson.lastActionType || previousPerson.lastActionType || "").trim(),
-      lastFollowupResult: String(savedFollowup?.result || sourcePerson.lastFollowupResult || previousPerson.lastFollowupResult || "").trim(),
-      lastFollowupNotes: String(savedFollowup?.notes || sourcePerson.lastFollowupNotes || previousPerson.lastFollowupNotes || "").trim(),
+      lastContactAt: String(
+        isNonPastoralAction
+          ? (sourcePerson.lastContactAt || previousPerson.lastContactAt || "")
+          : (savedFollowup?.actionDate || sourcePerson.lastContactAt || previousPerson.lastContactAt || "")
+      ).trim(),
+      lastActionType: String(
+        isNonPastoralAction
+          ? (sourcePerson.lastActionType || previousPerson.lastActionType || "")
+          : (savedFollowup?.actionType || sourcePerson.lastActionType || previousPerson.lastActionType || "")
+      ).trim(),
+      lastFollowupResult: String(
+        isNonPastoralAction
+          ? (sourcePerson.lastFollowupResult || previousPerson.lastFollowupResult || "")
+          : (savedFollowup?.result || sourcePerson.lastFollowupResult || previousPerson.lastFollowupResult || "")
+      ).trim(),
+      lastFollowupNotes: String(
+        isNonPastoralAction
+          ? (sourcePerson.lastFollowupNotes || previousPerson.lastFollowupNotes || "")
+          : (savedFollowup?.notes || sourcePerson.lastFollowupNotes || previousPerson.lastFollowupNotes || "")
+      ).trim(),
       nextFollowUpDate: String(
-        savedFollowup?.nextFollowUpDate !== undefined
+        !isNonPastoralAction && savedFollowup?.nextFollowUpDate !== undefined
           ? savedFollowup.nextFollowUpDate
           : (sourcePerson.nextFollowUpDate || previousPerson.nextFollowUpDate || payload?.nextFollowUpDate || "")
       ).trim(),
-      welcomeStatus: String(sourcePerson.welcomeStatus || payload?.status || previousPerson.welcomeStatus || "NUEVO").trim()
+      welcomeStatus: String(sourcePerson.welcomeStatus || payload?.status || previousPerson.welcomeStatus || "NUEVO").trim(),
+      leaderFeedbackCount: nextLeaderFeedbackCount,
+      lastLeaderFeedbackAt: String(
+        actionType === "WHATSAPP_LIDER_GC"
+          ? (savedFollowup?.actionDate || sourcePerson.lastLeaderFeedbackAt || previousPerson.lastLeaderFeedbackAt || "")
+          : (sourcePerson.lastLeaderFeedbackAt || previousPerson.lastLeaderFeedbackAt || "")
+      ).trim(),
+      lastLeaderFeedbackResult: String(
+        actionType === "WHATSAPP_LIDER_GC"
+          ? (savedFollowup?.result || sourcePerson.lastLeaderFeedbackResult || previousPerson.lastLeaderFeedbackResult || "")
+          : (sourcePerson.lastLeaderFeedbackResult || previousPerson.lastLeaderFeedbackResult || "")
+      ).trim(),
+      lastLeaderFeedbackNotes: String(
+        actionType === "WHATSAPP_LIDER_GC"
+          ? (savedFollowup?.notes || sourcePerson.lastLeaderFeedbackNotes || previousPerson.lastLeaderFeedbackNotes || "")
+          : (sourcePerson.lastLeaderFeedbackNotes || previousPerson.lastLeaderFeedbackNotes || "")
+      ).trim(),
+      lastLeaderFeedbackBy: String(
+        actionType === "WHATSAPP_LIDER_GC"
+          ? (savedFollowup?.systemUserName || sourcePerson.lastLeaderFeedbackBy || previousPerson.lastLeaderFeedbackBy || "")
+          : (sourcePerson.lastLeaderFeedbackBy || previousPerson.lastLeaderFeedbackBy || "")
+      ).trim()
     },
     summary: {
       ...(sourceProfile.summary || {}),
@@ -17741,6 +18035,74 @@ async function saveWelcomeProspectAssignment_(options = {}) {
     telegramSent ? "success" : "warning"
   );
   renderApp();
+  return true;
+}
+
+async function saveWelcomeProspectLeaderFeedback_() {
+  const modalState = getWelcomeProspectFeedbackModalState_();
+  const currentAuditUser = getCurrentSystemUserAudit_();
+  let response = null;
+  let whatsappOpened = false;
+  const actionDate = modalState?.actionDate || formatDateForInput_(new Date());
+
+  if (!modalState || !modalState.person?.id) {
+    showToast("Prospecto no disponible", "Abre nuevamente el caso e intenta otra vez.", "warning");
+    return false;
+  }
+
+  if (!modalState.groupId) {
+    showToast("Falta grupo sugerido", "Primero confirma el grupo de conexión antes de usar el WhatsApp interno.", "warning");
+    return false;
+  }
+
+  if (!modalState.selectedTarget) {
+    showToast("Sin líder con WhatsApp", "Configura al menos un teléfono de líder dentro de Catálogos para habilitar este canal.", "warning");
+    return false;
+  }
+
+  const preparedWindow = prepareLeaderWhatsappWindow_(true);
+  const payload = {
+    personId: modalState.person.id,
+    actionDate,
+    actionType: "WHATSAPP_LIDER_GC",
+    result: "WHATSAPP_INTERNO_PREPARADO",
+    owner: "BIENVENIDA",
+    systemUserName: currentAuditUser.name,
+    systemUserEmail: currentAuditUser.email,
+    nextFollowUpDate: modalState.person.nextFollowUpDate || "",
+    status: "PROSPECTO GP",
+    suggestedGroupId: modalState.groupId,
+    notes: buildWelcomeProspectLeaderFeedbackRecordNote_(
+      modalState.person,
+      modalState.group?.name || modalState.person.suggestedGroupName || "",
+      actionDate,
+      modalState.selectedTarget.name,
+      modalState.notes
+    )
+  };
+
+  await withLoading(async () => {
+    response = await apiPost("welcome.followups.save", payload);
+    applyWelcomeProfileToLocalState_(response?.profile || null);
+    invalidateWelcomeCache_();
+    await loadWelcomePeople_({
+      force: true,
+      showLoading: false
+    });
+  }, "Guardando retroalimentación interna...");
+
+  whatsappOpened = openLeaderWhatsappWindow_(preparedWindow, modalState.selectedTarget.url);
+  state.ui.selectedWelcomePersonId = payload.personId;
+  state.ui.selectedWelcomeFollowupId = String(response?.followup?.id || "");
+  state.ui.welcomeModal = null;
+  renderApp();
+  showToast(
+    whatsappOpened ? "Canal interno listo" : "Bitácora guardada",
+    whatsappOpened
+      ? "La retroalimentación quedó registrada y WhatsApp ya se abrió con el mensaje listo para el líder."
+      : "La retroalimentación quedó registrada, pero el navegador bloqueó WhatsApp. Intenta nuevamente desde esta misma ficha.",
+    whatsappOpened ? "success" : "warning"
+  );
   return true;
 }
 
@@ -20064,9 +20426,14 @@ function getWelcomePastoralFollowupsCount_(person) {
   const latestActionType = String(person?.lastActionType || "").trim().toUpperCase();
   const hasPastoralSignal = Boolean(String(person?.lastContactAt || "").trim())
     || Boolean(String(person?.lastFollowupResult || "").trim())
-    || (latestActionType && latestActionType !== "PROSPECTO_GC");
+    || (latestActionType && !isWelcomeNonPastoralActionType_(latestActionType));
 
   return explicitCount > 0 ? explicitCount : (hasPastoralSignal ? 1 : 0);
+}
+
+function isWelcomeNonPastoralActionType_(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return key === "PROSPECTO_GC" || key === "WHATSAPP_LIDER_GC";
 }
 
 function getWelcomeFollowupDateSummary_(person) {
@@ -20330,6 +20697,10 @@ function getWelcomeFollowupTypeLabel_(value) {
     return "Pase a Prospecto GC";
   }
 
+  if (key === "WHATSAPP_LIDER_GC") {
+    return "WhatsApp interno al líder";
+  }
+
   return value ? String(value) : "";
 }
 
@@ -20520,6 +20891,7 @@ function getPendingRegistrationWelcomePeople_(options = {}) {
 function getWelcomeProspectPeople_(options = {}) {
   const search = normalizeText(options.search || "");
   const groupId = String(options.groupId || "");
+  const includeRegistered = options.includeRegistered === true;
 
   return state.welcomePeople.filter((person) => {
     const status = String(person.welcomeStatus || "").toUpperCase();
@@ -20540,6 +20912,7 @@ function getWelcomeProspectPeople_(options = {}) {
       || String(person.assignedGroupId || "") === groupId;
 
     return (status === "NUEVO" || status === "PROSPECTO GP" || person?.prospectWorkflowStarted || workflow.stage === "REGISTERED")
+      && (includeRegistered || workflow.stage !== "REGISTERED")
       && matchesSearch
       && matchesGroup;
   }).sort((left, right) => {
