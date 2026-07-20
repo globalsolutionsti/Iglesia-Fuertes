@@ -3370,7 +3370,7 @@ function renderWelcomeNewView_() {
             </div>
           </div>
 
-          <form id="welcome-new-form">
+          <form id="welcome-new-form" novalidate>
             <input type="hidden" name="id" value="${escapeHtml(editingPerson?.id || "")}">
             <input type="hidden" name="tipoPersona" value="NUEVO">
             <input type="hidden" name="estado" value="ACTIVO">
@@ -3416,7 +3416,7 @@ function renderWelcomeNewView_() {
                   id="welcome-new-primer-seguimiento"
                   name="proximoSeguimiento"
                   type="date"
-                  value="${escapeHtml(formatDateForInput_(editingPerson?.nextFollowUpDate || editingPerson?.proximoSeguimiento) || "")}"
+                  value="${escapeHtml(formatDateForInput_(editingPerson?.nextFollowUpDate || editingPerson?.proximoSeguimiento || editingPerson?.fechaIngreso || new Date()) || "")}"
                   required
                 >
               </div>
@@ -14258,6 +14258,10 @@ async function handleSubmit(event) {
     }
 
     if (form.id === "welcome-new-form") {
+      if (!validateWelcomeNewForm_(form)) {
+        return;
+      }
+
       const payload = Object.fromEntries(new FormData(form).entries());
       const savedPerson = await saveAssistant(payload);
 
@@ -16524,6 +16528,68 @@ async function saveAssistant(rawPayload) {
   );
 
   return savedPerson;
+}
+
+function validateWelcomeNewForm_(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    showToast("Formulario no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
+    return false;
+  }
+
+  const focusField = (field, title, message) => {
+    showToast(title, message, "warning");
+    field?.focus();
+
+    if (typeof field?.showPicker === "function") {
+      try {
+        field.showPicker();
+      } catch (error) {
+        void error;
+      }
+    }
+
+    return false;
+  };
+
+  const nombreField = form.elements.namedItem("nombre");
+  const apellidosField = form.elements.namedItem("apellidos");
+  const emailField = form.elements.namedItem("email");
+  const fechaIngresoField = form.elements.namedItem("fechaIngreso");
+  const primerSeguimientoField = form.elements.namedItem("proximoSeguimiento");
+
+  if (!V(nombreField?.value)) {
+    return focusField(nombreField, "Falta el nombre", "Escribe el nombre del nuevo asistente antes de registrarlo.");
+  }
+
+  if (!V(apellidosField?.value)) {
+    return focusField(apellidosField, "Faltan los apellidos", "Escribe los apellidos del nuevo asistente antes de registrarlo.");
+  }
+
+  if (V(emailField?.value) && emailField?.validity && !emailField.validity.valid) {
+    return focusField(emailField, "Email no válido", "Revisa el correo electrónico antes de guardar el nuevo asistente.");
+  }
+
+  if (!V(fechaIngresoField?.value)) {
+    if (fechaIngresoField) {
+      fechaIngresoField.value = formatDateForInput_(new Date());
+    }
+  }
+
+  if (!V(primerSeguimientoField?.value)) {
+    if (primerSeguimientoField && V(fechaIngresoField?.value)) {
+      primerSeguimientoField.value = V(fechaIngresoField.value);
+    }
+  }
+
+  if (!V(primerSeguimientoField?.value)) {
+    return focusField(
+      primerSeguimientoField,
+      "Falta el primer seguimiento",
+      "Selecciona la fecha del primer seguimiento para que Bienvenida pueda dar continuidad al nuevo asistente."
+    );
+  }
+
+  return true;
 }
 
 function ensureCongregantsFilterIncludesDate_(value) {
