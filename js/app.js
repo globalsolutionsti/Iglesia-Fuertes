@@ -3959,6 +3959,40 @@ function getWelcomeFollowupDefaultScope_(person) {
   return getWelcomePastoralFollowupsCount_(person) > 0 ? "CON_SEGUIMIENTO" : "SIN_SEGUIMIENTO";
 }
 
+function resolveWelcomeFollowupEntryScope_() {
+  const currentScope = String(state.filters.welcome.status || "").toUpperCase();
+  const buckets = getWelcomeFollowupBuckets_();
+  const hasWithoutFollowup = buckets.noFollowupRows.length > 0;
+  const hasWithFollowup = buckets.withFollowupRows.length > 0;
+  const hasTrackedRows = buckets.trackedRows.length > 0;
+
+  if (!hasTrackedRows) {
+    return currentScope === "PROSPECTOS_GC" ? "PROSPECTOS_GC" : "ALL";
+  }
+
+  if (currentScope === "SIN_SEGUIMIENTO" && !hasWithoutFollowup && hasWithFollowup) {
+    return "CON_SEGUIMIENTO";
+  }
+
+  if (currentScope === "CON_SEGUIMIENTO" && !hasWithFollowup && hasWithoutFollowup) {
+    return "SIN_SEGUIMIENTO";
+  }
+
+  if (["ALL", "SIN_SEGUIMIENTO", "CON_SEGUIMIENTO", "VENCIDOS", "PROSPECTOS_GC"].includes(currentScope)) {
+    return currentScope;
+  }
+
+  if (hasWithFollowup && !hasWithoutFollowup) {
+    return "CON_SEGUIMIENTO";
+  }
+
+  if (hasWithoutFollowup && !hasWithFollowup) {
+    return "SIN_SEGUIMIENTO";
+  }
+
+  return "ALL";
+}
+
 function getWelcomeNewTrackingSummary_(person) {
   return getWelcomeDisplayedFollowupSummary_(
     person,
@@ -13245,7 +13279,7 @@ async function handleClick(event) {
         primeWelcomeNewView_();
       }
       if (state.currentView === "welcome-followup") {
-        state.filters.welcome.status = "SIN_SEGUIMIENTO";
+        state.filters.welcome.status = resolveWelcomeFollowupEntryScope_();
         state.ui.welcomeWorkbenchMode = "";
         state.welcomeProfile = null;
         state.ui.selectedWelcomePersonId = "";
@@ -15760,7 +15794,21 @@ async function loadWelcomePeople_(options = {}) {
           scope
         });
       } else {
-        backendRows = await apiGet("welcome.people.list", query);
+        const [allRows, newInsightRows] = await Promise.all([
+          apiGet("welcome.people.list", query),
+          (async () => {
+            try {
+              return await apiGet("welcome.people.newList");
+            } catch (error) {
+              if (!isUnknownActionError_(error, "welcome.people.newList")) {
+                throw error;
+              }
+
+              return [];
+            }
+          })()
+        ]);
+        backendRows = mergeWelcomeNewInsightRows_(allRows, newInsightRows);
         resolvedRows = mergeWelcomePeopleSources_(backendRows, {
           scope
         });
@@ -15896,6 +15944,52 @@ function buildWelcomeFallbackFromDirectory_(person) {
     prospectRegisteredInGroup: Boolean(assignedGroupId),
     availableForAssignment: welcomeStatus === "PROSPECTO GP" && !assignedGroupId
   };
+}
+
+function mergeWelcomeNewInsightRows_(rows, newRows) {
+  const mergedById = new Map();
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const id = String(row?.id || "").trim();
+
+    if (!id) {
+      return;
+    }
+
+    mergedById.set(id, {
+      ...(row || {})
+    });
+  });
+
+  (Array.isArray(newRows) ? newRows : []).forEach((row) => {
+    const id = String(row?.id || "").trim();
+    const previousRow = mergedById.get(id) || {};
+
+    if (!id) {
+      return;
+    }
+
+    mergedById.set(id, {
+      ...previousRow,
+      ...(row || {}),
+      followupsCount: Math.max(
+        Number(previousRow?.followupsCount || 0),
+        Number(row?.followupsCount || 0)
+      ),
+      followupTimelineCount: Math.max(
+        Number(previousRow?.followupTimelineCount || previousRow?.followupsCount || 0),
+        Number(row?.followupTimelineCount || row?.followupsCount || 0)
+      ),
+      nextFollowUpDate: String(
+        row?.nextFollowUpDate
+        || previousRow?.nextFollowUpDate
+        || previousRow?.proximoSeguimiento
+        || ""
+      ).trim()
+    });
+  });
+
+  return Array.from(mergedById.values());
 }
 
 function mergeWelcomePeopleSources_(backendRows, options = {}) {
