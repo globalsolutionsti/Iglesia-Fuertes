@@ -1394,6 +1394,7 @@ function renderWelcomeActionModal_() {
 
   const { person, groupId, suggestedAt, notes, leaderTargets } = modalState;
   const workflow = getWelcomeProspectWorkflowState_(person);
+  const telegramUi = getWelcomeProspectTelegramUiState_(person, workflow, modalState.modal);
   const pillTone = ["success", "warning", "danger", "dark", "neutral"].includes(String(workflow.tone || ""))
     ? String(workflow.tone || "")
     : "neutral";
@@ -1429,6 +1430,11 @@ function renderWelcomeActionModal_() {
             <span class="status-chip neutral">Estado actual</span>
             <strong>${escapeHtml(workflow.label)}</strong>
             <span>${escapeHtml(workflow.detail)}</span>
+          </div>
+          <div class="summary-box welcome-prospect-telegram-box tone-${escapeHtml(telegramUi.tone)}">
+            <span class="status-chip ${escapeHtml(telegramUi.tone === "dark" ? "neutral" : telegramUi.tone)}">Telegram automático</span>
+            <strong>${escapeHtml(telegramUi.label)}</strong>
+            <span>${escapeHtml(telegramUi.meta)}</span>
           </div>
         </div>
 
@@ -1468,21 +1474,24 @@ function renderWelcomeActionModal_() {
           </div>
 
           <div class="actions-row welcome-prospect-modal-actions">
-            <button class="btn btn-primary" type="submit">${escapeHtml(workflow.stage === "READY" ? "Convertir a Prospecto GC" : "Guardar prospecto")}</button>
-            <button class="btn btn-secondary" type="button" data-action="save-and-send-welcome-prospect" data-person-id="${escapeHtml(person.id || "")}" ${groupId ? "" : "disabled"}>Guardar y abrir WhatsApp</button>
+            <button class="btn btn-primary" type="submit">${escapeHtml(workflow.stage === "READY" ? "Guardar · Convertir a PGC" : "Guardar PGC")}</button>
             <button class="btn btn-ghost" type="button" data-action="close-welcome-modal">Cerrar</button>
           </div>
         </form>
 
-        <div class="context-strip" style="margin-top: 18px;">
-          <span class="context-item">Telegram: el sistema intenta avisar al líder en segundo plano al guardar.</span>
-          ${workflow.alertAt ? `<span class="context-item">Último aviso: ${escapeHtml(formatDate(workflow.alertAt) || workflow.alertAt)}</span>` : ""}
-          ${workflow.alertStatus ? `<span class="context-item">${escapeHtml(workflow.alertStatus)}</span>` : ""}
+        <div class="summary-box welcome-prospect-fallback-box tone-${escapeHtml(telegramUi.allowWhatsappFallback ? "warning" : "neutral")}" style="margin-top: 18px;">
+          <span class="status-chip ${escapeHtml(telegramUi.allowWhatsappFallback ? "warning" : "neutral")}">Respaldo manual</span>
+          <strong>${escapeHtml(telegramUi.allowWhatsappFallback ? "Usa WhatsApp solo si Telegram falla" : "WhatsApp manual no es necesario por ahora")}</strong>
+          <span>${escapeHtml(telegramUi.allowWhatsappFallback
+            ? "El prospecto ya quedó guardado, pero Telegram no confirmó el aviso automático. Usa WhatsApp solo como respaldo operativo."
+            : "Primero se intenta Telegram. Los botones de WhatsApp se habilitan únicamente cuando Telegram no logra avisar al líder.")}</span>
         </div>
 
-        <div class="actions-row welcome-prospect-modal-actions" style="margin-top: 18px;">
+        ${telegramUi.allowWhatsappFallback ? `
+        <div class="actions-row welcome-prospect-modal-actions welcome-prospect-fallback-actions" style="margin-top: 18px;">
           ${renderWelcomeProspectLeaderButtons_(leaderTargets)}
         </div>
+        ` : ""}
       </section>
     </div>
   `;
@@ -1546,6 +1555,68 @@ function getWelcomeProspectModalState_() {
   };
 }
 
+function getWelcomeProspectTelegramUiState_(person, workflow, modal) {
+  const notification = modal?.notification || null;
+  const status = String(notification?.status || person?.prospectAlertStatus || "").trim().toUpperCase();
+  const detail = String(notification?.detail || person?.prospectAlertDetail || "").trim();
+  const sentAt = String(notification?.sentAt || person?.prospectAlertAt || "").trim();
+  const sent = notification?.sent === true || status === "ENVIADO";
+  const hasSavedProspect = workflow.stage !== "READY";
+
+  if (!hasSavedProspect) {
+    return {
+      tone: "neutral",
+      label: "Telegram se enviará al guardar",
+      meta: "Al convertir a PGC el sistema intentará avisar automáticamente al líder por Telegram.",
+      sent: false,
+      allowWhatsappFallback: false
+    };
+  }
+
+  if (sent) {
+    return {
+      tone: "success",
+      label: "Telegram enviado al líder",
+      meta: sentAt
+        ? `Aviso confirmado el ${formatDate(sentAt) || sentAt}.`
+        : (detail || "El líder ya recibió el aviso automático por Telegram."),
+      sent: true,
+      allowWhatsappFallback: false
+    };
+  }
+
+  const statusMap = {
+    PENDIENTE_CONFIGURACION: {
+      tone: "warning",
+      label: "Telegram pendiente de configuración"
+    },
+    DESACTIVADO: {
+      tone: "warning",
+      label: "Telegram desactivado"
+    },
+    PENDIENTE_VINCULAR: {
+      tone: "warning",
+      label: "Falta vincular Telegram del líder"
+    },
+    ERROR: {
+      tone: "danger",
+      label: "Telegram no pudo avisar al líder"
+    }
+  };
+  const mapped = statusMap[status] || {
+    tone: "warning",
+    label: "Aviso Telegram pendiente"
+  };
+
+  return {
+    tone: mapped.tone,
+    label: mapped.label,
+    meta: detail || "El prospecto ya quedó guardado, pero el aviso automático al líder no se confirmó.",
+    sent: false,
+    allowWhatsappFallback: true
+  };
+}
+
 function buildWelcomeProspectLeaderWhatsappTargets_(person, group, suggestedAt, notes) {
   const groupId = String(group?.id || person?.suggestedGroupId || "").trim();
   const groupName = String(group?.name || person?.suggestedGroupName || "").trim();
@@ -1593,12 +1664,12 @@ function buildWelcomeProspectLeaderWhatsappText_(person, groupName, suggestedAt,
 
 function renderWelcomeProspectLeaderButtons_(targets) {
   if (!targets.length) {
-    return `<button class="btn btn-ghost" type="button" disabled>Sin WhatsApp líder</button>`;
+    return `<button class="btn btn-ghost" type="button" disabled>Sin WhatsApp de respaldo</button>`;
   }
 
   return targets.map((target, index) => `
     <a class="btn btn-ghost" href="${escapeHtml(target.url)}" target="_blank" rel="noreferrer">
-      ${escapeHtml(targets.length === 1 ? "WhatsApp líder" : `WhatsApp ${target.name || `Líder ${index + 1}`}`)}
+      ${escapeHtml(targets.length === 1 ? "WhatsApp respaldo" : `WhatsApp ${target.name || `Líder ${index + 1}`}`)}
     </a>
   `).join("");
 }
@@ -14662,8 +14733,8 @@ async function handleSubmit(event) {
 
     if (form.id === "welcome-prospect-form") {
       await saveWelcomeProspectAssignment_({
-        loadingMessage: "Guardando prospecto y avisando al líder...",
-        successTitle: "Prospecto actualizado"
+        loadingMessage: "Guardando y convirtiendo a PGC...",
+        successTitle: "PGC actualizado"
       });
       return;
     }
@@ -14825,6 +14896,7 @@ async function handleChange(event) {
     if (target.id === "welcome-prospect-group") {
       if (state.ui.welcomeModal?.kind === "prospect") {
         state.ui.welcomeModal.groupId = target.value;
+        state.ui.welcomeModal.notification = null;
         renderApp();
       }
       return;
@@ -14833,6 +14905,7 @@ async function handleChange(event) {
     if (target.id === "welcome-prospect-suggested-at") {
       if (state.ui.welcomeModal?.kind === "prospect") {
         state.ui.welcomeModal.suggestedAt = target.value;
+        state.ui.welcomeModal.notification = null;
       }
       return;
     }
@@ -15111,6 +15184,7 @@ function handleInput(event) {
   if (target.id === "welcome-prospect-notes") {
     if (state.ui.welcomeModal?.kind === "prospect") {
       state.ui.welcomeModal.notes = target.value;
+      state.ui.welcomeModal.notification = null;
     }
     return;
   }
@@ -17589,19 +17663,15 @@ async function promoteWelcomePersonToProspect_(personId) {
 
 async function saveWelcomeProspectAssignment_(options = {}) {
   const modalState = getWelcomeProspectModalState_();
-  const shouldOpenLeaderWhatsapp = Boolean(options.openLeaderWhatsapp);
-  const preparedWhatsappWindow = prepareLeaderWhatsappWindow_(shouldOpenLeaderWhatsapp);
   const currentAuditUser = getCurrentSystemUserAudit_();
   let response = null;
 
   if (!modalState || !modalState.person?.id) {
-    openLeaderWhatsappWindow_(preparedWhatsappWindow, "");
     showToast("Prospecto no disponible", "Abre nuevamente el modal del prospecto e intenta otra vez.", "warning");
     return false;
   }
 
   if (!modalState.groupId) {
-    openLeaderWhatsappWindow_(preparedWhatsappWindow, "");
     showToast("Falta grupo sugerido", "Selecciona el grupo de conexión sugerido antes de guardar.", "warning");
     return false;
   }
@@ -17630,26 +17700,44 @@ async function saveWelcomeProspectAssignment_(options = {}) {
         force: true,
         showLoading: false
       });
-    }, options.loadingMessage || "Guardando prospecto...");
+    }, options.loadingMessage || "Guardando y convirtiendo a PGC...");
   } catch (error) {
-    openLeaderWhatsappWindow_(preparedWhatsappWindow, "");
     throw error;
   }
 
+  const telegramNotification = response?.notification || null;
+  const telegramSent = telegramNotification?.sent === true
+    || String(telegramNotification?.status || "").trim().toUpperCase() === "ENVIADO";
   state.ui.selectedWelcomePersonId = payload.personId;
   state.ui.selectedWelcomeFollowupId = String(response?.followup?.id || "");
-  state.ui.welcomeModal = null;
-  handleLeaderWhatsappAfterSave_(preparedWhatsappWindow, state.welcomeProfile, shouldOpenLeaderWhatsapp);
-  const telegramNotification = response?.notification || null;
-  const telegramMessage = telegramNotification?.sent
-    ? "El líder fue avisado por Telegram en segundo plano."
-    : (telegramNotification?.detail || "El prospecto quedó guardado, pero Telegram aún no pudo avisar al líder.");
+  state.ui.welcomeModal = {
+    kind: "prospect",
+    personId: payload.personId,
+    groupId: modalState.groupId,
+    suggestedAt: payload.actionDate,
+    notes: payload.notes,
+    notification: telegramNotification
+      ? {
+        sent: Boolean(telegramNotification.sent),
+        sentAt: String(telegramNotification.sentAt || "").trim(),
+        status: String(telegramNotification.status || "").trim(),
+        detail: String(telegramNotification.detail || "").trim()
+      }
+      : {
+        sent: false,
+        sentAt: "",
+        status: "ERROR",
+        detail: "No se pudo confirmar el envío del aviso por Telegram."
+      }
+  };
   showToast(
-    options.successTitle || "Prospecto actualizado",
-    options.successMessage || (shouldOpenLeaderWhatsapp
-      ? `El prospecto quedó pendiente por registrar. ${telegramMessage} El WhatsApp del líder ya quedó listo.`
-      : `El prospecto quedó pendiente por registrar. ${telegramMessage}`),
-    "success"
+    telegramSent
+      ? (options.successTitle || "Prospecto actualizado")
+      : "Prospecto guardado con aviso pendiente",
+    telegramSent
+      ? (options.successMessage || "El prospecto quedó pendiente por registrar y Telegram avisó automáticamente al líder.")
+      : `El prospecto quedó pendiente por registrar. ${telegramNotification?.detail || "Telegram no pudo avisar al líder."} Usa WhatsApp solo como respaldo.`,
+    telegramSent ? "success" : "warning"
   );
   renderApp();
   return true;
