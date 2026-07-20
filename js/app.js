@@ -15420,15 +15420,27 @@ async function ensureAssistantsViewData_() {
 }
 
 async function loadWelcomePeople_(options = {}) {
-  const requestKey = "welcomePeople::all";
+  const scope = String(
+    options.scope
+    || (state.currentView === "congregants-new" ? "new" : "all")
+  ).trim().toLowerCase();
+  const requestKey = `welcomePeople::${scope}`;
+  const sharedLoadKey = `welcome::${scope}`;
+  const query = {};
+
+  if (scope === "new") {
+    query.status = "NUEVO";
+  }
 
   if (!options.force && state.loaded.welcome && state.cacheKeys.welcomePeople === requestKey) {
     return state.welcomePeople;
   }
 
   const task = async () => {
-    const backendRows = await apiGet("welcome.people.list");
-    const mergedRows = mergeWelcomePeopleSources_(backendRows);
+    const backendRows = await apiGet("welcome.people.list", query);
+    const mergedRows = mergeWelcomePeopleSources_(backendRows, {
+      scope
+    });
     state.welcomePeople = mergeOptimisticWelcomePeople_(mergedRows);
     state.loaded.welcome = true;
     state.cacheKeys.welcomePeople = requestKey;
@@ -15440,10 +15452,10 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   if (options.showLoading === false) {
-    return runSharedLoad_("welcome", task);
+    return runSharedLoad_(sharedLoadKey, task);
   }
 
-  return withLoading(() => runSharedLoad_("welcome", task), options.message || "Cargando seguimiento de Bienvenida...");
+  return withLoading(() => runSharedLoad_(sharedLoadKey, task), options.message || "Cargando seguimiento de Bienvenida...");
 }
 
 function getWelcomeLifecycleStatus_(person) {
@@ -15539,13 +15551,16 @@ function buildWelcomeFallbackFromDirectory_(person) {
   };
 }
 
-function mergeWelcomePeopleSources_(backendRows) {
+function mergeWelcomePeopleSources_(backendRows, options = {}) {
   const mergedById = new Map();
   const sourceRows = Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [];
+  const scope = String(options.scope || "all").trim().toLowerCase();
+  const fallbackStatusFilter = scope === "new" ? "NUEVO" : "";
 
   sourceRows.forEach((person) => {
     const id = String(person?.id || "").trim();
     const typeKey = getPersonTypeKey_(person?.tipoPersona || "");
+    const fallback = buildWelcomeFallbackFromDirectory_(person);
 
     if (!id || ["voluntarios", "voluntario", "lider", "coordinador", "servidor"].includes(typeKey)) {
       return;
@@ -15555,7 +15570,11 @@ function mergeWelcomePeopleSources_(backendRows) {
       return;
     }
 
-    mergedById.set(id, buildWelcomeFallbackFromDirectory_(person));
+    if (fallbackStatusFilter && String(fallback?.welcomeStatus || "").toUpperCase() !== fallbackStatusFilter) {
+      return;
+    }
+
+    mergedById.set(id, fallback);
   });
 
   (Array.isArray(backendRows) ? backendRows : []).forEach((person) => {
@@ -16016,9 +16035,13 @@ async function ensureWelcomeViewData_(options = {}) {
     void loadPeopleDirectory().catch(() => {});
   }
 
-  const preloadTasks = [loadWelcomePeople_(options)];
+  const welcomeScope = state.currentView === "congregants-new" ? "new" : "all";
+  const preloadTasks = [loadWelcomePeople_({
+    ...options,
+    scope: welcomeScope
+  })];
 
-  if (!state.loaded.groups) {
+  if (state.currentView !== "congregants-new" && !state.loaded.groups) {
     preloadTasks.push(loadGroupsCatalog_());
   }
 
