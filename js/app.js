@@ -3633,13 +3633,16 @@ function renderWelcomeNewView_() {
                 <th>Nombre</th>
                 <th>Contacto</th>
                 <th>Perfil</th>
-                <th>Primer seguimiento</th>
+                <th>Próximo seguimiento</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map((row) => `
-                <tr class="${getWelcomeInitialFollowupSummary_(row).overdue ? "welcome-new-row-overdue" : ""}">
+              ${rows.length ? rows.map((row) => {
+                const trackingSummary = getWelcomeNewTrackingSummary_(row);
+                const followupScope = getWelcomeFollowupDefaultScope_(row);
+                return `
+                <tr class="${trackingSummary.overdue ? "welcome-new-row-overdue" : ""}">
                   <td>
                     <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
                     <span class="row-meta">${escapeHtml(row.numero || "")} | QR ${escapeHtml(row.id || "")}</span>
@@ -3653,17 +3656,18 @@ function renderWelcomeNewView_() {
                     <span class="row-meta">Edad ${escapeHtml(String(row.edad || "Sin dato"))} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "Sin fecha")}</span>
                   </td>
                   <td>
-                    <span class="row-title">${renderWelcomeInitialFollowupPill_(row)}</span>
-                    <span class="row-meta">${escapeHtml(getWelcomeInitialFollowupSummary_(row).meta)}</span>
+                    <span class="row-title">${renderWelcomeTrackingPill_(trackingSummary)}</span>
+                    <span class="row-meta">${escapeHtml(trackingSummary.meta)}</span>
                   </td>
                   <td>
                     <div class="inline-actions">
                       <button class="btn btn-secondary" data-action="edit-welcome-new-person" data-person-id="${escapeHtml(row.id || "")}">Editar</button>
-                      <button class="btn btn-primary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}">Seguimientos</button>
+                      <button class="btn btn-primary" data-action="open-welcome-profile" data-person-id="${escapeHtml(row.id || "")}" data-scope="${escapeHtml(followupScope)}">Seguimientos</button>
                     </div>
                   </td>
                 </tr>
-              `).join("") : `
+              `;
+              }).join("") : `
                 <tr>
                   <td colspan="5">
                     <div class="empty-state">${isRefreshing
@@ -3861,7 +3865,7 @@ function renderWelcomeFollowupView_() {
                   </td>
                   <td data-label="Acciones">
                     <div class="welcome-followup-actions">
-                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(row.followupsCount || 0) ? "Seguimiento" : "Primer seg."}</button>
+                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(row.followupsCount || 0) ? "Próx. seg." : "Primer seg."}</button>
                       <button class="btn btn-secondary btn-compact" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}" data-scope="CON_SEGUIMIENTO">Historial</button>
                       <button class="btn btn-ghost btn-compact" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${String(row.welcomeStatus || "").toUpperCase() === "PROSPECTO GP" || row.prospectWorkflowStarted ? "PGC" : "Prospectar"}</button>
                       ${canDeleteScrap ? `<button class="btn btn-danger btn-compact" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-followup">Scrap</button>` : ""}
@@ -3982,6 +3986,21 @@ function getWelcomeFollowupDefaultScope_(person) {
   return Number(person?.followupsCount || 0) > 0 ? "CON_SEGUIMIENTO" : "SIN_SEGUIMIENTO";
 }
 
+function getWelcomeNewTrackingSummary_(person) {
+  return getWelcomeDisplayedFollowupSummary_(
+    person,
+    Number(person?.followupsCount || 0) > 0 ? "next" : "first"
+  );
+}
+
+function renderWelcomeTrackingPill_(summary) {
+  const tone = ["success", "warning", "danger", "neutral", "dark"].includes(String(summary?.tone || ""))
+    ? String(summary?.tone || "")
+    : "dark";
+
+  return `<span class="pill ${escapeHtml(tone)}">${escapeHtml(summary?.label || "Sin fecha")}</span>`;
+}
+
 function renderWelcomeFollowupScopeCard_(options = {}) {
   const scope = String(options.scope || "ALL").toUpperCase();
   const label = String(options.label || "Vista");
@@ -4021,8 +4040,6 @@ function openWelcomeWorkbench_(personId, mode, scope = "") {
   const cleanPersonId = String(personId || "").trim();
   const nextMode = String(mode || "").trim();
   const nextScope = String(scope || "").trim().toUpperCase();
-  const previousView = String(state.currentView || "");
-  const previousScope = String(state.filters.welcome.status || "").trim().toUpperCase();
   const currentProfilePersonId = String(state.welcomeProfile?.person?.id || "").trim();
   const hasSameLoadedProfile = cleanPersonId && currentProfilePersonId === cleanPersonId;
   const scrollTargetId = nextMode === "history" ? "welcome-history-panel" : "welcome-followup-form-panel";
@@ -4059,9 +4076,8 @@ function openWelcomeWorkbench_(personId, mode, scope = "") {
 
   if (
     !state.loaded.welcome
-    || previousView !== "welcome-followup"
-    || nextMode === "history"
-    || (nextScope && nextScope !== previousScope)
+    || !state.loaded.groups
+    || (nextMode === "history" && !hasSameLoadedProfile)
   ) {
     loadViewDataInBackground_("welcome-followup");
   }
@@ -4088,7 +4104,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
   const followupScope = getWelcomeFollowupDefaultScope_(selectedPerson);
   const switchActions = `
     <div class="actions-row welcome-followup-switch-actions" style="margin-top: 18px;">
-      <button class="btn ${mode === "followup" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Primer seguimiento"}</button>
+      <button class="btn ${mode === "followup" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</button>
       <button class="btn ${mode === "history" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-history" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="CON_SEGUIMIENTO">Ver seguimientos</button>
       <button class="btn btn-ghost" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(selectedPerson.id || "")}">${escapeHtml(workflowButtonLabel)}</button>
     </div>
@@ -4214,7 +4230,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
   return `
     <div class="panel-head">
       <div>
-        <h2>${Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Registrar primer seguimiento"}</h2>
+        <h2>${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</h2>
         <p>Captura el contacto debajo del listado y deja definida la siguiente fecha de seguimiento sin abrir paneles laterales.</p>
       </div>
       <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
