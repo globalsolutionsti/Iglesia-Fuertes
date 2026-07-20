@@ -16121,6 +16121,10 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   const task = async () => {
+    if (scope !== "new" && !state.loaded.peopleDirectory) {
+      await loadPeopleDirectory();
+    }
+
     if (scope === "new") {
       state.ui.welcomeNewRefreshing = true;
       if (state.currentView === "congregants-new") {
@@ -16853,8 +16857,8 @@ async function loadFormationProfile_(personId, options = {}) {
 }
 
 async function ensureWelcomeViewData_(options = {}) {
-  if (state.currentView !== "congregants-new" && !state.loaded.peopleDirectory && !pendingResourceLoads.peopleDirectory) {
-    void loadPeopleDirectory().catch(() => {});
+  if (state.currentView !== "congregants-new" && !state.loaded.peopleDirectory) {
+    await loadPeopleDirectory();
   }
 
   const welcomeScope = state.currentView === "congregants-new" ? "new" : "all";
