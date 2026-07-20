@@ -415,6 +415,7 @@ const pendingResourceLoads = {
 };
 
 let peopleSourcesResyncTimer = 0;
+const optimisticWelcomePeople = new Map();
 
 const qrScannerRuntime = {
   stream: null,
@@ -15220,10 +15221,57 @@ async function refreshPeopleSources_() {
   ]);
 }
 
+function rememberOptimisticWelcomePerson_(person) {
+  const nextId = String(person?.id || "").trim();
+
+  if (!nextId) {
+    return;
+  }
+
+  optimisticWelcomePeople.set(nextId, {
+    savedAt: Date.now(),
+    person: {
+      ...(person || {})
+    }
+  });
+}
+
+function mergeOptimisticWelcomePeople_(rows) {
+  const mergedMap = new Map((Array.isArray(rows) ? rows : []).map((row) => [String(row?.id || "").trim(), row]));
+  const expirationMs = 10 * 60 * 1000;
+  const now = Date.now();
+
+  optimisticWelcomePeople.forEach((entry, personId) => {
+    const cleanPersonId = String(personId || "").trim();
+
+    if (!cleanPersonId) {
+      optimisticWelcomePeople.delete(personId);
+      return;
+    }
+
+    if (mergedMap.has(cleanPersonId)) {
+      optimisticWelcomePeople.delete(personId);
+      return;
+    }
+
+    if ((now - Number(entry?.savedAt || 0)) > expirationMs) {
+      optimisticWelcomePeople.delete(personId);
+      return;
+    }
+
+    mergedMap.set(cleanPersonId, buildWelcomePersonClientDto_(entry?.person || {}));
+  });
+
+  return Array.from(mergedMap.values()).sort((left, right) => {
+    return parseDateToTimestamp_(right?.fechaIngreso, true) - parseDateToTimestamp_(left?.fechaIngreso, true);
+  });
+}
+
 function schedulePeopleSourcesResync_(options = {}) {
   const shouldRefreshWelcome = options.refreshWelcome !== false;
   const shouldRefreshProfile = options.refreshProfile !== false;
   const selectedWelcomePersonId = String(options.personId || state.ui.selectedWelcomePersonId || "");
+  const delayMs = Math.max(Number(options.delayMs || 0), 180);
 
   if (peopleSourcesResyncTimer) {
     window.clearTimeout(peopleSourcesResyncTimer);
@@ -15263,7 +15311,7 @@ function schedulePeopleSourcesResync_(options = {}) {
         console.warn("No se pudo resincronizar Bienvenida en segundo plano.", error);
       }
     })();
-  }, 180);
+  }, delayMs);
 }
 
 function invalidateWelcomeCache_() {
@@ -15381,7 +15429,7 @@ async function loadWelcomePeople_(options = {}) {
   const task = async () => {
     const backendRows = await apiGet("welcome.people.list");
     const mergedRows = mergeWelcomePeopleSources_(backendRows);
-    state.welcomePeople = Array.isArray(mergedRows) ? mergedRows : [];
+    state.welcomePeople = mergeOptimisticWelcomePeople_(mergedRows);
     state.loaded.welcome = true;
     state.cacheKeys.welcomePeople = requestKey;
     return state.welcomePeople;
@@ -16575,6 +16623,7 @@ async function saveAssistant(rawPayload) {
 
     if (isWelcomeWorkflow) {
       ensureCongregantsFilterIncludesDate_(savedPerson?.fechaIngreso || payload.fechaIngreso);
+      rememberOptimisticWelcomePerson_(savedPerson);
       upsertWelcomePersonInState_(savedPerson);
       state.welcomeProfile = null;
       state.ui.selectedWelcomePersonId = "";
@@ -16600,7 +16649,8 @@ async function saveAssistant(rawPayload) {
 
   schedulePeopleSourcesResync_({
     refreshWelcome: isWelcomeWorkflow,
-    refreshProfile: false
+    refreshProfile: false,
+    delayMs: isWelcomeWorkflow ? 3500 : 600
   });
 
   return savedPerson;
