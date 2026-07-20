@@ -3693,6 +3693,8 @@ function renderWelcomeFollowupView_() {
   const mode = state.ui.welcomeWorkbenchMode || "";
   const activeScope = String(state.filters.welcome.status || "ALL").toUpperCase();
   const selectedHealth = selectedPerson ? getWelcomeFollowupHealth_(selectedPerson) : null;
+  const showHistoryPanel = mode === "history" && Boolean(selectedPerson);
+  const showFollowupForm = mode === "followup" && Boolean(selectedPerson);
   const followupColumn = getWelcomeFollowupColumnConfig_(rows, activeScope);
   const overdueCount = buckets.overdueRows.length;
   const withoutFollowupCount = buckets.noFollowupRows.length;
@@ -3794,8 +3796,8 @@ function renderWelcomeFollowupView_() {
         })}
       </div>
 
-      <div class="view-grid columns-2">
-        <article class="detail-card module-section-anchor" id="welcome-followup-list">
+      <div class="view-grid ${showHistoryPanel ? "columns-2 welcome-followup-layout has-side" : "welcome-followup-layout"}">
+        <article class="detail-card module-section-anchor welcome-followup-list-card" id="welcome-followup-list">
           <div class="panel-head">
             <div>
               <h2>${escapeHtml(scopeMeta.title)}</h2>
@@ -3841,31 +3843,31 @@ function renderWelcomeFollowupView_() {
               <tbody>
                 ${rows.length ? rows.map((row) => `
                   <tr class="${getWelcomeFollowupHealth_(row).overdue ? "welcome-new-row-overdue" : ""}">
-                  <td>
+                  <td data-label="Congregante">
                     <span class="row-title">${escapeHtml(row.nombreCompleto || row.nombre || "Sin nombre")}</span>
                     <span class="row-meta">${escapeHtml(row.telefono || "Sin teléfono")} | Alta ${escapeHtml(formatDate(row.fechaIngreso) || "-")}</span>
                     <span class="row-meta">${escapeHtml(row.numero || "-")} | QR ${escapeHtml(row.id || "-")}</span>
                   </td>
-                  <td>
+                  <td data-label="${escapeHtml(followupColumn.label)}">
                     ${renderWelcomeFollowupScheduleCell_(row, followupColumn.mode)}
                   </td>
-                  <td>
+                  <td data-label="Último seguimiento">
                     ${renderWelcomeFollowupHealthPill_(row)}
                     <span class="row-meta">${escapeHtml(getWelcomeLastFollowupSummary_(row).title)}</span>
                     <span class="row-meta">${escapeHtml(getWelcomeLastFollowupSummary_(row).meta)}</span>
                   </td>
-                  <td>
-                    <div class="inline-actions">
-                      <button class="btn btn-primary" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}">${Number(row.followupsCount || 0) ? "Registrar seguimiento" : "Primer seguimiento"}</button>
-                      <button class="btn btn-secondary" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}">Ver seguimientos</button>
-                      <button class="btn btn-ghost" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${String(row.welcomeStatus || "").toUpperCase() === "PROSPECTO GP" || row.prospectWorkflowStarted ? "Gestionar PGC" : "Prospectar GC"}</button>
-                      ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-followup">Eliminar scrap</button>` : ""}
+                  <td data-label="Acciones">
+                    <div class="welcome-followup-actions">
+                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}">${Number(row.followupsCount || 0) ? "Seguimiento" : "Primer seg."}</button>
+                      <button class="btn btn-secondary btn-compact" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}">Historial</button>
+                      <button class="btn btn-ghost btn-compact" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${String(row.welcomeStatus || "").toUpperCase() === "PROSPECTO GP" || row.prospectWorkflowStarted ? "PGC" : "Prospectar"}</button>
+                      ${canDeleteScrap ? `<button class="btn btn-danger btn-compact" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-followup">Scrap</button>` : ""}
                     </div>
                   </td>
                 </tr>
               `).join("") : `
                 <tr>
-                  <td colspan="3"><div class="empty-state">No hay personas para esta vista dentro de los filtros actuales.</div></td>
+                  <td colspan="4"><div class="empty-state">No hay personas para esta vista dentro de los filtros actuales.</div></td>
                 </tr>
               `}
             </tbody>
@@ -3873,10 +3875,47 @@ function renderWelcomeFollowupView_() {
         </div>
         </article>
 
-        <article class="panel-card module-section-anchor" id="welcome-workbench">
+        ${showHistoryPanel ? `
+          <article class="panel-card module-section-anchor welcome-followup-side-panel" id="welcome-history-panel">
+            ${renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode)}
+          </article>
+        ` : ""}
+      </div>
+
+      ${showFollowupForm ? `
+        <article class="panel-card module-section-anchor welcome-followup-form-panel" id="welcome-followup-form-panel">
           ${renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode)}
         </article>
-      </div>
+      ` : ""}
+
+      ${!showHistoryPanel && !showFollowupForm ? `
+        <article class="panel-card welcome-followup-helper-card">
+          <div class="panel-head">
+            <div>
+              <h2>Siguiente paso</h2>
+              <p>Primero selecciona una acción desde el listado. Si eliges seguimiento, el formulario aparecerá debajo del listado; si eliges historial, el detalle se abrirá en el panel lateral.</p>
+            </div>
+            <span class="pill dark">Flujo guiado</span>
+          </div>
+          <div class="summary-stack">
+            <div class="summary-box">
+              <span class="status-chip neutral">1. Elegir persona</span>
+              <strong>Usa el listado operativo</strong>
+              <span>Busca a la persona, valida su fecha de seguimiento y elige la acción correcta.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip warning">2. Registrar seguimiento</span>
+              <strong>Formulario abajo del listado</strong>
+              <span>El formulario ya no aparece del lado derecho para evitar confusión durante la captura.</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip success">3. Consultar historial</span>
+              <strong>Panel lateral solo para consulta</strong>
+              <span>El lado derecho queda reservado para revisar la bitácora y los detalles de cada seguimiento.</span>
+            </div>
+          </div>
+        </article>
+      ` : ""}
     </section>
   `;
 }
@@ -3973,8 +4012,11 @@ function openWelcomeWorkbench_(personId, mode, scope = "") {
   const cleanPersonId = String(personId || "").trim();
   const nextMode = String(mode || "").trim();
   const nextScope = String(scope || "").trim().toUpperCase();
+  const previousView = String(state.currentView || "");
+  const previousScope = String(state.filters.welcome.status || "").trim().toUpperCase();
   const currentProfilePersonId = String(state.welcomeProfile?.person?.id || "").trim();
   const hasSameLoadedProfile = cleanPersonId && currentProfilePersonId === cleanPersonId;
+  const scrollTargetId = nextMode === "history" ? "welcome-history-panel" : "welcome-followup-form-panel";
 
   if (!cleanPersonId) {
     showToast("Persona no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
@@ -3992,16 +4034,26 @@ function openWelcomeWorkbench_(personId, mode, scope = "") {
   state.ui.welcomeModal = null;
 
   if (!hasSameLoadedProfile) {
-    state.welcomeProfile = null;
-    state.ui.selectedWelcomeFollowupId = "";
+    if (nextMode === "history") {
+      state.welcomeProfile = null;
+      state.ui.selectedWelcomeFollowupId = "";
+    }
   }
 
   renderApp();
   window.setTimeout(() => {
-    scrollToSection_("welcome-workbench");
+    scrollToSection_(scrollTargetId);
+    if (nextMode === "followup") {
+      document.getElementById("welcome-followup-type")?.focus();
+    }
   }, 0);
 
-  if (!hasSameLoadedProfile || !state.loaded.welcome) {
+  if (
+    !state.loaded.welcome
+    || previousView !== "welcome-followup"
+    || nextMode === "history"
+    || (nextScope && nextScope !== previousScope)
+  ) {
     loadViewDataInBackground_("welcome-followup");
   }
 }
@@ -4034,38 +4086,39 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
   const selectedHealthTone = ["success", "warning", "danger", "dark", "neutral"].includes(String(selectedHealth?.tone || ""))
     ? String(selectedHealth?.tone || "")
     : "neutral";
-  const isProfileLoading = !selectedProfile || String(selectedProfile?.person?.id || "") !== String(selectedPerson.id || "");
-
-  if (isProfileLoading) {
-    return `
-      <div class="panel-head">
-        <div>
-          <h2>${mode === "history" ? "Seguimientos del asistente" : (Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Registrar primer seguimiento")}</h2>
-          <p>Estamos abriendo el expediente completo para que Bienvenida siga trabajando sin salir del módulo.</p>
-        </div>
-        <span class="pill dark">Cargando</span>
-      </div>
-
-      <div class="summary-stack">
-        <div class="summary-box">
-          <span class="status-chip neutral">Persona</span>
-          <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
-          <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
-        </div>
-        <div class="summary-box">
-          <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
-          <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
-          <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto programado")}</span>
-        </div>
-      </div>
-
-      ${switchActions}
-
-      <div class="empty-state" style="margin-top: 18px;">Cargando expediente y bitácora del asistente...</div>
-    `;
-  }
 
   if (mode === "history") {
+    const isProfileLoading = !selectedProfile || String(selectedProfile?.person?.id || "") !== String(selectedPerson.id || "");
+
+    if (isProfileLoading) {
+      return `
+        <div class="panel-head">
+          <div>
+            <h2>Seguimientos del asistente</h2>
+            <p>Estamos abriendo el expediente completo para que Bienvenida siga trabajando sin salir del módulo.</p>
+          </div>
+          <span class="pill dark">Cargando</span>
+        </div>
+
+        <div class="summary-stack">
+          <div class="summary-box">
+            <span class="status-chip neutral">Persona</span>
+            <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
+            <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
+            <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
+            <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto programado")}</span>
+          </div>
+        </div>
+
+        ${switchActions}
+
+        <div class="empty-state" style="margin-top: 18px;">Cargando expediente y bitácora del asistente...</div>
+      `;
+    }
+
     return `
       <div class="panel-head">
         <div>
@@ -4152,7 +4205,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
     <div class="panel-head">
       <div>
         <h2>${Number(selectedPerson.followupsCount || 0) ? "Registrar seguimiento" : "Registrar primer seguimiento"}</h2>
-        <p>Captura el nuevo contacto sin salir del listado y deja definida la siguiente fecha de seguimiento.</p>
+        <p>Captura el contacto debajo del listado y deja definida la siguiente fecha de seguimiento sin abrir paneles laterales.</p>
       </div>
       <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
     </div>
@@ -16255,8 +16308,12 @@ async function ensureWelcomeViewData_(options = {}) {
   }
 
   if (
-    !state.welcomeProfile
-    || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId)
+    state.currentView === "welcome-followup"
+    && state.ui.welcomeWorkbenchMode === "history"
+    && (
+      !state.welcomeProfile
+      || String(state.welcomeProfile?.person?.id || "") !== String(state.ui.selectedWelcomePersonId)
+    )
   ) {
     await loadWelcomeProfile_(state.ui.selectedWelcomePersonId, {
       showLoading: false
