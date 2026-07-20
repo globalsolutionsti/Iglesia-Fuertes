@@ -419,6 +419,7 @@ const pendingResourceLoads = {
 };
 
 let peopleSourcesResyncTimer = 0;
+let welcomePeopleLoadVersion = 0;
 const optimisticWelcomePeople = new Map();
 
 const qrScannerRuntime = {
@@ -1209,19 +1210,19 @@ function warmWelcomeNewInBackground_() {
     return;
   }
 
+  if (state.currentView === "congregants-new") {
+    return;
+  }
+
   if (String(state.cacheKeys.welcomePeople || "") === "welcomePeople::new" && state.loaded.welcome) {
     return;
   }
 
   void loadWelcomePeople_({
     showLoading: false,
-    scope: "new"
+    scope: "new",
+    persistToState: false
   })
-    .then(() => {
-      if (state.currentView === "congregants-new") {
-        renderApp();
-      }
-    })
     .catch(() => {});
 }
 
@@ -15721,6 +15722,8 @@ async function loadWelcomePeople_(options = {}) {
   const requestKey = `welcomePeople::${scope}`;
   const sharedLoadKey = `welcome::${scope}`;
   const query = {};
+  const loadVersion = ++welcomePeopleLoadVersion;
+  const shouldPersistToState = options.persistToState !== false || scope !== "new" || state.currentView === "congregants-new";
 
   if (scope === "new") {
     query.status = "NUEVO";
@@ -15761,6 +15764,17 @@ async function loadWelcomePeople_(options = {}) {
         resolvedRows = mergeWelcomePeopleSources_(backendRows, {
           scope
         });
+      }
+
+      if (loadVersion !== welcomePeopleLoadVersion) {
+        return state.welcomePeople;
+      }
+
+      if (!shouldPersistToState) {
+        if (scope === "new") {
+          persistWelcomeNewSnapshot_(resolvedRows);
+        }
+        return mergeOptimisticWelcomePeople_(resolvedRows);
       }
 
       state.welcomePeople = mergeOptimisticWelcomePeople_(resolvedRows);
@@ -15913,7 +15927,7 @@ function mergeWelcomePeopleSources_(backendRows, options = {}) {
   (Array.isArray(backendRows) ? backendRows : []).forEach((person) => {
     const id = String(person?.id || "").trim();
     const fallback = mergedById.get(id) || {};
-    const currentRow = getWelcomePersonById_(id) || {};
+    const currentRow = (Array.isArray(state.welcomePeople) ? state.welcomePeople : []).find((item) => String(item?.id || "").trim() === id) || {};
     const mergedFollowupsCount = Math.max(
       Number(person?.followupsCount || 0),
       Number(fallback?.followupsCount || 0),
