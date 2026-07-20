@@ -3801,7 +3801,7 @@ function renderWelcomeFollowupView_() {
         })}
       </div>
 
-      <div class="view-grid ${showHistoryPanel ? "columns-2 welcome-followup-layout has-side" : "welcome-followup-layout"}">
+      <div class="view-grid welcome-followup-layout">
         <article class="detail-card module-section-anchor welcome-followup-list-card" id="welcome-followup-list">
           <div class="panel-head">
             <div>
@@ -3883,12 +3883,6 @@ function renderWelcomeFollowupView_() {
           </table>
         </div>
         </article>
-
-        ${showHistoryPanel ? `
-          <article class="panel-card module-section-anchor welcome-followup-side-panel" id="welcome-history-panel">
-            ${renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode)}
-          </article>
-        ` : ""}
       </div>
 
       ${showFollowupForm ? `
@@ -3897,32 +3891,9 @@ function renderWelcomeFollowupView_() {
         </article>
       ` : ""}
 
-      ${!mode && !showHistoryPanel && !showFollowupForm ? `
-        <article class="panel-card welcome-followup-helper-card">
-          <div class="panel-head">
-            <div>
-              <h2>Siguiente paso</h2>
-              <p>Primero selecciona una acción desde el listado. Si eliges seguimiento, el formulario aparecerá debajo del listado; si eliges historial, el detalle se abrirá en el panel lateral.</p>
-            </div>
-            <span class="pill dark">Flujo guiado</span>
-          </div>
-          <div class="summary-stack">
-            <div class="summary-box">
-              <span class="status-chip neutral">1. Elegir persona</span>
-              <strong>Usa el listado operativo</strong>
-              <span>Busca a la persona, valida su fecha de seguimiento y elige la acción correcta.</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip warning">2. Registrar seguimiento</span>
-              <strong>Formulario abajo del listado</strong>
-              <span>El formulario ya no aparece del lado derecho para evitar confusión durante la captura.</span>
-            </div>
-            <div class="summary-box">
-              <span class="status-chip success">3. Consultar historial</span>
-              <strong>Panel lateral solo para consulta</strong>
-              <span>El lado derecho queda reservado para revisar la bitácora y los detalles de cada seguimiento.</span>
-            </div>
-          </div>
+      ${showHistoryPanel ? `
+        <article class="panel-card module-section-anchor welcome-followup-side-panel welcome-followup-history-panel" id="welcome-history-panel">
+          ${renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, selectedHealth, mode)}
         </article>
       ` : ""}
     </section>
@@ -4037,6 +4008,34 @@ function getSelectedWelcomeFollowupRecord_(profile) {
   return followups.find((item) => String(item?.id || "") === selectedId) || followups[0] || null;
 }
 
+function renderWelcomeFollowupContextStrip_(person, selectedHealth, options = {}) {
+  if (!person) {
+    return "";
+  }
+
+  const schedule = getWelcomeFollowupDateSummary_(person);
+  const items = [
+    `<span class="context-item"><strong>Persona:</strong> ${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>`,
+    `<span class="context-item"><strong>QR:</strong> ${escapeHtml(person.id || "-")}</span>`,
+    `<span class="context-item"><strong>Estado:</strong> ${escapeHtml(selectedHealth?.label || "Sin dato")}</span>`,
+    `<span class="context-item"><strong>Próximo:</strong> ${escapeHtml(schedule.label || "Sin fecha")}</span>`
+  ];
+
+  if (options.includePhone) {
+    items.push(`<span class="context-item"><strong>Teléfono:</strong> ${escapeHtml(person.telefono || "Sin teléfono")}</span>`);
+  }
+
+  if (options.includeGroup) {
+    items.push(`<span class="context-item"><strong>Grupo sugerido:</strong> ${escapeHtml(person.suggestedGroupName || "Sin sugerencia")}</span>`);
+  }
+
+  if (person.numero) {
+    items.push(`<span class="context-item"><strong>Número:</strong> ${escapeHtml(person.numero)}</span>`);
+  }
+
+  return `<div class="context-strip welcome-followup-context-strip">${items.join("")}</div>`;
+}
+
 function openWelcomeWorkbench_(personId, mode, scope = "") {
   const cleanPersonId = String(personId || "").trim();
   const nextMode = String(mode || "").trim();
@@ -4092,7 +4091,10 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
           <h2>Seguimientos del asistente</h2>
           <p>Estamos abriendo el historial completo para que Bienvenida continúe sin salir de la ficha.</p>
         </div>
-        <span class="pill dark">Cargando</span>
+        <div class="inline-actions welcome-followup-panel-head-actions">
+          <span class="pill dark">Cargando</span>
+          <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
+        </div>
       </div>
       <div class="empty-state">Preparando historial de seguimientos...</div>
     `;
@@ -4105,7 +4107,10 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
           <h2>Registrar seguimiento</h2>
           <p>Estamos preparando el formulario del contacto para continuar con el seguimiento pastoral.</p>
         </div>
-        <span class="pill dark">Cargando</span>
+        <div class="inline-actions welcome-followup-panel-head-actions">
+          <span class="pill dark">Cargando</span>
+          <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
+        </div>
       </div>
       <div class="empty-state">Preparando formulario de seguimiento...</div>
     `;
@@ -4129,16 +4134,23 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
     : "Prospectar GC";
   const selectedFollowup = getSelectedWelcomeFollowupRecord_(selectedProfile);
   const followupScope = getWelcomeFollowupDefaultScope_(selectedPerson);
-  const switchActions = `
-    <div class="actions-row welcome-followup-switch-actions" style="margin-top: 18px;">
-      <button class="btn ${mode === "followup" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</button>
-      <button class="btn ${mode === "history" ? "btn-primary" : "btn-secondary"}" data-action="open-welcome-history" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="CON_SEGUIMIENTO">Ver seguimientos</button>
-      <button class="btn btn-ghost" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(selectedPerson.id || "")}">${escapeHtml(workflowButtonLabel)}</button>
-    </div>
-  `;
-  const selectedHealthTone = ["success", "warning", "danger", "dark", "neutral"].includes(String(selectedHealth?.tone || ""))
-    ? String(selectedHealth?.tone || "")
-    : "neutral";
+  const personContext = renderWelcomeFollowupContextStrip_(selectedPerson, selectedHealth, {
+    includePhone: true,
+    includeGroup: true
+  });
+  const switchActions = mode === "history"
+    ? `
+      <div class="actions-row welcome-followup-switch-actions" style="margin-top: 18px;">
+        <button class="btn btn-primary" type="button" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</button>
+        <button class="btn btn-ghost" type="button" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(selectedPerson.id || "")}">${escapeHtml(workflowButtonLabel)}</button>
+      </div>
+    `
+    : `
+      <div class="actions-row welcome-followup-switch-actions" style="margin-top: 18px;">
+        <button class="btn btn-secondary" type="button" data-action="open-welcome-history" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="CON_SEGUIMIENTO">Ver historial</button>
+        <button class="btn btn-ghost" type="button" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(selectedPerson.id || "")}">${escapeHtml(workflowButtonLabel)}</button>
+      </div>
+    `;
 
   if (mode === "history") {
     const isProfileLoading = !selectedProfile || String(selectedProfile?.person?.id || "") !== String(selectedPerson.id || "");
@@ -4150,21 +4162,13 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
             <h2>Seguimientos del asistente</h2>
             <p>Estamos abriendo el expediente completo para que Bienvenida siga trabajando sin salir del módulo.</p>
           </div>
-          <span class="pill dark">Cargando</span>
+          <div class="inline-actions welcome-followup-panel-head-actions">
+            <span class="pill dark">Cargando</span>
+            <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
+          </div>
         </div>
 
-        <div class="welcome-followup-summary-grid">
-          <div class="summary-box">
-            <span class="status-chip neutral">Persona</span>
-            <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
-            <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
-          </div>
-          <div class="summary-box">
-            <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
-            <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
-            <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto programado")}</span>
-          </div>
-        </div>
+        ${personContext}
 
         ${switchActions}
 
@@ -4178,26 +4182,13 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
           <h2>Seguimientos del asistente</h2>
           <p>Consulta la bitácora del más reciente al más antiguo y toca un registro para ver su detalle completo.</p>
         </div>
-        <span class="pill dark">${escapeHtml(String(selectedProfile?.summary?.timelineCount || selectedProfile?.followups?.length || 0))} eventos</span>
+        <div class="inline-actions welcome-followup-panel-head-actions">
+          <span class="pill dark">${escapeHtml(String(selectedProfile?.summary?.timelineCount || selectedProfile?.followups?.length || 0))} eventos</span>
+          <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
+        </div>
       </div>
 
-      <div class="welcome-followup-summary-grid">
-        <div class="summary-box">
-          <span class="status-chip neutral">Persona</span>
-          <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
-          <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
-        </div>
-        <div class="summary-box">
-          <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
-          <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
-          <span>${escapeHtml(selectedPerson.nextFollowUpDate ? `Próximo: ${formatDate(selectedPerson.nextFollowUpDate)}` : "Sin próximo contacto")}</span>
-        </div>
-        <div class="summary-box">
-          <span class="status-chip neutral">Bitácora</span>
-          <strong>${escapeHtml(String(selectedPerson.followupsCount || 0))} seguimientos pastorales</strong>
-          <span>${escapeHtml((selectedProfile?.followups || []).length ? "Selecciona un seguimiento para ver el detalle completo." : "Todavía no hay seguimientos registrados.")}</span>
-        </div>
-      </div>
+      ${personContext}
 
       ${switchActions}
 
@@ -4220,22 +4211,13 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
 
           <div class="welcome-followup-history-detail">
             ${selectedFollowup ? `
-              <div class="welcome-followup-summary-grid compact">
-                <div class="summary-box">
-                  <span class="status-chip neutral">Fecha del seguimiento</span>
-                  <strong>${escapeHtml(formatDateTimeCompact_(selectedFollowup.actionDate) || "-")}</strong>
-                  <span>${escapeHtml(getWelcomeFollowupTypeLabel_(selectedFollowup.actionType || "") || "Seguimiento")}</span>
-                </div>
-                <div class="summary-box">
-                  <span class="status-chip neutral">Resultado</span>
-                  <strong>${escapeHtml(selectedFollowup.result || "Sin resultado")}</strong>
-                  <span>${escapeHtml(selectedFollowup.nextFollowUpDate ? `Próximo contacto: ${formatDate(selectedFollowup.nextFollowUpDate)}` : "Sin próximo contacto programado")}</span>
-                </div>
-                <div class="summary-box">
-                  <span class="status-chip neutral">Responsable y usuario</span>
-                  <strong>${escapeHtml(selectedFollowup.owner || "Sin responsable")}</strong>
-                  <span>${escapeHtml(selectedFollowup.systemUserName || "Sin bitácora de usuario")}${selectedFollowup.systemUserEmail ? ` · ${escapeHtml(selectedFollowup.systemUserEmail)}` : ""}</span>
-                </div>
+              <div class="context-strip welcome-followup-context-strip">
+                <span class="context-item"><strong>Fecha:</strong> ${escapeHtml(formatDateTimeCompact_(selectedFollowup.actionDate) || "-")}</span>
+                <span class="context-item"><strong>Tipo:</strong> ${escapeHtml(getWelcomeFollowupTypeLabel_(selectedFollowup.actionType || "") || "Seguimiento")}</span>
+                <span class="context-item"><strong>Resultado:</strong> ${escapeHtml(selectedFollowup.result || "Sin resultado")}</span>
+                <span class="context-item"><strong>Próximo:</strong> ${escapeHtml(selectedFollowup.nextFollowUpDate ? formatDate(selectedFollowup.nextFollowUpDate) : "Sin fecha")}</span>
+                <span class="context-item"><strong>Responsable:</strong> ${escapeHtml(selectedFollowup.owner || "Sin responsable")}</span>
+                <span class="context-item"><strong>Usuario:</strong> ${escapeHtml(selectedFollowup.systemUserName || "Sin bitácora")}${selectedFollowup.systemUserEmail ? ` · ${escapeHtml(selectedFollowup.systemUserEmail)}` : ""}</span>
               </div>
 
               <div class="summary-box welcome-followup-detail-note">
@@ -4260,26 +4242,13 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
         <h2>${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</h2>
         <p>Captura el contacto debajo del listado y deja definida la siguiente fecha de seguimiento sin abrir paneles laterales.</p>
       </div>
-      <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
+      <div class="inline-actions welcome-followup-panel-head-actions">
+        <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
+        <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
+      </div>
     </div>
 
-    <div class="welcome-followup-summary-grid">
-      <div class="summary-box">
-        <span class="status-chip neutral">Persona</span>
-        <strong>${escapeHtml(selectedPerson.nombreCompleto || selectedPerson.nombre || "Sin nombre")}</strong>
-        <span>${escapeHtml(selectedPerson.numero || "-")} | QR ${escapeHtml(selectedPerson.id || "-")}</span>
-      </div>
-      <div class="summary-box">
-        <span class="status-chip ${escapeHtml(selectedHealthTone)}">Semáforo</span>
-        <strong>${escapeHtml(selectedHealth?.label || "Sin dato")}</strong>
-        <span>${escapeHtml(getWelcomeDisplayedFollowupSummary_(selectedPerson, Number(selectedPerson.followupsCount || 0) ? "next" : "first").meta)}</span>
-      </div>
-      <div class="summary-box">
-        <span class="status-chip neutral">Grupo sugerido</span>
-        <strong>${escapeHtml(selectedPerson.suggestedGroupName || "Sin sugerencia")}</strong>
-        <span>${escapeHtml(selectedPerson.suggestedGroupId ? getWelcomeLeaderContactSummary_(selectedPerson) : "Todavía no hay grupo sugerido.")}</span>
-      </div>
-    </div>
+    ${personContext}
 
     ${switchActions}
 
@@ -13611,6 +13580,13 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "close-welcome-workbench") {
+      state.ui.welcomeWorkbenchMode = "";
+      renderApp();
+      scrollToSection_("welcome-followup-list");
+      return;
+    }
+
     if (action === "promote-welcome-pgc") {
       const personId = String(button.dataset.personId || "");
       if (!personId) {
@@ -14576,6 +14552,7 @@ async function handleSubmit(event) {
       if (!movedToProspects) {
         form.reset();
         renderApp();
+        scrollToSection_("welcome-followup-list");
       }
       return;
     }
@@ -17563,7 +17540,7 @@ async function saveWelcomeFollowup_(rawPayload) {
   if (currentScope === "SIN_SEGUIMIENTO") {
     state.filters.welcome.status = "CON_SEGUIMIENTO";
   }
-  state.ui.welcomeWorkbenchMode = "history";
+  state.ui.welcomeWorkbenchMode = "";
   schedulePeopleSourcesResync_({
     refreshWelcome: true,
     refreshProfile: true,
