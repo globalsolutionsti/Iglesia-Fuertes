@@ -1410,28 +1410,23 @@ function renderWelcomeActionModal_() {
           <span class="pill ${escapeHtml(pillTone)}">${escapeHtml(workflow.label)}</span>
         </div>
 
-        <div class="summary-stack welcome-prospect-modal-summary" style="margin-bottom: 18px;">
-          <div class="summary-box">
+        <div class="summary-stack welcome-prospect-modal-summary" style="margin-bottom: 16px;">
+          <div class="summary-box welcome-prospect-summary-box">
             <span class="status-chip neutral">Persona</span>
             <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</strong>
             <span>${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
           </div>
-          <div class="summary-box">
+          <div class="summary-box welcome-prospect-summary-box">
             <span class="status-chip neutral">Perfil</span>
             <strong>${escapeHtml(person.estadoCivil || "Sin estado civil")} | Edad ${escapeHtml(String(person.edad || "Sin dato"))}</strong>
             <span>Llegó: ${escapeHtml(formatDate(person.fechaIngreso) || "Sin fecha")} | Nacimiento: ${escapeHtml(formatDate(person.fechaNacimiento) || "Sin fecha")}</span>
           </div>
-          <div class="summary-box">
-            <span class="status-chip neutral">Líder del grupo</span>
-            <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
-            <span>${escapeHtml(groupId ? getWelcomeLeaderContactSummary_(person) : "Selecciona un grupo para ver a sus líderes.")}</span>
-          </div>
-          <div class="summary-box">
+          <div class="summary-box welcome-prospect-summary-box">
             <span class="status-chip neutral">Estado actual</span>
             <strong>${escapeHtml(workflow.label)}</strong>
             <span>${escapeHtml(workflow.detail)}</span>
           </div>
-          <div class="summary-box welcome-prospect-telegram-box tone-${escapeHtml(telegramUi.tone)}">
+          <div class="summary-box welcome-prospect-summary-box welcome-prospect-telegram-box tone-${escapeHtml(telegramUi.tone)}">
             <span class="status-chip ${escapeHtml(telegramUi.tone === "dark" ? "neutral" : telegramUi.tone)}">Telegram automático</span>
             <strong>${escapeHtml(telegramUi.label)}</strong>
             <span>${escapeHtml(telegramUi.meta)}</span>
@@ -1443,7 +1438,7 @@ function renderWelcomeActionModal_() {
           <input type="hidden" name="status" value="PROSPECTO GP">
           <div class="field-grid two">
             <div class="field">
-              <label for="welcome-prospect-group">Grupo de conexión</label>
+              <label for="welcome-prospect-group">Grupo de conexión sugerido</label>
               <select id="welcome-prospect-group" name="suggestedGroupId" required>
                 ${renderOptions(
                   state.catalogs.groups.map((group) => ({
