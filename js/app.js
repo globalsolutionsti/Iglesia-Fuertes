@@ -3419,8 +3419,8 @@ function renderWelcomeNewView_() {
   const allNewRows = state.welcomePeople.filter((person) => String(person.welcomeStatus || "").toUpperCase() === "NUEVO");
   const hiddenNewCount = Math.max(allNewRows.length - rows.length, 0);
   const withPhoneCount = rows.filter((row) => String(row.telefono || "").trim()).length;
-  const withFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) > 0).length;
-  const withoutFollowupCount = rows.filter((row) => Number(row.followupsCount || 0) === 0).length;
+  const withFollowupCount = rows.filter((row) => getWelcomePastoralFollowupsCount_(row) > 0).length;
+  const withoutFollowupCount = rows.filter((row) => getWelcomePastoralFollowupsCount_(row) === 0).length;
   const overdueFirstFollowupCount = rows.filter((row) => getWelcomeInitialFollowupSummary_(row).overdue).length;
   const editingPerson = getWelcomePersonById_(state.ui.editingWelcomeNewId);
   const isEditing = Boolean(editingPerson?.id);
@@ -3866,7 +3866,7 @@ function renderWelcomeFollowupView_() {
                   </td>
                   <td data-label="Acciones">
                     <div class="welcome-followup-actions">
-                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(row.followupsCount || 0) ? "Próx. seg." : "Primer seg."}</button>
+                      <button class="btn btn-primary btn-compact" data-action="open-welcome-followup" data-person-id="${escapeHtml(row.id || "")}" data-scope="${escapeHtml(followupScope)}">${getWelcomePastoralFollowupsCount_(row) ? "Próx. seg." : "Primer seg."}</button>
                       <button class="btn btn-secondary btn-compact" data-action="open-welcome-history" data-person-id="${escapeHtml(row.id || "")}" data-scope="CON_SEGUIMIENTO">Historial</button>
                       <button class="btn btn-ghost btn-compact" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(row.id || "")}">${String(row.welcomeStatus || "").toUpperCase() === "PROSPECTO GP" || row.prospectWorkflowStarted ? "PGC" : "Prospectar"}</button>
                       ${canDeleteScrap ? `<button class="btn btn-danger btn-compact" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(row.id || "")}" data-origin-view="welcome-followup">Scrap</button>` : ""}
@@ -3917,14 +3917,14 @@ function getWelcomeFollowupColumnConfig_(rows, activeScope) {
     };
   }
 
-  if (Array.isArray(rows) && rows.length && rows.every((row) => Number(row?.followupsCount || 0) === 0)) {
+  if (Array.isArray(rows) && rows.length && rows.every((row) => getWelcomePastoralFollowupsCount_(row) === 0)) {
     return {
       mode: "first",
       label: "Primer seguimiento"
     };
   }
 
-  if (Array.isArray(rows) && rows.length && rows.every((row) => Number(row?.followupsCount || 0) > 0)) {
+  if (Array.isArray(rows) && rows.length && rows.every((row) => getWelcomePastoralFollowupsCount_(row) > 0)) {
     return {
       mode: "next",
       label: "Proximo seguimiento"
@@ -3955,13 +3955,13 @@ function renderWelcomeFollowupScheduleCell_(person, mode) {
 }
 
 function getWelcomeFollowupDefaultScope_(person) {
-  return Number(person?.followupsCount || 0) > 0 ? "CON_SEGUIMIENTO" : "SIN_SEGUIMIENTO";
+  return getWelcomePastoralFollowupsCount_(person) > 0 ? "CON_SEGUIMIENTO" : "SIN_SEGUIMIENTO";
 }
 
 function getWelcomeNewTrackingSummary_(person) {
   return getWelcomeDisplayedFollowupSummary_(
     person,
-    Number(person?.followupsCount || 0) > 0 ? "next" : "first"
+    getWelcomePastoralFollowupsCount_(person) > 0 ? "next" : "first"
   );
 }
 
@@ -4141,7 +4141,7 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
   const switchActions = mode === "history"
     ? `
       <div class="actions-row welcome-followup-switch-actions" style="margin-top: 18px;">
-        <button class="btn btn-primary" type="button" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</button>
+        <button class="btn btn-primary" type="button" data-action="open-welcome-followup" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-scope="${escapeHtml(followupScope)}">${getWelcomePastoralFollowupsCount_(selectedPerson) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</button>
         <button class="btn btn-ghost" type="button" data-action="open-welcome-prospect-modal" data-person-id="${escapeHtml(selectedPerson.id || "")}">${escapeHtml(workflowButtonLabel)}</button>
       </div>
     `
@@ -4239,11 +4239,11 @@ function renderWelcomeFollowupWorkbench_(selectedPerson, selectedProfile, select
   return `
     <div class="panel-head">
       <div>
-        <h2>${Number(selectedPerson.followupsCount || 0) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</h2>
+        <h2>${getWelcomePastoralFollowupsCount_(selectedPerson) ? "Registrar próximo seguimiento" : "Registrar primer seguimiento"}</h2>
         <p>Captura el contacto debajo del listado y deja definida la siguiente fecha de seguimiento sin abrir paneles laterales.</p>
       </div>
       <div class="inline-actions welcome-followup-panel-head-actions">
-        <span class="pill dark">${escapeHtml(selectedPerson.followupsCount ? `${selectedPerson.followupsCount} previos` : "Primer seguimiento")}</span>
+        <span class="pill dark">${escapeHtml(getWelcomePastoralFollowupsCount_(selectedPerson) ? `${getWelcomePastoralFollowupsCount_(selectedPerson)} previos` : "Primer seguimiento")}</span>
         <button class="btn btn-secondary btn-compact" type="button" data-action="close-welcome-workbench">Volver al listado</button>
       </div>
     </div>
@@ -15900,6 +15900,9 @@ async function loadWelcomeProfile_(personId, options = {}) {
     state.welcomeProfile = await apiGet("welcome.person.profile", {
       personId: cleanPersonId
     });
+    applyWelcomeProfileToLocalState_(state.welcomeProfile, {
+      persistProfile: false
+    });
     state.ui.selectedWelcomePersonId = cleanPersonId;
     if (!Array.isArray(state.welcomeProfile?.followups) || !state.welcomeProfile.followups.length) {
       state.ui.selectedWelcomeFollowupId = "";
@@ -19745,8 +19748,18 @@ function sortWelcomeFollowupRows_(rows) {
   });
 }
 
+function getWelcomePastoralFollowupsCount_(person) {
+  const explicitCount = Number(person?.followupsCount || 0);
+  const latestActionType = String(person?.lastActionType || "").trim().toUpperCase();
+  const hasPastoralSignal = Boolean(String(person?.lastContactAt || "").trim())
+    || Boolean(String(person?.lastFollowupResult || "").trim())
+    || (latestActionType && latestActionType !== "PROSPECTO_GC");
+
+  return explicitCount > 0 ? explicitCount : (hasPastoralSignal ? 1 : 0);
+}
+
 function getWelcomeFollowupDateSummary_(person) {
-  const followupsCount = Number(person?.followupsCount || 0);
+  const followupsCount = getWelcomePastoralFollowupsCount_(person);
   const nextContactDate = String(formatDateForInput_(person?.nextFollowUpDate || person?.proximoSeguimiento) || "");
   const today = formatDateForInput_(new Date());
   const mode = followupsCount > 0 ? "next" : "first";
@@ -19791,7 +19804,7 @@ function getWelcomeFollowupDateSummary_(person) {
 
 function getWelcomeDisplayedFollowupSummary_(person, requestedMode = "") {
   const normalizedMode = String(requestedMode || "").toLowerCase();
-  const followupsCount = Number(person?.followupsCount || 0);
+  const followupsCount = getWelcomePastoralFollowupsCount_(person);
   const schedule = getWelcomeFollowupDateSummary_(person);
 
   if (normalizedMode === "first") {
@@ -19852,8 +19865,8 @@ function getWelcomeFollowupBuckets_() {
     })
   );
   const newRows = trackedRows.filter((person) => String(person?.welcomeStatus || "").toUpperCase() === "NUEVO");
-  const noFollowupRows = newRows.filter((person) => Number(person?.followupsCount || 0) === 0);
-  const withFollowupRows = newRows.filter((person) => Number(person?.followupsCount || 0) > 0);
+  const noFollowupRows = newRows.filter((person) => getWelcomePastoralFollowupsCount_(person) === 0);
+  const withFollowupRows = newRows.filter((person) => getWelcomePastoralFollowupsCount_(person) > 0);
   const overdueRows = newRows.filter((person) => isWelcomeFollowupOverdue_(person));
   const prospectRows = getPendingRegistrationWelcomePeople_({
     search: state.filters.welcome.search,
@@ -19925,7 +19938,7 @@ function getFilteredWelcomePeople_() {
 
 function getWelcomeFollowupHealth_(person) {
   const status = String(person?.welcomeStatus || "").toUpperCase();
-  const followupsCount = Number(person?.followupsCount || 0);
+  const followupsCount = getWelcomePastoralFollowupsCount_(person);
   const schedule = getWelcomeFollowupDateSummary_(person);
 
   if (status === "PROSPECTO GP" && !person?.assignedInLatestSeason) {
@@ -20010,7 +20023,7 @@ function getWelcomeFollowupTypeLabel_(value) {
 }
 
 function getWelcomeLastFollowupSummary_(person) {
-  const followupsCount = Number(person?.followupsCount || 0);
+  const followupsCount = getWelcomePastoralFollowupsCount_(person);
 
   if (!followupsCount) {
     return {
