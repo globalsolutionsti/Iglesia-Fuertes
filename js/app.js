@@ -314,6 +314,8 @@ const state = {
     pendingProspectDrafts: {},
     selectedScrapPersonId: "",
     scrapPreview: null,
+    selectedScrapSeasonId: "",
+    scrapSeasonPreview: null,
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
     loginMode: "admin",
@@ -1933,6 +1935,11 @@ async function confirmSystemAction_() {
 
   if (confirmation.kind === "scrap-delete-season-person") {
     await executeScrapDeleteSeasonPerson_(confirmation.payload.personId, confirmation.payload.seasonId);
+    return;
+  }
+
+  if (confirmation.kind === "scrap-delete-season") {
+    await executeScrapDeleteSeason_(confirmation.payload.seasonId);
     return;
   }
 
@@ -6460,6 +6467,16 @@ function getSelectedScrapCandidate_() {
     || null;
 }
 
+function getSelectedScrapSeason_() {
+  const seasonId = String(state.ui.selectedScrapSeasonId || "").trim();
+
+  if (!seasonId) {
+    return null;
+  }
+
+  return (Array.isArray(state.seasons) ? state.seasons : []).find((season) => String(season?.id || "").trim() === seasonId) || null;
+}
+
 function buildScrapPreviewNotes_(preview, person, originView) {
   const personName = preview?.personName || person?.nombreCompleto || person?.nombre || "Sin nombre";
   const personId = preview?.personId || person?.id || "-";
@@ -6487,6 +6504,33 @@ function buildScrapPreviewNotes_(preview, person, originView) {
   return notes;
 }
 
+function buildScrapSeasonPreviewNotes_(preview, season) {
+  const seasonId = preview?.seasonId || season?.id || "-";
+  const seasonName = preview?.seasonName || season?.name || "Temporada";
+  const notes = [
+    seasonName,
+    `ID ${seasonId}`,
+    `Inicio: ${formatDate(preview?.startDate || season?.startDate) || "Sin fecha"}`,
+    `Estado: ${getStatusLabel_(preview?.status || season?.status || "")}`
+  ];
+
+  if (preview?.footprint) {
+    notes.push(`Sesiones: ${preview.footprint.sessions || 0}`);
+    notes.push(`Grupos por sesión: ${preview.footprint.sessionGroups || 0}`);
+    notes.push(`Participantes: ${preview.footprint.participants || 0}`);
+    notes.push(`Asistencias: ${preview.footprint.attendances || 0}`);
+    notes.push(`Personas impactadas: ${preview.footprint.uniquePeople || 0}`);
+  }
+
+  if (preview?.linkedFormation?.total) {
+    notes.push(`Bloqueada: hay ${preview.linkedFormation.total} registro(s) de Formación ligados a esta temporada`);
+  } else {
+    notes.push("Limpieza segura: solo se borrará la estructura operativa de esta temporada demo");
+  }
+
+  return notes;
+}
+
 function renderAdminScrapCenter_() {
   const canDeleteScrap = canUseScrapDelete_();
   const allMatches = getFilteredScrapCandidates_();
@@ -6495,6 +6539,10 @@ function renderAdminScrapCenter_() {
   const selectedPerson = getSelectedScrapCandidate_();
   const preview = selectedPerson && String(state.ui.scrapPreview?.personId || "") === String(selectedPerson.id || "")
     ? state.ui.scrapPreview
+    : null;
+  const selectedSeason = getSelectedScrapSeason_();
+  const seasonPreview = selectedSeason && String(state.ui.scrapSeasonPreview?.seasonId || "") === String(selectedSeason.id || "")
+    ? state.ui.scrapSeasonPreview
     : null;
 
   if (!canDeleteScrap) {
@@ -6619,6 +6667,116 @@ function renderAdminScrapCenter_() {
           <div class="scrap-danger-note">
             <strong>Uso delicado en producción</strong>
             <span>Nunca borres personas reales activas. Usa esta herramienta únicamente cuando estés limpiando ejemplos de implementación, demos o pruebas controladas.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="view-grid columns-2 scrap-panel-grid" style="margin-top: 24px;">
+        <div class="summary-box">
+          <span class="status-chip neutral">Temporada demo</span>
+          <strong>${escapeHtml(selectedSeason?.name || "Selecciona la temporada de ejemplo")}</strong>
+          <span>Este flujo borra la temporada, sus sesiones, grupos por sesión, participantes y asistencias. No toca el padrón base. Si esa demo ya llegó a Formación, primero elimina a la persona demo con SCRAP total.</span>
+
+          <div class="field" style="margin-top: 16px;">
+            <label for="admin-scrap-season">Temporada a limpiar</label>
+            <select id="admin-scrap-season">
+              <option value="">Selecciona temporada demo</option>
+              ${state.seasons.map((season) => `
+                <option value="${escapeHtml(season.id || "")}" ${String(selectedSeason?.id || "") === String(season.id || "") ? "selected" : ""}>
+                  ${escapeHtml(`${season.name || season.id} (${season.id || "-"})`)}
+                </option>
+              `).join("")}
+            </select>
+          </div>
+
+          <div class="summary-strip" style="margin-top: 16px;">
+            <span class="context-item"><strong>Protege:</strong> padrón base</span>
+            <span class="context-item"><strong>Borra:</strong> estructura operativa</span>
+            <span class="context-item"><strong>Bloquea:</strong> si detecta Formación ligada</span>
+          </div>
+
+          <div class="actions-row scrap-preview-actions">
+            <button class="btn btn-primary" type="button" data-action="analyze-scrap-season" ${selectedSeason ? "" : "disabled"}>Analizar temporada</button>
+            <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview" ${selectedSeason || seasonPreview ? "" : "disabled"}>Limpiar selección</button>
+          </div>
+        </div>
+
+        <div class="summary-box">
+          <span class="status-chip ${seasonPreview ? (seasonPreview.deletable ? "warning" : "danger") : "neutral"}">Vista previa de temporada</span>
+          <strong>${escapeHtml(selectedSeason ? `${selectedSeason.name || selectedSeason.id}` : "Sin temporada seleccionada")}</strong>
+          <span>${selectedSeason ? "Revisa el impacto completo antes de eliminar la temporada demo." : "Elige una temporada y pulsa Analizar para validar que el borrado no afectará Formación ni datos reales."}</span>
+
+          ${selectedSeason ? `
+            <div class="summary-strip" style="margin-top: 16px;">
+              <span class="context-item"><strong>ID:</strong> ${escapeHtml(selectedSeason.id || "-")}</span>
+              <span class="context-item"><strong>Estado:</strong> ${escapeHtml(getStatusLabel_(selectedSeason.status || ""))}</span>
+              <span class="context-item"><strong>Inicio:</strong> ${escapeHtml(formatDate(selectedSeason.startDate) || "Sin fecha")}</span>
+            </div>
+
+            ${seasonPreview ? `
+              <div class="summary-stack dashboard-summary-grid scrap-preview-grid">
+                <div class="summary-box">
+                  <span class="status-chip dark">Sesiones</span>
+                  <strong>${escapeHtml(String(seasonPreview.footprint?.sessions || 0))}</strong>
+                  <span>Estructura de la temporada.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Grupos por sesión</span>
+                  <strong>${escapeHtml(String(seasonPreview.footprint?.sessionGroups || 0))}</strong>
+                  <span>${escapeHtml(`${seasonPreview.footprint?.groups || 0} grupo(s) distintos`)}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip warning">Participantes</span>
+                  <strong>${escapeHtml(String(seasonPreview.footprint?.participants || 0))}</strong>
+                  <span>${escapeHtml(`${seasonPreview.footprint?.uniquePeople || 0} persona(s) involucradas`)}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Asistencias</span>
+                  <strong>${escapeHtml(String(seasonPreview.footprint?.attendances || 0))}</strong>
+                  <span>Capturas ligadas a la temporada.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip ${seasonPreview.linkedFormation?.total ? "danger" : "success"}">Formación ligada</span>
+                  <strong>${escapeHtml(String(seasonPreview.linkedFormation?.total || 0))}</strong>
+                  <span>${seasonPreview.linkedFormation?.total
+                    ? escapeHtml(`${seasonPreview.linkedFormation?.people || 0} persona(s) con proceso o inscripción aún ligada`)
+                    : "No se detectó Formación bloqueando este borrado."}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip warning">Huella operativa</span>
+                  <strong>${escapeHtml(String(seasonPreview.footprint?.totalOperational || 0))}</strong>
+                  <span>Registros que se eliminarán si confirmas.</span>
+                </div>
+              </div>
+
+              ${seasonPreview.deletable ? `
+                <div class="actions-row scrap-preview-actions">
+                  <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-season" data-season-id="${escapeHtml(selectedSeason.id || "")}">Eliminar temporada demo</button>
+                  <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Limpiar selección</button>
+                </div>
+              ` : `
+                <div class="scrap-danger-note" style="margin-top: 16px;">
+                  <strong>Bloqueada por Formación</strong>
+                  <span>Primero elimina con SCRAP total a la persona demo que ya avanzó hasta Formación. Cuando esta temporada quede con Formación ligada en cero, aquí se habilitará su borrado seguro.</span>
+                </div>
+
+                <div class="actions-row scrap-preview-actions">
+                  <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Entendido</button>
+                </div>
+              `}
+            ` : `
+              <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-primary" type="button" data-action="analyze-scrap-season" ${selectedSeason ? "" : "disabled"}>Analizar temporada</button>
+                <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Limpiar selección</button>
+              </div>
+            `}
+          ` : `
+            <div class="empty-state" style="margin-top: 16px;">Todavía no hay una temporada seleccionada para revisar.</div>
+          `}
+
+          <div class="scrap-danger-note">
+            <strong>Flujo recomendado para demos</strong>
+            <span>1. Borra primero al asistente demo con SCRAP total si ya llegó hasta Formación. 2. Después vuelve aquí y elimina la temporada de ejemplo. Así no dejas referencias huérfanas.</span>
           </div>
         </div>
       </div>
@@ -14145,6 +14303,81 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "analyze-scrap-season") {
+      const seasonId = String(button.dataset.seasonId || state.ui.selectedScrapSeasonId || "");
+      const season = (Array.isArray(state.seasons) ? state.seasons : []).find((item) => String(item.id || "") === seasonId);
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!seasonId || !season) {
+        showToast("Temporada no disponible", "Selecciona la temporada demo que deseas revisar e inténtalo nuevamente.", "warning");
+        return;
+      }
+
+      const preview = await loadScrapSeasonPreview_(seasonId, {
+        force: true,
+        message: "Analizando impacto de la temporada demo..."
+      });
+      if (!preview) {
+        showToast("Vista previa no disponible", "La API publicada todavía no incluye la ruta scrap.previewSeason. Actualiza el backend y vuelve a publicar la Web App.", "warning");
+      }
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
+    if (action === "clear-scrap-season-preview") {
+      state.ui.selectedScrapSeasonId = "";
+      state.ui.scrapSeasonPreview = null;
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
+    if (action === "prompt-scrap-delete-season") {
+      const seasonId = String(button.dataset.seasonId || state.ui.selectedScrapSeasonId || "");
+      const season = (Array.isArray(state.seasons) ? state.seasons : []).find((item) => String(item.id || "") === seasonId);
+      let preview = null;
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!seasonId || !season) {
+        showToast("Temporada no disponible", "Selecciona primero la temporada demo que deseas borrar.", "warning");
+        return;
+      }
+
+      preview = await loadScrapSeasonPreview_(seasonId, {
+        message: "Preparando confirmación de borrado de temporada..."
+      });
+
+      if (preview && preview.deletable === false) {
+        showToast("Temporada bloqueada", "Primero limpia con SCRAP total a la persona demo que ya generó datos en Formación y luego vuelve a intentar este borrado.", "warning");
+        renderApp();
+        scrollToSection_("admin-scrap-center");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-season",
+        title: "Eliminar temporada demo completa",
+        copy: "Se borrará la temporada seleccionada junto con sus sesiones, grupos por sesión, participantes y asistencias. Este flujo está pensado solo para demos o pruebas controladas.",
+        badge: "Borrado temporada",
+        confirmLabel: "Eliminar temporada",
+        tone: "danger",
+        notes: buildScrapSeasonPreviewNotes_(preview, season),
+        payload: {
+          seasonId
+        }
+      });
+      return;
+    }
+
     if (action === "prompt-scrap-delete-person") {
       const personId = String(button.dataset.personId || "");
       const originView = String(button.dataset.originView || state.currentView || "");
@@ -15682,6 +15915,16 @@ async function handleChange(event) {
 
     if (target.dataset.role === "move-target") {
       state.filters.participants.moveTargets[target.dataset.participantId] = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "admin-scrap-season") {
+      const nextSeasonId = String(target.value || "");
+      state.ui.selectedScrapSeasonId = nextSeasonId;
+      if (String(state.ui.scrapSeasonPreview?.seasonId || "") !== nextSeasonId) {
+        state.ui.scrapSeasonPreview = null;
+      }
       renderApp();
       return;
     }
@@ -19362,6 +19605,115 @@ async function loadScrapDeletePreview_(personId, options = {}) {
   return withLoading(task, options.message || "Analizando impacto del borrado...");
 }
 
+async function loadScrapSeasonPreview_(seasonId, options = {}) {
+  const cleanSeasonId = String(seasonId || "").trim();
+
+  if (!cleanSeasonId) {
+    state.ui.selectedScrapSeasonId = "";
+    state.ui.scrapSeasonPreview = null;
+    return null;
+  }
+
+  if (
+    !options.force &&
+    String(state.ui.selectedScrapSeasonId || "") === cleanSeasonId &&
+    String(state.ui.scrapSeasonPreview?.seasonId || "") === cleanSeasonId
+  ) {
+    return state.ui.scrapSeasonPreview;
+  }
+
+  const task = async () => {
+    let preview = null;
+
+    try {
+      preview = await apiGet("scrap.previewSeason", {
+        seasonId: cleanSeasonId
+      });
+    } catch (error) {
+      if (isUnknownActionError_(error, "scrap.previewSeason")) {
+        state.ui.selectedScrapSeasonId = cleanSeasonId;
+        state.ui.scrapSeasonPreview = null;
+        return null;
+      }
+
+      throw error;
+    }
+
+    state.ui.selectedScrapSeasonId = cleanSeasonId;
+    state.ui.scrapSeasonPreview = preview;
+    return preview;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Analizando impacto de la temporada...");
+}
+
+function applyScrapDeleteSeasonLocally_(seasonId) {
+  const cleanSeasonId = String(seasonId || "").trim();
+
+  if (!cleanSeasonId) {
+    return;
+  }
+
+  state.seasons = (Array.isArray(state.seasons) ? state.seasons : []).filter((season) => String(season?.id || "").trim() !== cleanSeasonId);
+  delete state.sessionsBySeason[cleanSeasonId];
+
+  Object.keys(state.sessionGroupsByKey || {}).forEach((key) => {
+    if (String(key || "").startsWith(`${cleanSeasonId}::`)) {
+      delete state.sessionGroupsByKey[key];
+    }
+  });
+
+  state.ui.scrapSeasonPreview = String(state.ui.scrapSeasonPreview?.seasonId || "") === cleanSeasonId ? null : state.ui.scrapSeasonPreview;
+  state.ui.selectedScrapSeasonId = String(state.ui.selectedScrapSeasonId || "") === cleanSeasonId ? "" : state.ui.selectedScrapSeasonId;
+
+  if (String(state.filters.dashboard.seasonId || "") === cleanSeasonId) {
+    state.filters.dashboard.seasonId = "";
+    state.filters.dashboard.sessionId = "";
+  }
+
+  if (String(state.filters.seasons.seasonId || "") === cleanSeasonId) {
+    state.filters.seasons.seasonId = "";
+  }
+
+  if (String(state.filters.formation.seasonId || "") === cleanSeasonId) {
+    state.filters.formation.seasonId = "";
+  }
+
+  if (String(state.filters.participants.seasonId || "") === cleanSeasonId) {
+    state.filters.participants.seasonId = "";
+    state.filters.participants.sessionId = "";
+    state.filters.participants.groupId = "";
+    state.participants = [];
+    state.participantContext = null;
+    state.participantSeasonAssignments = {};
+    state.cacheKeys.participants = "";
+    state.cacheKeys.participantSeasonAssignments = "";
+  }
+
+  if (String(state.filters.attendance.seasonId || "") === cleanSeasonId || String(state.filters.attendance.pickerSeasonId || "") === cleanSeasonId) {
+    state.filters.attendance.seasonId = "";
+    state.filters.attendance.sessionId = "";
+    state.filters.attendance.groupId = "";
+    state.filters.attendance.pickerSeasonId = "";
+    state.attendanceContext = null;
+    state.attendanceDetail = null;
+    state.cacheKeys.attendance = "";
+    state.cacheKeys.attendanceDetail = "";
+  }
+
+  if (String(state.filters.qr.seasonId || "") === cleanSeasonId) {
+    state.filters.qr.seasonId = "";
+    state.filters.qr.sessionId = "";
+    state.realtimeSummary = null;
+    state.qrSessionActivity = [];
+    state.cacheKeys.qrSummary = "";
+  }
+}
+
 function applyScrapDeletePersonLocally_(personId) {
   const cleanPersonId = String(personId || "").trim();
 
@@ -19386,6 +19738,90 @@ function applyScrapDeletePersonLocally_(personId) {
 
   state.metrics.peopleCount = state.people.length;
   state.metrics.directoryCount = state.peopleDirectory.length;
+}
+
+async function executeScrapDeleteSeason_(seasonId) {
+  const cleanSeasonId = String(seasonId || "").trim();
+  let response = null;
+
+  if (!cleanSeasonId) {
+    showToast("Falta temporada", "Selecciona la temporada demo que deseas eliminar.", "warning");
+    return;
+  }
+
+  try {
+    await withLoading(async () => {
+      response = await apiPost("scrap.deleteSeason", {
+        seasonId: cleanSeasonId
+      });
+
+      applyScrapDeleteSeasonLocally_(cleanSeasonId);
+      invalidateDashboardSeasonMatrix_();
+      invalidateWelcomeCache_();
+
+      await refreshSeasons();
+      syncBootstrapFilters_();
+      await syncAllFilters();
+
+      const refreshResults = await Promise.allSettled([
+        loadWelcomePeople_({
+          force: true,
+          showLoading: false
+        }),
+        state.currentView === "dashboard"
+          ? ensureDashboardViewData_({
+            force: true,
+            showLoading: false
+          })
+          : Promise.resolve(),
+        state.currentView === "participants"
+          ? loadParticipantsData({
+            force: true,
+            showLoading: false
+          })
+          : Promise.resolve(),
+        state.currentView === "attendance"
+          ? loadAttendanceData({
+            force: true,
+            showLoading: false
+          })
+          : Promise.resolve(),
+        state.currentView === "qr"
+          ? ensureQrViewData_({
+            force: true,
+            showLoading: false
+          })
+          : Promise.resolve()
+      ]);
+
+      refreshResults
+        .filter((result) => result.status === "rejected")
+        .forEach((result) => {
+          console.error("SCRAP season refresh warning", result.reason);
+        });
+    }, "Eliminando temporada demo...");
+  } catch (error) {
+    if (error instanceof ApiError && String(error.code || "").toUpperCase() === "SCRAP_SEASON_BLOCKED_BY_FORMATION") {
+      showToast(
+        "Temporada bloqueada",
+        `Aún hay ${error.details?.linkedFormationRecords || 0} registro(s) y ${error.details?.linkedFormationEnrollments || 0} inscripción(es) de Formación ligadas a esta temporada. Primero limpia a la persona demo con SCRAP total y luego vuelve aquí.`,
+        "warning"
+      );
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
+    throw error;
+  }
+
+  showToast(
+    "Temporada demo eliminada",
+    `${response?.seasonName || cleanSeasonId} se eliminó con ${response?.deletedSessions || 0} sesión(es), ${response?.deletedSessionGroups || 0} grupo(s) por sesión, ${response?.deletedParticipants || 0} participante(s) y ${response?.deletedAttendances || 0} asistencia(s).`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
 }
 
 async function executeScrapDeletePerson_(personId, originView) {
@@ -23826,6 +24262,8 @@ function resetRuntimeState() {
     pendingProspectDrafts: {},
     selectedScrapPersonId: "",
     scrapPreview: null,
+    selectedScrapSeasonId: "",
+    scrapSeasonPreview: null,
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
     loginMode: "admin",
