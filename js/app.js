@@ -311,6 +311,7 @@ const state = {
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
+    pendingProspectDrafts: {},
     selectedScrapPersonId: "",
     scrapPreview: null,
     studentPortalTab: "home",
@@ -11654,31 +11655,14 @@ function renderParticipantsView() {
     const assignmentState = getPersonAssignmentState(person);
     return !assignmentState.currentSessionAssigned && !assignmentState.blockedByOtherGroup;
   }).length;
-  const totalPendingProspects = getPendingRegistrationWelcomePeople_();
-  const selectedPendingGroupId = String(filter.groupId || "");
+  const totalPendingProspects = getPendingRegistrationWelcomePeople_({
+    search: "",
+    groupId: ""
+  });
   const visiblePendingProspects = totalPendingProspects.slice().sort((left, right) => {
-    const leftMatchesGroup = selectedPendingGroupId && (
-      String(left.suggestedGroupId || "") === selectedPendingGroupId
-      || String(left.assignedGroupId || "") === selectedPendingGroupId
-    );
-    const rightMatchesGroup = selectedPendingGroupId && (
-      String(right.suggestedGroupId || "") === selectedPendingGroupId
-      || String(right.assignedGroupId || "") === selectedPendingGroupId
-    );
-
-    if (leftMatchesGroup !== rightMatchesGroup) {
-      return leftMatchesGroup ? -1 : 1;
-    }
-
     return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
       - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
   });
-  const matchingPendingProspects = selectedPendingGroupId
-    ? totalPendingProspects.filter((person) => (
-      String(person.suggestedGroupId || "") === selectedPendingGroupId
-      || String(person.assignedGroupId || "") === selectedPendingGroupId
-    ))
-    : totalPendingProspects;
   const hiddenBulkCount = Math.max(bulkMatches.length - bulkResults.length, 0);
   const serverCount = state.participants.filter((participant) => normalizeText(participant.type) === "servidor").length;
   const moveGroups = groups;
@@ -11745,46 +11729,88 @@ function renderParticipantsView() {
         </div>
 
         <div class="context-strip" style="margin-bottom: 18px;">
-          <span class="context-item"><strong>Temporada activa:</strong> ${escapeHtml(resolveSeasonName_(filter.seasonId) || "Selecciona una temporada")}</span>
-          <span class="context-item"><strong>Grupo en pantalla:</strong> ${escapeHtml(selectedGroupName)}</span>
           <span class="context-item"><strong>Pendientes totales:</strong> ${escapeHtml(String(totalPendingProspects.length))}</span>
-          <span class="context-item"><strong>Coinciden con este grupo:</strong> ${escapeHtml(String(matchingPendingProspects.length))}</span>
+          <span class="context-item"><strong>Registro:</strong> Elige temporada y confirma el grupo sugerido antes de asignar.</span>
+          <span class="context-item"><strong>Alcance:</strong> Se registrará automáticamente en todas las sesiones de la temporada elegida.</span>
         </div>
 
         <div class="results-list participants-picker-results">
-          ${visiblePendingProspects.length ? visiblePendingProspects.map((person) => `
+          ${visiblePendingProspects.length ? visiblePendingProspects.map((person) => {
+            const draft = getPendingProspectDraft_(person);
+            const selectedSeasonId = String(draft.seasonId || "").trim();
+            const selectedSeasonName = resolveSeasonName_(selectedSeasonId) || "";
+            const selectedSeasonSessions = selectedSeasonId ? getSessions(selectedSeasonId) : [];
+            const seasonSelectId = `pending-prospect-season-${String(person.id || "").trim()}`;
+            const canRegisterPendingProspect = Boolean(selectedSeasonId && draft.groupConfirmed && person.suggestedGroupId);
+
+            return `
             <article class="result-card participant-picker-card">
-              <div class="result-row">
-                <div class="result-copy-stack">
-                  <div class="result-title-row">
-                    <span class="row-title">${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>
-                    ${renderWelcomePendingRegistrationPill_(person)}
-                  </div>
-                  <span class="row-meta">${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
-                  <span class="row-meta">Grupo sugerido: ${escapeHtml(person.suggestedGroupName || "Sin grupo")} | Líder: ${escapeHtml(getWelcomeLeaderContactSummary_(person))}</span>
-                  <span class="row-meta">Sugerido: ${escapeHtml(formatDate(person.lastContactAt || person.fechaIngreso) || "Sin fecha")} | ${escapeHtml(person.lastFollowupNotes || "Sin notas")}</span>
+              <div class="result-copy-stack">
+                <div class="result-title-row">
+                  <span class="row-title">${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>
+                  ${renderWelcomePendingRegistrationPill_(person)}
                 </div>
-                <div class="participant-action-stack">
-                  <button
-                    class="btn btn-secondary"
-                    data-action="use-pending-prospect-group"
-                    data-group-id="${escapeHtml(person.suggestedGroupId || "")}"
-                  >
-                    Usar grupo sugerido
-                  </button>
-                  <button
-                    class="btn btn-primary"
-                    data-action="assign-pending-prospect"
+                <span class="row-meta">${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+                <span class="row-meta">Grupo sugerido por Bienvenida: ${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</span>
+                <span class="row-meta">Liderazgo: ${escapeHtml(getWelcomeLeaderContactSummary_(person))}</span>
+                <span class="row-meta">Sugerido: ${escapeHtml(formatDate(person.lastContactAt || person.fechaIngreso) || "Sin fecha")} | ${escapeHtml(person.lastFollowupNotes || "Sin notas")}</span>
+              </div>
+
+              <div class="field-grid two pending-prospect-planner">
+                <div class="field">
+                  <label for="${escapeHtml(seasonSelectId)}">Temporada a registrar</label>
+                  <select
+                    id="${escapeHtml(seasonSelectId)}"
+                    data-role="pending-prospect-season"
                     data-person-id="${escapeHtml(person.id || "")}"
-                    data-group-id="${escapeHtml(person.suggestedGroupId || "")}"
-                    ${filter.seasonId && person.suggestedGroupId ? "" : "disabled"}
                   >
-                    Registrar temporada
-                  </button>
+                    ${renderOptions(
+                      state.seasons.map((season) => ({
+                        value: season.id,
+                        label: `${season.name} (${season.id})`
+                      })),
+                      selectedSeasonId,
+                      "Selecciona temporada"
+                    )}
+                  </select>
+                </div>
+                <div class="summary-box pending-prospect-summary">
+                  <span>Grupo confirmado</span>
+                  <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
+                  <span>${escapeHtml(draft.groupConfirmed ? "Confirmado para registro." : "Debes confirmar el grupo sugerido antes de registrar.")}</span>
                 </div>
               </div>
+
+              <div class="context-strip pending-prospect-strip">
+                <span class="context-item"><strong>Temporada elegida:</strong> ${escapeHtml(selectedSeasonName || "Pendiente")}</span>
+                <span class="context-item"><strong>Sesiones a registrar:</strong> ${escapeHtml(selectedSeasonSessions.length ? String(selectedSeasonSessions.length) : "Pendiente")}</span>
+                <span class="context-item"><strong>Uso del grupo sugerido:</strong> ${escapeHtml(draft.groupConfirmed ? "Confirmado" : "Pendiente de confirmar")}</span>
+              </div>
+
+              <div class="actions-row pending-prospect-actions">
+                <button
+                  class="btn ${draft.groupConfirmed ? "btn-secondary" : "btn-ghost"}"
+                  data-action="confirm-pending-prospect-group"
+                  data-person-id="${escapeHtml(person.id || "")}"
+                  data-group-id="${escapeHtml(person.suggestedGroupId || "")}"
+                  ${person.suggestedGroupId ? "" : "disabled"}
+                >
+                  ${escapeHtml(draft.groupConfirmed ? "Grupo sugerido confirmado" : "Confirmar grupo sugerido")}
+                </button>
+                <button
+                  class="btn btn-primary"
+                  data-action="assign-pending-prospect"
+                  data-person-id="${escapeHtml(person.id || "")}"
+                  data-group-id="${escapeHtml(person.suggestedGroupId || "")}"
+                  data-season-id="${escapeHtml(selectedSeasonId)}"
+                  ${canRegisterPendingProspect ? "" : "disabled"}
+                >
+                  Registrar en temporada
+                </button>
+              </div>
             </article>
-          `).join("") : `
+          `;
+          }).join("") : `
             <div class="empty-state participant-picker-empty">
               <strong>Sin prospectos pendientes</strong>
               <span>Cuando Bienvenida envíe un prospecto para registro aparecerá aquí.</span>
@@ -13094,6 +13120,51 @@ function renderSeasonSelect(id, selectedValue) {
   `;
 }
 
+function getPendingProspectDraft_(person) {
+  const personId = String(person?.id || "").trim();
+  const suggestedGroupId = String(person?.suggestedGroupId || "").trim();
+  const current = state.ui.pendingProspectDrafts[personId] || {};
+  const seasonId = String(current.seasonId || "").trim();
+  const confirmedGroupId = String(current.confirmedGroupId || "").trim();
+
+  return {
+    seasonId,
+    confirmedGroupId,
+    groupConfirmed: Boolean(suggestedGroupId && confirmedGroupId === suggestedGroupId)
+  };
+}
+
+function updatePendingProspectDraft_(personId, patch = {}) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  state.ui.pendingProspectDrafts = {
+    ...state.ui.pendingProspectDrafts,
+    [cleanPersonId]: {
+      ...(state.ui.pendingProspectDrafts[cleanPersonId] || {}),
+      ...(patch || {})
+    }
+  };
+}
+
+function clearPendingProspectDraft_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId || !state.ui.pendingProspectDrafts[cleanPersonId]) {
+    return;
+  }
+
+  const nextDrafts = {
+    ...state.ui.pendingProspectDrafts
+  };
+
+  delete nextDrafts[cleanPersonId];
+  state.ui.pendingProspectDrafts = nextDrafts;
+}
+
 function renderSessionSelect(id, seasonId, selectedValue) {
   const sessions = getSessions(seasonId);
 
@@ -14270,28 +14341,29 @@ async function handleClick(event) {
       return;
     }
 
-    if (action === "use-pending-prospect-group") {
+    if (action === "confirm-pending-prospect-group") {
       const targetGroupId = String(button.dataset.groupId || "");
+      const personId = String(button.dataset.personId || "");
 
       if (!targetGroupId) {
         showToast("Sin grupo sugerido", "Ese prospecto todavía no tiene grupo sugerido.", "warning");
         return;
       }
 
-      state.filters.participants.groupId = targetGroupId;
-      if (!state.filters.participants.sessionId) {
-        const seasonSessions = getSessions(state.filters.participants.seasonId);
-        if (seasonSessions.length) {
-          state.filters.participants.sessionId = seasonSessions[0].id;
-        }
-      }
+      updatePendingProspectDraft_(personId, {
+        confirmedGroupId: targetGroupId
+      });
+      showToast("Grupo confirmado", "Ahora ya puedes elegir la temporada y registrar al prospecto en todas sus sesiones.", "success");
       renderApp();
-      scrollToSection_("participants-context");
       return;
     }
 
     if (action === "assign-pending-prospect") {
-      await assignPendingProspectToSeason_(button.dataset.personId || "", button.dataset.groupId || "");
+      await assignPendingProspectToSeason_(
+        button.dataset.personId || "",
+        button.dataset.groupId || "",
+        button.dataset.seasonId || ""
+      );
       return;
     }
 
@@ -15389,6 +15461,14 @@ async function handleChange(event) {
     if (target.id === "formation-ops-enrollment-status") {
       state.filters.formationOps.enrollmentStatus = target.value || "ALL";
       syncFormationOperationsSelection_();
+      renderApp();
+      return;
+    }
+
+    if (target.dataset.role === "pending-prospect-season") {
+      updatePendingProspectDraft_(target.dataset.personId || "", {
+        seasonId: target.value
+      });
       renderApp();
       return;
     }
@@ -18780,14 +18860,14 @@ async function executeBulkAssign_() {
   focusInputById_("participant-bulk-search");
 }
 
-async function assignPendingProspectToSeason_(personId, groupId) {
+async function assignPendingProspectToSeason_(personId, groupId, seasonId) {
   const cleanPersonId = String(personId || "");
   const cleanGroupId = String(groupId || "");
-  const seasonId = String(state.filters.participants.seasonId || "");
-  const sessions = getSessions(seasonId);
+  const cleanSeasonId = String(seasonId || "").trim();
+  const sessions = getSessions(cleanSeasonId);
   let assignmentResult = null;
 
-  if (!seasonId) {
+  if (!cleanSeasonId) {
     showToast("Selecciona temporada", "Antes de registrar un prospecto define la temporada donde quedará asignado.", "warning");
     return;
   }
@@ -18802,15 +18882,10 @@ async function assignPendingProspectToSeason_(personId, groupId) {
     return;
   }
 
-  state.filters.participants.groupId = cleanGroupId;
-  if (!state.filters.participants.sessionId) {
-    state.filters.participants.sessionId = sessions[0].id;
-  }
-
   try {
     await withLoading(async () => {
       assignmentResult = await apiPost("participants.bulkAssign", {
-        seasonId,
+        seasonId: cleanSeasonId,
         groupId: cleanGroupId,
         people: [{ personId: cleanPersonId }]
       });
@@ -18819,7 +18894,7 @@ async function assignPendingProspectToSeason_(personId, groupId) {
     if (isParticipantSeasonConflictError_(error)) {
       await loadParticipantSeasonAssignments_({
         force: true,
-        seasonId,
+        seasonId: cleanSeasonId,
         showLoading: false
       });
       showToast("Asignación no permitida", buildParticipantConflictToastCopy_(error.details), "warning");
@@ -18830,12 +18905,16 @@ async function assignPendingProspectToSeason_(personId, groupId) {
     throw error;
   }
 
+  state.filters.participants.seasonId = cleanSeasonId;
+  state.filters.participants.groupId = cleanGroupId;
+  state.filters.participants.sessionId = sessions[0]?.id || "";
+  clearPendingProspectDraft_(cleanPersonId);
   invalidateDashboardSeasonMatrix_();
   invalidateWelcomeCache_();
   await Promise.all([
     loadParticipantSeasonAssignments_({
       force: true,
-      seasonId,
+      seasonId: cleanSeasonId,
       showLoading: false
     }),
     loadWelcomePeople_({
@@ -20755,9 +20834,22 @@ function getPendingRegistrationWelcomePeople_(options = {}) {
   return getWelcomeProspectPeople_(options).filter((person) => getWelcomeProspectWorkflowState_(person).stage === "PENDING");
 }
 
-function getWelcomeProspectPeople_() {
+function getWelcomeProspectPeople_(options = {}) {
+  const search = normalizeText(
+    options.search !== undefined
+      ? options.search
+      : state.filters.welcome.search
+  );
+  const groupId = String(
+    options.groupId !== undefined
+      ? options.groupId
+      : (state.filters.welcome.groupId || "")
+  );
+  const includeRegistered = options.includeRegistered === true;
+
   return state.welcomePeople.filter((person) => {
     const status = String(person.welcomeStatus || "").toUpperCase();
+    const workflow = getWelcomeProspectWorkflowState_(person);
     const haystack = normalizeText([
       person.id,
       person.numero,
@@ -20768,17 +20860,25 @@ function getWelcomeProspectPeople_() {
       person.assignedGroupName,
       person.leader?.name
     ].join(" "));
-    const matchesSearch = !state.filters.welcome.search || haystack.includes(normalizeText(state.filters.welcome.search));
-    const matchesGroup = !state.filters.welcome.groupId
-      || String(person.suggestedGroupId || "") === String(state.filters.welcome.groupId || "")
-      || String(person.assignedGroupId || "") === String(state.filters.welcome.groupId || "");
+    const matchesSearch = !search || haystack.includes(search);
+    const matchesGroup = !groupId
+      || String(person.suggestedGroupId || "") === groupId
+      || String(person.assignedGroupId || "") === groupId;
+    const visibleByWorkflow = workflow.stage === "READY"
+      || workflow.stage === "PENDING"
+      || (includeRegistered && workflow.stage === "REGISTERED");
+    const eligibleByStatus = status === "NUEVO"
+      || status === "PROSPECTO GP"
+      || Boolean(person?.prospectWorkflowStarted)
+      || workflow.stage === "REGISTERED";
 
-    return !person.assignedInLatestSeason
-      && status === "PROSPECTO GP"
+    return visibleByWorkflow
+      && eligibleByStatus
       && matchesSearch
       && matchesGroup;
   }).sort((left, right) => {
-    return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true) - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
+    return parseDateToTimestamp_(right.prospectAlertAt || right.lastContactAt || right.fechaIngreso, true)
+      - parseDateToTimestamp_(left.prospectAlertAt || left.lastContactAt || left.fechaIngreso, true);
   });
 }
 
@@ -23414,6 +23514,7 @@ function resetRuntimeState() {
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
+    pendingProspectDrafts: {},
     selectedScrapPersonId: "",
     scrapPreview: null,
     studentPortalTab: "home",
