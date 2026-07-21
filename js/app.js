@@ -1027,6 +1027,29 @@ function applyFormationRecordToLocalState_(record, extra = {}) {
   }
 }
 
+function applyPortalAccountToFormationProfile_(personId, account, options = {}) {
+  const cleanPersonId = String(personId || "").trim();
+  const seasonId = String(options.seasonId || state.filters.formation.seasonId || "").trim();
+
+  if (!cleanPersonId || !account) {
+    return;
+  }
+
+  if (String(state.formationProfile?.person?.id || "") === cleanPersonId) {
+    state.formationProfile = {
+      ...(state.formationProfile || {}),
+      portalAccount: {
+        ...(state.formationProfile?.portalAccount || {}),
+        ...account
+      }
+    };
+    cacheFormationProfile_(state.formationProfile, cleanPersonId, seasonId);
+    return;
+  }
+
+  clearFormationProfileCache_(cleanPersonId, seasonId);
+}
+
 function buildEncounterInviteWhatsappUrlClient_(candidate) {
   const phone = String(candidate?.personPhone || "").replace(/\D+/g, "");
 
@@ -1046,6 +1069,41 @@ function buildEncounterInviteWhatsappUrlClient_(candidate) {
   ].join("\n");
 
   return `https://wa.me/${encodeURIComponent(phone)}?text=${encodeURIComponent(message)}`;
+}
+
+function getStudentPortalEntryUrl_() {
+  if (typeof window === "undefined" || !window.location) {
+    return "";
+  }
+
+  const origin = String(window.location.origin || "").trim();
+  const pathname = String(window.location.pathname || "").trim();
+
+  return `${origin}${pathname}`;
+}
+
+function buildStudentPortalAccessWhatsappUrl_(profile, account) {
+  const person = profile?.person || {};
+  const cleanPhone = normalizeWhatsappPhone_(person.telefono);
+  const username = String(account?.username || person.id || "").trim();
+  const temporaryPin = String(account?.temporaryPin || "").trim();
+  const fullName = String(person.nombreCompleto || person.nombre || "asistente").trim();
+  const portalUrl = getStudentPortalEntryUrl_();
+
+  if (!cleanPhone || !username || !temporaryPin) {
+    return "";
+  }
+
+  const message = [
+    `Hola ${fullName}.`,
+    "Tu acceso al Portal del Asistente de Iglesia Fuertes V2 ya está listo.",
+    `Usuario: ${username}`,
+    `PIN temporal: ${temporaryPin}`,
+    portalUrl ? `Ingresa aquí: ${portalUrl}` : "Ingresa al Portal del Asistente desde el sistema.",
+    "Ahí podrás revisar tu proceso de formación, materiales y avance."
+  ].join("\n");
+
+  return buildWhatsappTextShareUrl_(message, cleanPhone);
 }
 
 function isUnknownActionError_(error, actionName = "") {
@@ -6034,6 +6092,10 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
 function renderFormationProfileSection_(profile) {
   const profileLoading = state.ui.formationProfileLoading;
   const latestRecord = profile?.records?.[0] || null;
+  const portalAccount = profile?.portalAccount || null;
+  const portalAccessWhatsappUrl = portalAccount ? buildStudentPortalAccessWhatsappUrl_(profile, portalAccount) : "";
+  const hasPortalTemporaryPin = Boolean(String(portalAccount?.temporaryPin || "").trim());
+  const hasPortalPhone = Boolean(String(profile?.person?.telefono || "").trim());
 
   return `
     <article class="detail-card module-section-anchor" id="formation-profile">
@@ -6092,15 +6154,25 @@ function renderFormationProfileSection_(profile) {
           </div>
         </div>
 
-        ${profile.portalAccount ? `
+        ${portalAccount ? `
           <div class="summary-strip" style="margin-top: 18px;">
-            <span class="context-item"><strong>Portal:</strong> usuario ${escapeHtml(profile.portalAccount.username || "-")}</span>
-            <span class="context-item"><strong>Último acceso:</strong> ${escapeHtml(profile.portalAccount.lastAccessAt ? formatDateTime_(profile.portalAccount.lastAccessAt) : "Sin acceso todavía")}</span>
-            <span class="context-item"><strong>Estado:</strong> ${escapeHtml(profile.portalAccount.status || "ACTIVO")}</span>
+            <span class="context-item"><strong>Portal:</strong> usuario ${escapeHtml(portalAccount.username || "-")}</span>
+            <span class="context-item"><strong>PIN temporal:</strong> ${escapeHtml(hasPortalTemporaryPin ? portalAccount.temporaryPin : "No visible")}</span>
+            <span class="context-item"><strong>Último acceso:</strong> ${escapeHtml(portalAccount.lastAccessAt ? formatDateTime_(portalAccount.lastAccessAt) : "Sin acceso todavía")}</span>
+            <span class="context-item"><strong>Estado:</strong> ${escapeHtml(portalAccount.status || "ACTIVO")}</span>
+          </div>
+          <div class="footer-note" style="margin-top: 10px;">
+            ${hasPortalTemporaryPin
+              ? escapeHtml("Este PIN temporal está visible porque la cuenta acaba de crearse o acaba de resetearse.")
+              : escapeHtml("Por seguridad, el PIN no se guarda visible después de refrescar el expediente. Usa Generar nuevo PIN cuando necesites reenviarlo.")}
           </div>
           <div class="actions-row" style="margin-top: 12px;">
-            <button class="btn btn-secondary" data-action="reset-student-portal-pin" data-person-id="${escapeHtml(profile.person.id || "")}">Resetear PIN del asistente</button>
+            <button class="btn btn-secondary" data-action="reset-student-portal-pin" data-person-id="${escapeHtml(profile.person.id || "")}">Generar nuevo PIN</button>
+            <button class="btn btn-ghost" data-action="send-student-portal-access-whatsapp" data-person-id="${escapeHtml(profile.person.id || "")}" ${hasPortalTemporaryPin && hasPortalPhone ? "" : "disabled"}>Enviar acceso por WhatsApp</button>
+            <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(profile.person.id || "")}" ${hasPortalPhone ? "" : "disabled"}>${hasPortalTemporaryPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
           </div>
+          ${!hasPortalPhone ? `<div class="footer-note" style="margin-top: 8px;">El asistente no tiene teléfono registrado, por eso no se puede preparar WhatsApp.</div>` : ""}
+          ${hasPortalTemporaryPin && portalAccessWhatsappUrl ? `<div class="footer-note" style="margin-top: 6px;">El botón de WhatsApp enviará usuario <strong>${escapeHtml(portalAccount.username || "-")}</strong> y PIN temporal al teléfono del asistente.</div>` : ""}
         ` : ""}
 
         ${latestRecord?.paymentStatus ? `
@@ -13887,18 +13959,90 @@ async function handleClick(event) {
         personId
       }), "Generando nuevo PIN...");
 
-      if (state.formationProfile?.person?.id === personId) {
-        state.formationProfile = {
-          ...state.formationProfile,
-          portalAccount: {
-            ...(state.formationProfile.portalAccount || {}),
-            ...account
-          }
-        };
-      }
+      applyPortalAccountToFormationProfile_(personId, account);
 
       renderApp();
       showToast("PIN regenerado", `Usuario ${account.username} con nuevo PIN ${account.temporaryPin}.`, "success");
+      return;
+    }
+
+    if (action === "send-student-portal-access-whatsapp") {
+      const personId = String(button.dataset.personId || "");
+      const profile = state.formationProfile;
+      const account = profile?.portalAccount || null;
+      const whatsappUrl = buildStudentPortalAccessWhatsappUrl_(profile, account);
+
+      if (!personId || String(profile?.person?.id || "") !== personId) {
+        showToast("Perfil no disponible", "Abre nuevamente el perfil del asistente para compartir su acceso.", "warning");
+        return;
+      }
+
+      if (!String(profile?.person?.telefono || "").trim()) {
+        showToast("Sin teléfono", "El asistente no tiene teléfono registrado para preparar el WhatsApp.", "warning");
+        return;
+      }
+
+      if (!String(account?.temporaryPin || "").trim()) {
+        showToast("PIN no visible", "Por seguridad el PIN ya no está visible. Usa Generar nuevo PIN y WhatsApp para reenviar el acceso.", "warning");
+        return;
+      }
+
+      if (!whatsappUrl) {
+        showToast("Acceso incompleto", "No fue posible preparar el acceso del portal para WhatsApp.", "warning");
+        return;
+      }
+
+      window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+      showToast("WhatsApp listo", "Se abrió el mensaje con el usuario y PIN temporal del asistente.", "success");
+      return;
+    }
+
+    if (action === "reset-student-portal-pin-whatsapp") {
+      const personId = String(button.dataset.personId || "");
+      const profile = state.formationProfile;
+      const preparedWindow = typeof window !== "undefined" ? window.open("", "_blank", "noopener,noreferrer") : null;
+
+      if (!personId || String(profile?.person?.id || "") !== personId) {
+        if (preparedWindow) {
+          preparedWindow.close();
+        }
+        showToast("Perfil no disponible", "Abre nuevamente el perfil del asistente para generar y enviar su acceso.", "warning");
+        return;
+      }
+
+      if (!String(profile?.person?.telefono || "").trim()) {
+        if (preparedWindow) {
+          preparedWindow.close();
+        }
+        showToast("Sin teléfono", "El asistente no tiene teléfono registrado para preparar el WhatsApp.", "warning");
+        return;
+      }
+
+      const account = await withLoading(() => apiPost("formation.account.resetPin", {
+        personId
+      }), "Generando PIN y preparando WhatsApp...");
+
+      applyPortalAccountToFormationProfile_(personId, account);
+      renderApp();
+
+      const refreshedProfile = state.formationProfile;
+      const whatsappUrl = buildStudentPortalAccessWhatsappUrl_(refreshedProfile, account);
+
+      if (!whatsappUrl) {
+        if (preparedWindow) {
+          preparedWindow.close();
+        }
+        showToast("WhatsApp no disponible", "Se generó el nuevo PIN, pero no fue posible preparar el mensaje de WhatsApp.", "warning");
+        return;
+      }
+
+      if (preparedWindow) {
+        preparedWindow.location = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+      }
+
+      showToast("PIN y WhatsApp listos", `Se generó el PIN ${account.temporaryPin} y se abrió el mensaje para ${refreshedProfile?.person?.nombreCompleto || "el asistente"}.`, "success");
       return;
     }
 
@@ -19192,6 +19336,11 @@ async function registerFormationEncounter_(candidate) {
   state.ui.selectedFormationPersonId = candidate.personId;
   state.ui.formationSection = "route";
   state.formationProfile = buildFormationProfileFromLoadedData_(candidate.personId, candidate.seasonId) || state.formationProfile;
+  if (portalAccess?.account) {
+    applyPortalAccountToFormationProfile_(candidate.personId, portalAccess.account, {
+      seasonId: candidate.seasonId
+    });
+  }
 
   if (state.formationProfile) {
     cacheFormationProfile_(state.formationProfile, candidate.personId, candidate.seasonId);
