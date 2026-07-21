@@ -2896,6 +2896,46 @@ tbody tr:hover {
   gap: 18px;
 }
 
+.dashboard-inline-loading-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(15, 15, 16, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(0, 0, 0, 0.035), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f6f6f6 100%);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.06);
+}
+
+.dashboard-inline-loading-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dashboard-inline-loading-head .loading-spinner {
+  width: 22px;
+  height: 22px;
+  border-width: 2px;
+  flex: 0 0 auto;
+}
+
+.dashboard-inline-loading-head h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.dashboard-inline-loading-head p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.dashboard-inline-loading-strip {
+  margin-top: 0;
+}
+
 .dashboard-overview-grid .stat-card {
   min-height: 156px;
 }
