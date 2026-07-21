@@ -320,6 +320,7 @@ const state = {
     scrapSeasonPreview: null,
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
+    studentPortalMenuOpen: false,
     loginMode: "admin",
     confirmation: null
   },
@@ -2579,25 +2580,83 @@ function renderStudentPortalView_() {
 function renderStudentPortalTopBar_(context) {
   const activeTab = context?.activeTab || "home";
   const showBack = activeTab !== "home";
+  const menuOpen = !showBack && Boolean(state.ui.studentPortalMenuOpen);
 
   return `
-    <header class="student-portal-topbar">
-      ${showBack ? `
-        <button class="student-portal-topbar-icon" type="button" data-action="set-student-portal-tab" data-tab="home" aria-label="Volver a inicio">
-          ${renderStudentPortalIcon_("back")}
+    <div class="student-portal-topbar-shell ${menuOpen ? "is-menu-open" : ""}">
+      <header class="student-portal-topbar">
+        ${showBack ? `
+          <button class="student-portal-topbar-icon" type="button" data-action="set-student-portal-tab" data-tab="home" aria-label="Volver a inicio">
+            ${renderStudentPortalIcon_("back")}
+          </button>
+        ` : `
+          <button class="student-portal-topbar-icon ${menuOpen ? "is-active" : ""}" type="button" data-action="toggle-student-portal-menu" aria-label="${menuOpen ? "Cerrar menu" : "Abrir menu"}" aria-expanded="${menuOpen ? "true" : "false"}">
+            ${renderStudentPortalIcon_("menu")}
+          </button>
+        `}
+
+        <img class="brand-logo student-portal-topbar-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+
+        <button class="student-portal-topbar-icon" type="button" data-action="refresh-student-portal" aria-label="Actualizar portal">
+          ${renderStudentPortalIcon_("bell")}
         </button>
-      ` : `
-        <span class="student-portal-topbar-icon is-static" aria-hidden="true">
-          ${renderStudentPortalIcon_("menu")}
-        </span>
-      `}
+      </header>
 
-      <img class="brand-logo student-portal-topbar-logo" src="assets/logo-fuertes.png" alt="Fuertes">
+      ${menuOpen ? renderStudentPortalQuickMenu_(context) : ""}
+    </div>
+  `;
+}
 
-      <button class="student-portal-topbar-icon" type="button" data-action="refresh-student-portal" aria-label="Actualizar portal">
-        ${renderStudentPortalIcon_("bell")}
-      </button>
-    </header>
+function renderStudentPortalQuickMenu_(context) {
+  const activeTab = context?.activeTab || "home";
+  const assistantFirstName = context?.assistantFirstName || "Asistente";
+  const items = [
+    { id: "home", label: "Inicio", note: "Resumen general", icon: "home" },
+    { id: "path", label: "Mi camino", note: "Ruta de formación", icon: "path" },
+    { id: "materials", label: "Materiales", note: "Archivos del nivel", icon: "materials" },
+    { id: "profile", label: "Mi perfil", note: "Asistencia y evaluación", icon: "profile" }
+  ];
+
+  return `
+    <div class="student-portal-quick-menu" role="dialog" aria-label="Menu del portal del asistente">
+      <div class="student-portal-quick-menu-head">
+        <div>
+          <strong>Menu rapido</strong>
+          <span>${escapeHtml(`Hola, ${assistantFirstName}`)}</span>
+        </div>
+        <button class="student-portal-quick-menu-close" type="button" data-action="close-student-portal-menu" aria-label="Cerrar menu">
+          ${renderStudentPortalIcon_("close")}
+        </button>
+      </div>
+
+      <div class="student-portal-quick-menu-list">
+        ${items.map((item) => `
+          <button
+            class="student-portal-quick-menu-item ${activeTab === item.id ? "is-active" : ""}"
+            type="button"
+            data-action="set-student-portal-tab"
+            data-tab="${escapeHtml(item.id)}"
+          >
+            <span class="student-portal-quick-menu-item-icon">${renderStudentPortalIcon_(item.icon)}</span>
+            <span class="student-portal-quick-menu-item-copy">
+              <strong>${escapeHtml(item.label)}</strong>
+              <small>${escapeHtml(item.note)}</small>
+            </span>
+          </button>
+        `).join("")}
+      </div>
+
+      <div class="student-portal-quick-menu-actions">
+        <button class="student-portal-quick-menu-link" type="button" data-action="refresh-student-portal">
+          <span>${renderStudentPortalIcon_("bell")}</span>
+          <span>Actualizar portal</span>
+        </button>
+        <button class="student-portal-quick-menu-link is-danger" type="button" data-action="logout">
+          <span>${renderStudentPortalIcon_("logout")}</span>
+          <span>Cerrar sesion</span>
+        </button>
+      </div>
+    </div>
   `;
 }
 
@@ -3338,6 +3397,10 @@ function renderStudentPortalIcon_(name) {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a4 4 0 0 0-4 4v2.2c0 1-.3 2-.9 2.8L5.8 15h12.4l-1.3-2c-.6-.8-.9-1.8-.9-2.8V8a4 4 0 0 0-4-4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
   }
 
+  if (icon === "close") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  }
+
   if (icon === "back") {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
@@ -3376,6 +3439,10 @@ function renderStudentPortalIcon_(name) {
 
   if (icon === "download") {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (icon === "logout") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13 8l4 4-4 4M17 12H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
   if (icon === "arrow-right") {
@@ -13991,6 +14058,7 @@ async function handleClick(event) {
     if (action === "set-student-portal-tab") {
       const nextTab = String(button.dataset.tab || "").trim() || "home";
       state.ui.studentPortalTab = nextTab;
+      state.ui.studentPortalMenuOpen = false;
 
       if (nextTab !== "profile") {
         state.ui.studentPortalProfileTab = "summary";
@@ -14004,6 +14072,19 @@ async function handleClick(event) {
     if (action === "set-student-portal-profile-tab") {
       state.ui.studentPortalTab = "profile";
       state.ui.studentPortalProfileTab = String(button.dataset.profileTab || "").trim() || "summary";
+      state.ui.studentPortalMenuOpen = false;
+      renderApp();
+      return;
+    }
+
+    if (action === "toggle-student-portal-menu") {
+      state.ui.studentPortalMenuOpen = !state.ui.studentPortalMenuOpen;
+      renderApp();
+      return;
+    }
+
+    if (action === "close-student-portal-menu") {
+      state.ui.studentPortalMenuOpen = false;
       renderApp();
       return;
     }
@@ -14108,6 +14189,7 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-student-portal") {
+      state.ui.studentPortalMenuOpen = false;
       await withLoading(async () => {
         await loadStudentPortal_({
           force: true
@@ -15045,6 +15127,7 @@ async function handleClick(event) {
     }
 
     if (action === "logout") {
+      state.ui.studentPortalMenuOpen = false;
       clearStoredUser();
       resetRuntimeState();
       state.user = null;
@@ -24604,6 +24687,7 @@ function resetRuntimeState() {
     scrapSeasonPreview: null,
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
+    studentPortalMenuOpen: false,
     loginMode: "admin",
     confirmation: null
   };
