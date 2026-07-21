@@ -3800,6 +3800,31 @@ tbody tr:hover {
   width: 100%;
 }
 
+.pending-prospect-planner {
+  margin-top: 14px;
+  align-items: stretch;
+}
+
+.pending-prospect-summary {
+  min-height: 100%;
+}
+
+.pending-prospect-summary strong {
+  font-size: 16px;
+}
+
+.pending-prospect-strip {
+  margin-top: 14px;
+}
+
+.pending-prospect-actions {
+  margin-top: 14px;
+}
+
+.pending-prospect-actions .btn {
+  flex: 1 1 220px;
+}
+
 .participants-bulk-builder {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -5223,6 +5248,10 @@ tbody tr:hover {
 
   .mode-card-grid,
   .permission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pending-prospect-actions {
     grid-template-columns: 1fr;
   }
 
