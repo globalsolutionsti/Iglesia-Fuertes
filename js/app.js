@@ -1310,9 +1310,52 @@ function scheduleBackgroundWarmers_() {
 
   backgroundWarmersTimer = window.setTimeout(() => {
     backgroundWarmersTimer = 0;
-    warmDashboardExecutiveInBackground_();
-    warmCommonDataInBackground_();
-    warmWelcomeNewInBackground_();
+    void (async () => {
+      try {
+        warmDashboardExecutiveInBackground_();
+        warmCommonDataInBackground_();
+        warmWelcomeNewInBackground_();
+
+        await waitForUiPaint_(140);
+
+        await Promise.all([
+          canAccessView_("congregants-new") || canAccessView_("welcome-followup") || canAccessView_("welcome-prospects")
+            ? loadWelcomePeople_({
+              showLoading: false,
+              scope: "all"
+            })
+            : Promise.resolve(),
+          canAccessView_("catalogs") || canAccessView_("admin-settings") || canAccessView_("admin-users")
+            ? loadCatalogs({
+              includeMinistries: true
+            })
+            : Promise.resolve(),
+          canAccessView_("catalogs") || canAccessView_("admin-settings") || canAccessView_("admin-users")
+            ? loadTelegramConfig_({
+              silentUnsupported: true
+            })
+            : Promise.resolve()
+        ]);
+
+        await waitForUiPaint_(220);
+
+        if (canAccessView_("formation")) {
+          await Promise.all([
+            state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_(),
+            state.loaded.seasons ? Promise.resolve() : refreshSeasons(),
+            loadFormationCatalog_({
+              showLoading: false
+            })
+          ]);
+
+          await loadFormationData_({
+            showLoading: false
+          });
+        }
+      } catch (error) {
+        console.warn("No se pudo precalentar la navegación de módulos.", error);
+      }
+    })();
   }, 520);
 }
 
@@ -16876,14 +16919,17 @@ async function ensureAssistantsViewData_() {
 }
 
 async function loadWelcomePeople_(options = {}) {
-  const requestKey = "welcomePeople::all";
+  const scope = String(options.scope || "").trim().toLowerCase() === "new" ? "new" : "all";
+  const requestKey = `welcomePeople::${scope}`;
+  const sharedKey = `welcome::${scope}`;
+  const shouldPersistToState = options.persistToState !== false;
 
   if (!options.force && state.loaded.welcome && state.cacheKeys.welcomePeople === requestKey) {
     return state.welcomePeople;
   }
 
   const task = async () => {
-    let backendRows = await apiGet("welcome.people.list");
+    let backendRows = await apiGet(scope === "new" ? "welcome.people.newList" : "welcome.people.list");
     let mergedRows = mergeWelcomePeopleSources_(backendRows);
 
     if (!mergedRows.length && !state.loaded.peopleDirectory) {
@@ -16895,10 +16941,16 @@ async function loadWelcomePeople_(options = {}) {
       mergedRows = mergeWelcomePeopleSources_([]);
     }
 
-    state.welcomePeople = Array.isArray(mergedRows) ? mergedRows : [];
-    state.loaded.welcome = true;
-    state.cacheKeys.welcomePeople = requestKey;
-    return state.welcomePeople;
+    persistWelcomeNewSnapshot_(mergedRows);
+
+    if (shouldPersistToState) {
+      state.welcomePeople = Array.isArray(mergedRows) ? mergedRows : [];
+      state.loaded.welcome = true;
+      state.cacheKeys.welcomePeople = requestKey;
+      return state.welcomePeople;
+    }
+
+    return Array.isArray(mergedRows) ? mergedRows : [];
   };
 
   if (options.force) {
@@ -16906,10 +16958,10 @@ async function loadWelcomePeople_(options = {}) {
   }
 
   if (options.showLoading === false) {
-    return runSharedLoad_("welcome", task);
+    return runSharedLoad_(sharedKey, task);
   }
 
-  return withLoading(() => runSharedLoad_("welcome", task), options.message || "Cargando seguimiento de Bienvenida...");
+  return withLoading(() => runSharedLoad_(sharedKey, task), options.message || "Cargando seguimiento de Bienvenida...");
 }
 
 function getWelcomeLifecycleStatus_(person) {
@@ -17537,7 +17589,11 @@ async function ensureWelcomeViewData_(options = {}) {
     void loadPeopleDirectory().catch(() => {});
   }
 
-  const preloadTasks = [loadWelcomePeople_(options)];
+  const welcomeScope = state.currentView === "congregants-new" ? "new" : "all";
+  const preloadTasks = [loadWelcomePeople_({
+    ...options,
+    scope: options.scope || welcomeScope
+  })];
 
   if (!state.loaded.groups) {
     preloadTasks.push(loadGroupsCatalog_());
