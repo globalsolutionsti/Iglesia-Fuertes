@@ -17357,7 +17357,7 @@ async function saveAssistant(rawPayload) {
   if (existing && String(existing.id || "") !== String(payload.id || "")) {
     showToast(
       "Registro duplicado",
-      `Ya existe ${existing.nombreCompleto || existing.nombre || "esta persona"} con el folio ${existing.numero || existing.id}.`,
+      `Ya existe ${existing.nombreCompleto || existing.nombre || "esta persona"} con el mismo nombre y contacto en el folio ${existing.numero || existing.id}.`,
       "warning"
     );
     return;
@@ -21565,18 +21565,30 @@ function findExistingPersonMatch_(payload) {
   const normalizedFullName = normalizeText(payload.nombreCompleto || [payload.nombre, payload.apellidos].join(" "));
   const normalizedPhone = normalizePhone_(payload.telefono);
 
+  if (!normalizedFullName) {
+    return null;
+  }
+
   if (normalizedEmail) {
-    const emailMatch = sourceRows.find((person) => normalizeText(person.email) === normalizedEmail);
+    const emailMatch = sourceRows.find((person) => (
+      normalizeText(person.nombreCompleto || [person.nombre, person.apellidos].join(" ")) === normalizedFullName
+      && normalizeText(person.email) === normalizedEmail
+    ));
+
     if (emailMatch) {
       return emailMatch;
     }
   }
 
-  if (normalizedFullName && normalizedPhone) {
-    return sourceRows.find((person) => (
+  if (normalizedPhone) {
+    const phoneMatch = sourceRows.find((person) => (
       normalizeText(person.nombreCompleto || [person.nombre, person.apellidos].join(" ")) === normalizedFullName
       && normalizePhone_(person.telefono) === normalizedPhone
-    )) || null;
+    ));
+
+    if (phoneMatch) {
+      return phoneMatch;
+    }
   }
 
   return null;
