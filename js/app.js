@@ -11751,6 +11751,7 @@ function renderParticipantsView() {
                   .map((leader) => [leader.name, leader.phone].filter(Boolean).join(" · "))
                   .join(" / ")
               : "Sin líderes capturados en Catálogos.";
+            const seasonGroupCoverage = getPendingProspectSeasonGroupCoverage_(selectedSeasonId, selectedGroupId);
             const seasonSelectId = `pending-prospect-season-${String(person.id || "").trim()}`;
             const groupSelectId = `pending-prospect-group-${String(person.id || "").trim()}`;
             const pendingTelegramUi = draft.groupDirty
@@ -11762,7 +11763,12 @@ function renderParticipantsView() {
               }
               : getWelcomeProspectTelegramUiState_(person, workflow, null);
             const canSavePendingProspectGroup = Boolean(selectedGroupId) && (draft.groupDirty || !pendingTelegramUi.sent);
-            const canRegisterPendingProspect = Boolean(selectedSeasonId && selectedGroupId && !draft.groupDirty);
+            const canRegisterPendingProspect = Boolean(
+              selectedSeasonId
+              && selectedGroupId
+              && !draft.groupDirty
+              && seasonGroupCoverage.available
+            );
             const savePendingGroupLabel = !selectedGroupId
               ? "Selecciona grupo"
               : draft.groupDirty
@@ -11770,9 +11776,15 @@ function renderParticipantsView() {
                 : (pendingTelegramUi.sent ? "Grupo ya guardado" : "Avisar al líder por Telegram");
             const registrationHint = draft.groupDirty
               ? "Tienes un cambio de grupo pendiente por guardar."
-              : (canRegisterPendingProspect
-                ? "Listo para registrar en toda la temporada."
-                : "Elige la temporada para habilitar el registro.");
+              : seasonGroupCoverage.status === "missing"
+                ? buildPendingProspectMissingGroupCopy_(selectedSeasonId, selectedGroupId, seasonGroupCoverage.missingSessions)
+                : seasonGroupCoverage.status === "loading"
+                  ? "Validando si el grupo existe en todas las sesiones de la temporada elegida..."
+                  : seasonGroupCoverage.status === "pending-group"
+                    ? "Selecciona el grupo que quedará registrado en la temporada."
+                : (canRegisterPendingProspect
+                  ? "Listo para registrar en toda la temporada."
+                  : "Elige la temporada para habilitar el registro.");
 
             return `
             <article class="result-card participant-picker-card">
@@ -11844,6 +11856,15 @@ function renderParticipantsView() {
                 <span class="context-item"><strong>Temporada elegida:</strong> ${escapeHtml(selectedSeasonName || "Pendiente")}</span>
                 <span class="context-item"><strong>Sesiones a registrar:</strong> ${escapeHtml(selectedSeasonSessions.length ? String(selectedSeasonSessions.length) : "Pendiente")}</span>
                 <span class="context-item"><strong>Grupo para trabajar:</strong> ${escapeHtml(selectedGroupName || "Pendiente")}</span>
+                <span class="context-item"><strong>Grupo en la temporada:</strong> ${escapeHtml(
+                  seasonGroupCoverage.status === "ok"
+                    ? "Disponible en toda la temporada"
+                    : seasonGroupCoverage.status === "missing"
+                      ? "No está dado de alta en la temporada"
+                      : seasonGroupCoverage.status === "loading"
+                        ? "Validando..."
+                        : "Pendiente"
+                )}</span>
                 <span class="context-item"><strong>Estado:</strong> ${escapeHtml(registrationHint)}</span>
               </div>
 
@@ -13221,6 +13242,127 @@ function clearPendingProspectDraft_(personId) {
 
   delete nextDrafts[cleanPersonId];
   state.ui.pendingProspectDrafts = nextDrafts;
+}
+
+async function ensurePendingProspectSeasonGroups_(seasonId) {
+  const cleanSeasonId = String(seasonId || "").trim();
+
+  if (!cleanSeasonId) {
+    return [];
+  }
+
+  const sessions = await ensureSessionsForSeason(cleanSeasonId);
+  await Promise.all(
+    sessions.map((session) => ensureSessionGroupsFor(cleanSeasonId, session.id))
+  );
+  return sessions;
+}
+
+function getPendingProspectSeasonGroupCoverage_(seasonId, groupId) {
+  const cleanSeasonId = String(seasonId || "").trim();
+  const cleanGroupId = String(groupId || "").trim();
+  const sessions = cleanSeasonId ? getSessions(cleanSeasonId) : [];
+
+  if (!cleanSeasonId) {
+    return {
+      status: "pending-season",
+      available: false,
+      totalSessions: 0,
+      loadedSessions: 0,
+      missingSessions: []
+    };
+  }
+
+  if (!sessions.length) {
+    return {
+      status: "loading",
+      available: false,
+      totalSessions: 0,
+      loadedSessions: 0,
+      missingSessions: []
+    };
+  }
+
+  if (!cleanGroupId) {
+    return {
+      status: "pending-group",
+      available: false,
+      totalSessions: sessions.length,
+      loadedSessions: sessions.length,
+      missingSessions: []
+    };
+  }
+
+  const coverage = sessions.map((session) => {
+    const key = `${cleanSeasonId}::${String(session.id || "").trim()}`;
+    const loaded = Object.prototype.hasOwnProperty.call(state.sessionGroupsByKey, key);
+    const groups = loaded ? (state.sessionGroupsByKey[key] || []) : [];
+    const present = loaded && groups.some((group) => String(group.groupId) === cleanGroupId);
+
+    return {
+      sessionId: String(session.id || "").trim(),
+      sessionName: String(session.name || "").trim(),
+      loaded,
+      present
+    };
+  });
+
+  const loadedSessions = coverage.filter((item) => item.loaded).length;
+  const missingSessions = coverage.filter((item) => item.loaded && !item.present);
+
+  if (loadedSessions < coverage.length) {
+    return {
+      status: "loading",
+      available: false,
+      totalSessions: coverage.length,
+      loadedSessions,
+      missingSessions: []
+    };
+  }
+
+  if (missingSessions.length) {
+    return {
+      status: "missing",
+      available: false,
+      totalSessions: coverage.length,
+      loadedSessions,
+      missingSessions
+    };
+  }
+
+  return {
+    status: "ok",
+    available: true,
+    totalSessions: coverage.length,
+    loadedSessions,
+    missingSessions: []
+  };
+}
+
+function isParticipantSeasonGroupMissingError_(error) {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+
+  const code = String(error.code || "").toUpperCase();
+  const message = String(error.message || "").toLowerCase();
+  return code === "NOT_FOUND" && message.includes("session group not found");
+}
+
+function buildPendingProspectMissingGroupCopy_(seasonId, groupId, missingSessions = []) {
+  const seasonName = resolveSeasonName_(seasonId) || seasonId || "la temporada seleccionada";
+  const groupName = resolveGroupName_(groupId) || groupId || "el grupo elegido";
+
+  if (!Array.isArray(missingSessions) || !missingSessions.length) {
+    return `El grupo ${groupName} no está dado de alta en ${seasonName}. Primero agrégalo a la temporada para poder registrar al prospecto.`;
+  }
+
+  const preview = missingSessions
+    .slice(0, 3)
+    .map((item) => item.sessionName || item.sessionId || "sesión")
+    .join(", ");
+  const remaining = missingSessions.length > 3 ? ` y ${missingSessions.length - 3} más` : "";
+  return `El grupo ${groupName} no está dado de alta en ${missingSessions.length} sesión(es) de ${seasonName}: ${preview}${remaining}. Primero agrégalo a la temporada para habilitar el registro.`;
 }
 
 function renderSessionSelect(id, seasonId, selectedValue) {
@@ -15516,6 +15658,10 @@ async function handleChange(event) {
         seasonId: target.value
       });
       renderApp();
+      if (target.value) {
+        await ensurePendingProspectSeasonGroups_(target.value);
+        renderApp();
+      }
       return;
     }
 
@@ -15524,6 +15670,13 @@ async function handleChange(event) {
         groupId: target.value
       });
       renderApp();
+      const personId = String(target.dataset.personId || "").trim();
+      const person = getWelcomePersonById_(personId);
+      const seasonId = String(getPendingProspectDraft_(person).seasonId || "").trim();
+      if (seasonId) {
+        await ensurePendingProspectSeasonGroups_(seasonId);
+        renderApp();
+      }
       return;
     }
 
@@ -19000,7 +19153,8 @@ async function assignPendingProspectToSeason_(personId, groupId, seasonId) {
   const cleanPersonId = String(personId || "");
   const cleanGroupId = String(groupId || "");
   const cleanSeasonId = String(seasonId || "").trim();
-  const sessions = getSessions(cleanSeasonId);
+  const sessions = await ensurePendingProspectSeasonGroups_(cleanSeasonId);
+  const seasonGroupCoverage = getPendingProspectSeasonGroupCoverage_(cleanSeasonId, cleanGroupId);
   let assignmentResult = null;
 
   if (!cleanSeasonId) {
@@ -19015,6 +19169,15 @@ async function assignPendingProspectToSeason_(personId, groupId, seasonId) {
 
   if (!sessions.length) {
     showToast("Temporada sin sesiones", "La temporada seleccionada no tiene sesiones disponibles para registrar al prospecto.", "warning");
+    return;
+  }
+
+  if (!seasonGroupCoverage.available) {
+    showToast(
+      "Grupo fuera de temporada",
+      buildPendingProspectMissingGroupCopy_(cleanSeasonId, cleanGroupId, seasonGroupCoverage.missingSessions),
+      "warning"
+    );
     return;
   }
 
@@ -19034,6 +19197,16 @@ async function assignPendingProspectToSeason_(personId, groupId, seasonId) {
         showLoading: false
       });
       showToast("Asignación no permitida", buildParticipantConflictToastCopy_(error.details), "warning");
+      renderApp();
+      return;
+    }
+
+    if (isParticipantSeasonGroupMissingError_(error)) {
+      showToast(
+        "Grupo fuera de temporada",
+        buildPendingProspectMissingGroupCopy_(cleanSeasonId, cleanGroupId),
+        "warning"
+      );
       renderApp();
       return;
     }
