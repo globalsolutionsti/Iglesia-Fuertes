@@ -11723,25 +11723,56 @@ function renderParticipantsView() {
         <div class="panel-head">
           <div>
             <h2>Pendientes por registrar</h2>
-            <p>Estos prospectos vienen desde Bienvenida y esperan ser integrados al grupo correcto en toda la temporada.</p>
+            <p>Estos prospectos llegan desde Bienvenida. Aquí ajustas el grupo si hace falta, avisas al líder por Telegram y luego haces el registro completo en la temporada correcta.</p>
           </div>
           <span class="pill warning">${escapeHtml(String(visiblePendingProspects.length))} pendientes</span>
         </div>
 
         <div class="context-strip" style="margin-bottom: 18px;">
           <span class="context-item"><strong>Pendientes totales:</strong> ${escapeHtml(String(totalPendingProspects.length))}</span>
-          <span class="context-item"><strong>Registro:</strong> Elige temporada y confirma el grupo sugerido antes de asignar.</span>
-          <span class="context-item"><strong>Alcance:</strong> Se registrará automáticamente en todas las sesiones de la temporada elegida.</span>
+          <span class="context-item"><strong>Paso 1:</strong> Elige temporada y grupo de conexión.</span>
+          <span class="context-item"><strong>Paso 2:</strong> Si cambias el grupo, guarda y avisa por Telegram al nuevo líder.</span>
+          <span class="context-item"><strong>Paso 3:</strong> Registra a la persona en todas las sesiones de la temporada elegida.</span>
         </div>
 
         <div class="results-list participants-picker-results">
           ${visiblePendingProspects.length ? visiblePendingProspects.map((person) => {
             const draft = getPendingProspectDraft_(person);
+            const workflow = getWelcomeProspectWorkflowState_(person);
             const selectedSeasonId = String(draft.seasonId || "").trim();
             const selectedSeasonName = resolveSeasonName_(selectedSeasonId) || "";
             const selectedSeasonSessions = selectedSeasonId ? getSessions(selectedSeasonId) : [];
+            const selectedGroupId = String(draft.groupId || "").trim();
+            const selectedGroup = state.catalogs.groups.find((group) => String(group.id) === selectedGroupId) || null;
+            const selectedGroupName = String(selectedGroup?.name || resolveGroupName_(selectedGroupId) || "").trim();
+            const selectedLeaderContacts = buildWelcomeLeaderContactsFromGroup_(selectedGroupId);
+            const selectedLeaderSummary = selectedLeaderContacts.length
+              ? selectedLeaderContacts
+                  .map((leader) => [leader.name, leader.phone].filter(Boolean).join(" · "))
+                  .join(" / ")
+              : "Sin líderes capturados en Catálogos.";
             const seasonSelectId = `pending-prospect-season-${String(person.id || "").trim()}`;
-            const canRegisterPendingProspect = Boolean(selectedSeasonId && draft.groupConfirmed && person.suggestedGroupId);
+            const groupSelectId = `pending-prospect-group-${String(person.id || "").trim()}`;
+            const pendingTelegramUi = draft.groupDirty
+              ? {
+                tone: "warning",
+                label: "Falta avisar al nuevo líder",
+                meta: "Guardas primero el cambio de grupo y en ese momento se enviará Telegram al liderazgo correcto.",
+                sent: false
+              }
+              : getWelcomeProspectTelegramUiState_(person, workflow, null);
+            const canSavePendingProspectGroup = Boolean(selectedGroupId) && (draft.groupDirty || !pendingTelegramUi.sent);
+            const canRegisterPendingProspect = Boolean(selectedSeasonId && selectedGroupId && !draft.groupDirty);
+            const savePendingGroupLabel = !selectedGroupId
+              ? "Selecciona grupo"
+              : draft.groupDirty
+                ? "Guardar grupo y avisar por Telegram"
+                : (pendingTelegramUi.sent ? "Grupo ya guardado" : "Avisar al líder por Telegram");
+            const registrationHint = draft.groupDirty
+              ? "Tienes un cambio de grupo pendiente por guardar."
+              : (canRegisterPendingProspect
+                ? "Listo para registrar en toda la temporada."
+                : "Elige la temporada para habilitar el registro.");
 
             return `
             <article class="result-card participant-picker-card">
@@ -11751,9 +11782,20 @@ function renderParticipantsView() {
                   ${renderWelcomePendingRegistrationPill_(person)}
                 </div>
                 <span class="row-meta">${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
-                <span class="row-meta">Grupo sugerido por Bienvenida: ${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</span>
-                <span class="row-meta">Liderazgo: ${escapeHtml(getWelcomeLeaderContactSummary_(person))}</span>
-                <span class="row-meta">Sugerido: ${escapeHtml(formatDate(person.lastContactAt || person.fechaIngreso) || "Sin fecha")} | ${escapeHtml(person.lastFollowupNotes || "Sin notas")}</span>
+                <span class="row-meta">Último contexto de Bienvenida: ${escapeHtml(person.lastFollowupNotes || "Sin notas registradas")}</span>
+              </div>
+
+              <div class="pending-prospect-overview">
+                <div class="summary-box pending-prospect-summary">
+                  <span>Grupo guardado actualmente</span>
+                  <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
+                  <span>${escapeHtml(workflow.detail || "Sin detalle operativo.")}</span>
+                </div>
+                <div class="summary-box pending-prospect-summary">
+                  <span>Telegram al líder</span>
+                  <strong>${escapeHtml(pendingTelegramUi.label)}</strong>
+                  <span>${escapeHtml(pendingTelegramUi.meta)}</span>
+                </div>
               </div>
 
               <div class="field-grid two pending-prospect-planner">
@@ -11774,34 +11816,51 @@ function renderParticipantsView() {
                     )}
                   </select>
                 </div>
-                <div class="summary-box pending-prospect-summary">
-                  <span>Grupo confirmado</span>
-                  <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
-                  <span>${escapeHtml(draft.groupConfirmed ? "Confirmado para registro." : "Debes confirmar el grupo sugerido antes de registrar.")}</span>
+                <div class="field">
+                  <label for="${escapeHtml(groupSelectId)}">Grupo de conexión</label>
+                  <select
+                    id="${escapeHtml(groupSelectId)}"
+                    data-role="pending-prospect-group"
+                    data-person-id="${escapeHtml(person.id || "")}"
+                  >
+                    ${renderOptions(
+                      state.catalogs.groups.map((group) => ({
+                        value: String(group.id),
+                        label: `${group.name} (${group.id})`
+                      })),
+                      selectedGroupId,
+                      "Selecciona grupo"
+                    )}
+                  </select>
+                </div>
+                <div class="summary-box pending-prospect-summary pending-prospect-summary-full">
+                  <span>Liderazgo que recibirá el aviso</span>
+                  <strong>${escapeHtml(selectedGroupName || "Sin grupo seleccionado")}</strong>
+                  <span>${escapeHtml(selectedLeaderSummary)}</span>
                 </div>
               </div>
 
               <div class="context-strip pending-prospect-strip">
                 <span class="context-item"><strong>Temporada elegida:</strong> ${escapeHtml(selectedSeasonName || "Pendiente")}</span>
                 <span class="context-item"><strong>Sesiones a registrar:</strong> ${escapeHtml(selectedSeasonSessions.length ? String(selectedSeasonSessions.length) : "Pendiente")}</span>
-                <span class="context-item"><strong>Uso del grupo sugerido:</strong> ${escapeHtml(draft.groupConfirmed ? "Confirmado" : "Pendiente de confirmar")}</span>
+                <span class="context-item"><strong>Grupo para trabajar:</strong> ${escapeHtml(selectedGroupName || "Pendiente")}</span>
+                <span class="context-item"><strong>Estado:</strong> ${escapeHtml(registrationHint)}</span>
               </div>
 
               <div class="actions-row pending-prospect-actions">
                 <button
-                  class="btn ${draft.groupConfirmed ? "btn-secondary" : "btn-ghost"}"
-                  data-action="confirm-pending-prospect-group"
+                  class="btn ${draft.groupDirty || !pendingTelegramUi.sent ? "btn-primary" : "btn-secondary"}"
+                  data-action="save-pending-prospect-group"
                   data-person-id="${escapeHtml(person.id || "")}"
-                  data-group-id="${escapeHtml(person.suggestedGroupId || "")}"
-                  ${person.suggestedGroupId ? "" : "disabled"}
+                  ${canSavePendingProspectGroup ? "" : "disabled"}
                 >
-                  ${escapeHtml(draft.groupConfirmed ? "Grupo sugerido confirmado" : "Confirmar grupo sugerido")}
+                  ${escapeHtml(savePendingGroupLabel)}
                 </button>
                 <button
                   class="btn btn-primary"
                   data-action="assign-pending-prospect"
                   data-person-id="${escapeHtml(person.id || "")}"
-                  data-group-id="${escapeHtml(person.suggestedGroupId || "")}"
+                  data-group-id="${escapeHtml(selectedGroupId)}"
                   data-season-id="${escapeHtml(selectedSeasonId)}"
                   ${canRegisterPendingProspect ? "" : "disabled"}
                 >
@@ -13125,12 +13184,14 @@ function getPendingProspectDraft_(person) {
   const suggestedGroupId = String(person?.suggestedGroupId || "").trim();
   const current = state.ui.pendingProspectDrafts[personId] || {};
   const seasonId = String(current.seasonId || "").trim();
-  const confirmedGroupId = String(current.confirmedGroupId || "").trim();
+  const groupId = String(current.groupId || suggestedGroupId || "").trim();
 
   return {
     seasonId,
-    confirmedGroupId,
-    groupConfirmed: Boolean(suggestedGroupId && confirmedGroupId === suggestedGroupId)
+    groupId,
+    savedGroupId: suggestedGroupId,
+    groupDirty: Boolean(groupId && groupId !== suggestedGroupId),
+    groupReady: Boolean(groupId && groupId === suggestedGroupId)
   };
 }
 
@@ -14341,20 +14402,8 @@ async function handleClick(event) {
       return;
     }
 
-    if (action === "confirm-pending-prospect-group") {
-      const targetGroupId = String(button.dataset.groupId || "");
-      const personId = String(button.dataset.personId || "");
-
-      if (!targetGroupId) {
-        showToast("Sin grupo sugerido", "Ese prospecto todavía no tiene grupo sugerido.", "warning");
-        return;
-      }
-
-      updatePendingProspectDraft_(personId, {
-        confirmedGroupId: targetGroupId
-      });
-      showToast("Grupo confirmado", "Ahora ya puedes elegir la temporada y registrar al prospecto en todas sus sesiones.", "success");
-      renderApp();
+    if (action === "save-pending-prospect-group") {
+      await savePendingProspectGroupAlert_(button.dataset.personId || "");
       return;
     }
 
@@ -15468,6 +15517,14 @@ async function handleChange(event) {
     if (target.dataset.role === "pending-prospect-season") {
       updatePendingProspectDraft_(target.dataset.personId || "", {
         seasonId: target.value
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.dataset.role === "pending-prospect-group") {
+      updatePendingProspectDraft_(target.dataset.personId || "", {
+        groupId: target.value
       });
       renderApp();
       return;
@@ -17979,6 +18036,88 @@ async function saveWelcomeProspectAssignment_(options = {}) {
     telegramSent
       ? (options.successMessage || "El prospecto quedó pendiente por registrar y Telegram avisó automáticamente al líder.")
       : `El prospecto quedó pendiente por registrar. ${telegramNotification?.detail || "Telegram no pudo avisar al líder."} Usa WhatsApp solo como respaldo.`,
+    telegramSent ? "success" : "warning"
+  );
+  renderApp();
+  return true;
+}
+
+async function savePendingProspectGroupAlert_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+  const person = getWelcomePersonById_(cleanPersonId);
+  const draft = getPendingProspectDraft_(person);
+  const currentAuditUser = getCurrentSystemUserAudit_();
+  const selectedGroupId = String(draft.groupId || "").trim();
+  const selectedGroupName = resolveGroupName_(selectedGroupId) || selectedGroupId;
+  const previousGroupName = String(person?.suggestedGroupName || "").trim();
+  const actionDate = formatDateForInput_(new Date());
+  let response = null;
+
+  if (!person || !cleanPersonId) {
+    showToast("Prospecto no disponible", "Vuelve a cargar el listado de pendientes e intenta nuevamente.", "warning");
+    return false;
+  }
+
+  if (!selectedGroupId) {
+    showToast("Falta grupo", "Selecciona el grupo de conexión antes de guardar el aviso al líder.", "warning");
+    return false;
+  }
+
+  const notesParts = [];
+  if (draft.groupDirty && previousGroupName && previousGroupName !== selectedGroupName) {
+    notesParts.push(`Reasignado desde Grupos de Conexión de ${previousGroupName} a ${selectedGroupName}.`);
+  }
+  if (String(person.lastFollowupNotes || "").trim()) {
+    notesParts.push(String(person.lastFollowupNotes || "").trim());
+  } else if (String(person.notasBienvenida || "").trim()) {
+    notesParts.push(String(person.notasBienvenida || "").trim());
+  }
+
+  const payload = {
+    personId: cleanPersonId,
+    actionDate,
+    actionType: "PROSPECTO_GC",
+    result: "PENDIENTE_SEGUIMIENTO_GC",
+    owner: "GRUPOS_CONEXION",
+    systemUserName: currentAuditUser.name,
+    systemUserEmail: currentAuditUser.email,
+    nextFollowUpDate: person.nextFollowUpDate || "",
+    status: "PROSPECTO GP",
+    suggestedGroupId: selectedGroupId,
+    notes: notesParts.join(" ").trim()
+  };
+
+  await withLoading(async () => {
+    response = await apiPost("welcome.followups.save", payload);
+    applyWelcomeProfileToLocalState_(buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload));
+    invalidateWelcomeCache_();
+  }, draft.groupDirty
+    ? "Guardando cambio de grupo y avisando por Telegram..."
+    : "Avisando al líder por Telegram...");
+
+  updatePendingProspectDraft_(cleanPersonId, {
+    seasonId: draft.seasonId,
+    groupId: selectedGroupId
+  });
+
+  void loadWelcomePeople_({
+    force: true,
+    showLoading: false
+  }).then(() => {
+    renderApp();
+  }).catch(() => {});
+
+  const telegramNotification = response?.notification || null;
+  const telegramSent = telegramNotification?.sent === true
+    || String(telegramNotification?.status || "").trim().toUpperCase() === "ENVIADO";
+
+  showToast(
+    telegramSent ? "Grupo actualizado" : "Grupo guardado con aviso pendiente",
+    telegramSent
+      ? (draft.groupDirty
+        ? `El prospecto cambió a ${selectedGroupName} y Telegram ya avisó al nuevo liderazgo.`
+        : "Telegram confirmó el aviso al liderazgo de ese grupo.")
+      : `El grupo quedó guardado en ${selectedGroupName}, pero ${telegramNotification?.detail || "Telegram no pudo confirmar el aviso automático al líder"}.`,
     telegramSent ? "success" : "warning"
   );
   renderApp();
