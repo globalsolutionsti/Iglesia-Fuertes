@@ -13843,6 +13843,29 @@ function renderPill(value) {
   return `<span class="pill dark">${escapeHtml(value || "SIN DATO")}</span>`;
 }
 
+function getStatusLabel_(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  const labels = {
+    ACTIVA: "Activa",
+    INACTIVA: "Inactiva",
+    ACTIVO: "Activo",
+    INACTIVO: "Inactivo",
+    ABIERTA: "Abierta",
+    CERRADA: "Cerrada",
+    SUSPENDIDA: "Suspendida",
+    BORRADOR: "Borrador",
+    PENDIENTE: "Pendiente",
+    FINALIZADA: "Finalizada",
+    ARCHIVADA: "Archivada"
+  };
+
+  if (!normalized) {
+    return "Sin estado";
+  }
+
+  return labels[normalized] || value;
+}
+
 function getPersonTypeDisplayLabel_(value, options = {}) {
   const canonicalValue = normalizePersonTypeValue_(value);
   const normalizedKey = getPersonTypeKey_(canonicalValue);
