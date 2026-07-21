@@ -3781,6 +3781,39 @@ tbody tr:hover {
   margin-top: 14px;
 }
 
+.participants-context-bar {
+  padding: 22px 24px;
+}
+
+.participants-context-bar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.participants-context-bar-head h2 {
+  margin: 8px 0 6px;
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.participants-context-bar-head p {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.participants-context-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+}
+
+.participants-context-strip {
+  margin-top: 14px;
+}
+
 .participants-picker-results {
   margin-top: 16px;
 }
@@ -5269,6 +5302,11 @@ tbody tr:hover {
 
   .pending-prospect-overview {
     grid-template-columns: 1fr;
+  }
+
+  .participants-context-bar-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .panel-head,
