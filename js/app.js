@@ -3562,28 +3562,20 @@ function getStudentPortalCurrentRecord_(portal, currentLevel) {
 }
 
 function getStudentPortalSupportUrl_(person, currentLevel, currentRecord) {
+  const phone = String(currentRecord?.leaderPhone || currentLevel?.offering?.leaderPhone || "").trim();
+
+  if (phone) {
+    return buildWhatsappTextShareUrl_("Puedes apoyarme con:", phone);
+  }
+
   const directUrl = String(
-    currentRecord?.inviteWhatsappUrl
-    || currentRecord?.leaderWhatsappUrl
+    currentRecord?.leaderWhatsappUrl
     || currentRecord?.coordinatorWhatsappUrl
+    || currentRecord?.inviteWhatsappUrl
     || ""
   ).trim();
 
-  if (directUrl) {
-    return directUrl;
-  }
-
-  const phone = String(currentRecord?.leaderPhone || currentLevel?.offering?.leaderPhone || "").trim();
-
-  if (!phone) {
-    return "";
-  }
-
-  const leaderName = currentRecord?.leaderName || currentLevel?.offering?.leaderName || "lider";
-  const levelName = currentLevel?.levelName || "mi proceso de formacion";
-  const message = `Hola ${leaderName}, soy ${person?.nombreCompleto || state.user?.name || "asistente"}. Quisiera revisar mi avance en ${levelName}.`;
-
-  return buildWhatsappTextShareUrl_(message, phone);
+  return directUrl;
 }
 
 function getStudentPortalHeadlineCopy_(currentLevel, currentRecord, nextLevel) {
