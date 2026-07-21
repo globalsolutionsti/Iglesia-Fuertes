@@ -11690,7 +11690,7 @@ function renderParticipantsView() {
           { label: "Participantes", value: String(state.participants.length) }
         ],
         actions: [
-          { label: "Contexto", variant: "primary", sectionId: "participants-context" },
+          { label: "Filtro", variant: "primary", sectionId: "participants-context" },
           { label: "Individual", variant: "secondary", sectionId: "participants-single" },
           { label: "Masivo", variant: "ghost", sectionId: "participants-bulk" }
         ]
@@ -11878,29 +11878,26 @@ function renderParticipantsView() {
         </div>
       </article>
 
-      <article class="panel-card module-section-anchor" id="participants-context">
-        <div class="panel-head">
+      <article class="panel-card module-section-anchor participants-context-bar" id="participants-context">
+        <div class="participants-context-bar-head">
           <div>
-            <h2>Contexto del grupo</h2>
-            <p>Selecciona temporada, sesion y grupo. El listado se recarga sobre los endpoints reales de la V2.</p>
+            <span class="status-chip neutral">Filtro operativo</span>
+            <h2>Selecciona dónde vas a trabajar</h2>
+            <p>Este filtro define el grupo exacto sobre el que se harán las altas individuales, la asignación masiva y el listado inferior.</p>
           </div>
-          <button class="btn btn-secondary" data-action="load-participants">Actualizar listado</button>
+          <button class="btn btn-secondary" data-action="load-participants">Recargar grupo</button>
         </div>
 
-        <div class="field-grid two">
+        <div class="field-grid participants-context-grid">
           ${renderSeasonSelect("participants-season", filter.seasonId)}
           ${renderSessionSelect("participants-session", filter.seasonId, filter.sessionId)}
           ${renderGroupSelect("participants-group", groups, filter.groupId)}
-          <div class="field">
-            <label>Resumen</label>
-            <div class="context-strip">
-              <span class="context-item"><strong>Participantes:</strong> ${state.participants.length}</span>
-              <span class="context-item"><strong>Temporada:</strong> ${context ? escapeHtml(context.season.name) : "Sin cargar"}</span>
-              <span class="context-item"><strong>Sesion:</strong> ${context ? escapeHtml(context.session.name) : "Sin cargar"}</span>
-              <span class="context-item"><strong>Grupo:</strong> ${context ? escapeHtml(context.group.name) : "Sin cargar"}</span>
-              <span class="context-item"><strong>Grupos en la sesion:</strong> ${groups.length}</span>
-            </div>
-          </div>
+        </div>
+
+        <div class="context-strip participants-context-strip">
+          <span class="context-item"><strong>Operando en:</strong> ${context ? escapeHtml(`${context.season.name} / ${context.session.name} / ${context.group.name}`) : "Selecciona temporada, sesión y grupo"}</span>
+          <span class="context-item"><strong>Participantes listados:</strong> ${escapeHtml(String(state.participants.length))}</span>
+          <span class="context-item"><strong>Grupos en esta sesión:</strong> ${escapeHtml(String(groups.length))}</span>
         </div>
       </article>
 
