@@ -289,6 +289,8 @@ const state = {
   selectedBulkPeople: [],
   ui: {
     mobileNavOpen: false,
+    dashboardHydrating: false,
+    dashboardHydratingMessage: "",
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
@@ -422,6 +424,7 @@ const pendingResourceLoads = {
 };
 
 let peopleSourcesResyncTimer = 0;
+let backgroundWarmersTimer = 0;
 let welcomePeopleLoadVersion = 0;
 const optimisticWelcomePeople = new Map();
 
@@ -462,9 +465,11 @@ async function init() {
 
   if (state.user) {
     if (isStudentSession_()) {
-      await bootstrapStudentPortal_();
+      void bootstrapStudentPortal_().catch(handleError);
     } else {
-      await bootstrapApplication();
+      bootstrapApplicationInBackground_({
+        message: "Preparando Dashboard Iglesia..."
+      });
     }
   }
 }
@@ -1287,18 +1292,51 @@ function warmWelcomeNewInBackground_() {
     .catch(() => {});
 }
 
-function loadViewDataInBackground_(view) {
-  const token = ++state.viewLoadToken;
-  const targetView = view || state.currentView;
-  const shouldShowLoading = targetView === "dashboard" && shouldShowDashboardLoading_();
+function setDashboardHydrationState_(enabled, message = "") {
+  state.ui.dashboardHydrating = Boolean(enabled);
+  state.ui.dashboardHydratingMessage = enabled
+    ? (message || "Preparando Dashboard Iglesia...")
+    : "";
+}
 
-  void loadCurrentViewData({
-    showLoading: shouldShowLoading,
-    message: shouldShowLoading ? "Cargando Dashboard Iglesia..." : undefined
+function scheduleBackgroundWarmers_() {
+  if (!state.user) {
+    return;
+  }
+
+  if (backgroundWarmersTimer) {
+    window.clearTimeout(backgroundWarmersTimer);
+  }
+
+  backgroundWarmersTimer = window.setTimeout(() => {
+    backgroundWarmersTimer = 0;
+    warmDashboardExecutiveInBackground_();
+    warmCommonDataInBackground_();
+    warmWelcomeNewInBackground_();
+  }, 520);
+}
+
+function bootstrapApplicationInBackground_(options = {}) {
+  const token = ++state.viewLoadToken;
+  const targetView = state.currentView;
+  const shouldHydrateDashboardInline = targetView === "dashboard";
+
+  if (shouldHydrateDashboardInline) {
+    setDashboardHydrationState_(true, options.message || "Preparando Dashboard Iglesia...");
+    renderApp();
+  }
+
+  void bootstrapApplication({
+    showLoading: false,
+    force: options.force
   })
     .then(() => {
       if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView) {
         return;
+      }
+
+      if (shouldHydrateDashboardInline) {
+        setDashboardHydrationState_(false);
       }
 
       renderApp();
@@ -1306,6 +1344,49 @@ function loadViewDataInBackground_(view) {
     .catch((error) => {
       if (token !== state.viewLoadToken || state.currentView !== targetView) {
         return;
+      }
+
+      if (shouldHydrateDashboardInline) {
+        setDashboardHydrationState_(false);
+        renderApp();
+      }
+
+      handleError(error);
+    });
+}
+
+function loadViewDataInBackground_(view) {
+  const token = ++state.viewLoadToken;
+  const targetView = view || state.currentView;
+  const shouldHydrateDashboardInline = targetView === "dashboard" && shouldShowDashboardLoading_();
+
+  if (shouldHydrateDashboardInline) {
+    setDashboardHydrationState_(true, "Actualizando Dashboard Iglesia...");
+    renderApp();
+  }
+
+  void loadCurrentViewData({
+    showLoading: false
+  })
+    .then(() => {
+      if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView) {
+        return;
+      }
+
+      if (targetView === "dashboard") {
+        setDashboardHydrationState_(false);
+      }
+
+      renderApp();
+    })
+    .catch((error) => {
+      if (token !== state.viewLoadToken || state.currentView !== targetView) {
+        return;
+      }
+
+      if (targetView === "dashboard") {
+        setDashboardHydrationState_(false);
+        renderApp();
       }
 
       handleError(error);
@@ -8841,6 +8922,12 @@ function renderDashboardView() {
   const selectedSessionDate = selectedSessionSummary?.date ? formatDate(selectedSessionSummary.date) : "Sin fecha";
   const selectedSessionAttendanceBase = Number(selectedSessionSummary?.capturedBaseTotal || 0);
   const globalAttendancePercentLabel = selectedSessionAttendance > 0 ? "100%" : "S/C";
+  const dashboardHydrating = Boolean(state.ui.dashboardHydrating);
+  const dashboardHydratingMessage = state.ui.dashboardHydratingMessage || "Preparando Dashboard Iglesia...";
+  const canRenderDashboardContent = Boolean(hasSeasonData && seasonMatrix);
+  const dashboardEmptyMessage = hasSeasonData
+    ? "El resumen ejecutivo de esta temporada todavía no termina de cargarse. Si el panel no aparece en unos segundos, usa Actualizar."
+    : "Selecciona o crea una temporada para comenzar la consulta ejecutiva.";
 
   return `
     <section class="view-grid dashboard-executive-flow">
@@ -8871,8 +8958,25 @@ function renderDashboardView() {
         </div>
       </article>
 
-      ${!hasSeasonData ? `
-        <div class="empty-state">Selecciona o crea una temporada para comenzar la consulta ejecutiva.</div>
+      ${dashboardHydrating ? `
+        <article class="panel-card dashboard-inline-loading-card" aria-live="polite">
+          <div class="dashboard-inline-loading-head">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <div>
+              <h3>${escapeHtml(dashboardHydratingMessage)}</h3>
+              <p>Estamos conectando temporada, sesiones, grupos y resumen ejecutivo sin detener toda la pantalla.</p>
+            </div>
+          </div>
+          <div class="summary-strip dashboard-inline-loading-strip">
+            <span class="context-item"><strong>Temporada:</strong> ${focusSeason ? escapeHtml(focusSeason.name) : "Cargando"}</span>
+            <span class="context-item"><strong>Sesion:</strong> ${escapeHtml(selectedSessionLabel || "Cargando")}</span>
+            <span class="context-item"><strong>Grupo:</strong> ${escapeHtml(selectedGroupFilterLabel)}</span>
+          </div>
+        </article>
+      ` : ""}
+
+      ${!canRenderDashboardContent ? `
+        ${dashboardHydrating ? "" : `<div class="empty-state">${escapeHtml(dashboardEmptyMessage)}</div>`}
       ` : `
         ${renderDashboardReportCenter_()}
 
@@ -14140,10 +14244,6 @@ async function handleClick(event) {
         clearFormationProfileSelection_();
       }
       state.ui.mobileNavOpen = false;
-      if (state.currentView === "dashboard" && shouldShowDashboardLoading_()) {
-        loadingMessage.textContent = "Cargando Dashboard Iglesia...";
-        loadingOverlay.classList.remove("hidden");
-      }
       renderApp();
       scrollViewportToTop_();
       loadViewDataInBackground_(state.currentView);
@@ -15523,10 +15623,12 @@ async function handleSubmit(event) {
       state.user = data.user;
       setStoredUser(data.user);
       state.currentView = "dashboard";
+      state.ui.mobileNavOpen = false;
+      setDashboardHydrationState_(true, "Preparando Dashboard Iglesia...");
       renderApp();
       showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
-      await bootstrapApplication({
-        message: "Preparando dashboard..."
+      bootstrapApplicationInBackground_({
+        message: "Preparando Dashboard Iglesia..."
       });
       scrollViewportToTop_();
 
@@ -16214,9 +16316,7 @@ async function bootstrapApplication(options = {}) {
   }
 
   renderApp();
-  warmDashboardExecutiveInBackground_();
-  warmCommonDataInBackground_();
-  warmWelcomeNewInBackground_();
+  scheduleBackgroundWarmers_();
 }
 
 async function bootstrapStudentPortal_(options = {}) {
@@ -24301,6 +24401,12 @@ function resetRuntimeState() {
   state.dashboardSessionInsights = null;
   state.dashboardSeasonMatrix = null;
   state.welcomePeople = [];
+  if (backgroundWarmersTimer) {
+    window.clearTimeout(backgroundWarmersTimer);
+    backgroundWarmersTimer = 0;
+  }
+  state.ui.dashboardHydrating = false;
+  state.ui.dashboardHydratingMessage = "";
   state.ui.welcomeNewRefreshing = false;
   state.ui.welcomeNewSnapshotSource = "";
   state.welcomeProfile = null;
@@ -24388,6 +24494,8 @@ function resetRuntimeState() {
   state.selectedBulkPeople = [];
   state.ui = {
     mobileNavOpen: false,
+    dashboardHydrating: false,
+    dashboardHydratingMessage: "",
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
@@ -24396,6 +24504,8 @@ function resetRuntimeState() {
     editingFormationRecordId: "",
     editingFormationOfferingId: "",
     formationSection: "route",
+    welcomeNewRefreshing: false,
+    welcomeNewSnapshotSource: "",
     selectedWelcomePersonId: "",
     selectedWelcomeFollowupId: "",
     welcomeWorkbenchMode: "",
