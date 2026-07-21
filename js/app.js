@@ -2610,6 +2610,22 @@ function renderStudentPortalTopBar_(context) {
 function renderStudentPortalQuickMenu_(context) {
   const activeTab = context?.activeTab || "home";
   const assistantFirstName = context?.assistantFirstName || "Asistente";
+  const assistantName = context?.assistantName || assistantFirstName;
+  const assistantInitials = getStudentPortalLeaderInitials_(assistantName);
+  const portalUsername = context?.portalUsername || "Sin usuario";
+  const currentStageName = context?.currentStageName || "Tu proceso";
+  const currentStatus = getWorkflowStatusLabel_(
+    context?.currentLevel?.status
+      || context?.currentRecord?.formationStatus
+      || context?.person?.tipoPersona
+      || "EN_CURSO"
+  ) || "En curso";
+  const leaderName = context?.leaderName || "Líder pendiente";
+  const leaderPhone = context?.leaderPhone || "WhatsApp pendiente";
+  const supportUrl = context?.supportUrl || "";
+  const progressPercent = Math.max(0, Math.min(100, Number(context?.progressPercent || 0)));
+  const routePercent = Math.max(0, Math.min(100, Number(context?.routePercent || 0)));
+  const attendancePercent = Math.max(0, Math.min(100, Number(context?.attendancePercent || 0)));
   const items = [
     { id: "home", label: "Inicio", note: "Resumen general", icon: "home" },
     { id: "path", label: "Mi camino", note: "Ruta de formación", icon: "path" },
@@ -2628,6 +2644,64 @@ function renderStudentPortalQuickMenu_(context) {
           ${renderStudentPortalIcon_("close")}
         </button>
       </div>
+
+      <section class="student-portal-quick-menu-hero">
+        <div class="student-portal-quick-menu-profile">
+          <div class="student-portal-quick-menu-avatar">${escapeHtml(assistantInitials)}</div>
+          <div class="student-portal-quick-menu-profile-copy">
+            <small>Portal del asistente</small>
+            <strong>${escapeHtml(assistantName)}</strong>
+            <span>${escapeHtml(portalUsername)}</span>
+          </div>
+          <div class="student-portal-quick-menu-status">
+            <small>Estado actual</small>
+            <strong>${escapeHtml(currentStatus)}</strong>
+          </div>
+        </div>
+
+        <div class="student-portal-quick-menu-stage">
+          <small>Etapa activa</small>
+          <strong>${escapeHtml(currentStageName)}</strong>
+        </div>
+
+        <div class="student-portal-quick-menu-metrics">
+          <article class="student-portal-quick-menu-metric">
+            <strong>${escapeHtml(`${progressPercent}%`)}</strong>
+            <span>avance visual</span>
+          </article>
+          <article class="student-portal-quick-menu-metric">
+            <strong>${escapeHtml(`${routePercent}%`)}</strong>
+            <span>ruta completada</span>
+          </article>
+          <article class="student-portal-quick-menu-metric">
+            <strong>${escapeHtml(`${attendancePercent}%`)}</strong>
+            <span>asistencia</span>
+          </article>
+        </div>
+
+        <div class="student-portal-quick-menu-leader">
+          <div class="student-portal-quick-menu-leader-copy">
+            <span class="student-portal-quick-menu-leader-icon">${renderStudentPortalIcon_("leader")}</span>
+            <div>
+              <small>Líder actual</small>
+              <strong>${escapeHtml(leaderName)}</strong>
+              <span>${escapeHtml(leaderPhone)}</span>
+            </div>
+          </div>
+
+          ${supportUrl ? `
+            <a class="student-portal-quick-menu-cta" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">
+              <span>${renderStudentPortalIcon_("whatsapp")}</span>
+              <span>WhatsApp del líder</span>
+            </a>
+          ` : `
+            <span class="student-portal-quick-menu-cta is-disabled">
+              <span>${renderStudentPortalIcon_("leader")}</span>
+              <span>Líder sin contacto</span>
+            </span>
+          `}
+        </div>
+      </section>
 
       <div class="student-portal-quick-menu-list">
         ${items.map((item) => `
