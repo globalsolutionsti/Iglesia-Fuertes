@@ -2313,6 +2313,8 @@ function renderLoginView() {
 }
 
 function renderStudentPortalLoginView_() {
+  const deviceTimeLabel = getStudentPortalDeviceTimeLabel_();
+
   return `
     <div class="student-portal-access-shell">
       <section class="student-portal-access-intro">
@@ -2394,7 +2396,7 @@ function renderStudentPortalLoginView_() {
 
             <div class="student-portal-device-screen">
               <div class="student-portal-device-statusbar">
-                <span>9:41</span>
+                <span>${escapeHtml(deviceTimeLabel)}</span>
                 <div class="student-portal-device-status-icons">
                   <span></span>
                   <span></span>
@@ -2448,6 +2450,7 @@ function renderStudentPortalLoginView_() {
 }
 
 function renderStudentPortalView_() {
+  const deviceTimeLabel = getStudentPortalDeviceTimeLabel_();
   const portal = state.studentPortal;
   const person = portal?.person || {};
   const currentLevel = portal?.currentLevel || null;
@@ -2554,7 +2557,7 @@ function renderStudentPortalView_() {
 
             <div class="student-portal-device-screen">
               <div class="student-portal-device-statusbar">
-                <span>9:41</span>
+                <span>${escapeHtml(deviceTimeLabel)}</span>
                 <div class="student-portal-device-status-icons">
                   <span></span>
                   <span></span>
@@ -2605,6 +2608,20 @@ function renderStudentPortalTopBar_(context) {
       ${menuOpen ? renderStudentPortalQuickMenu_(context) : ""}
     </div>
   `;
+}
+
+function getStudentPortalDeviceTimeLabel_() {
+  try {
+    return new Intl.DateTimeFormat("es-MX", {
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(new Date());
+  } catch (error) {
+    return new Date().toLocaleTimeString("es-MX", {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
 }
 
 function renderStudentPortalQuickMenu_(context) {
