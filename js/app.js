@@ -18885,18 +18885,22 @@ async function saveWelcomeProspectAssignment_(options = {}) {
 
   state.ui.selectedWelcomePersonId = payload.personId;
   state.ui.selectedWelcomeFollowupId = String(response?.followup?.id || "");
+  const initialTelegramNotification = normalizeTelegramNotification_(response?.notification);
+  const initialTelegramSent = telegramNotificationWasSent_(initialTelegramNotification);
   state.ui.welcomeModal = {
     kind: "prospect",
     personId: payload.personId,
     groupId: modalState.groupId,
     suggestedAt: payload.actionDate,
     notes: payload.notes,
-    notification: {
-      sent: false,
-      sentAt: "",
-      status: "ENVIANDO",
-      detail: "Guardado correcto. Enviando aviso por Telegram..."
-    }
+    notification: initialTelegramSent
+      ? initialTelegramNotification
+      : {
+        sent: false,
+        sentAt: "",
+        status: "ENVIANDO",
+        detail: "Guardado correcto. Enviando aviso por Telegram..."
+      }
   };
   schedulePeopleSourcesResync_({
     refreshWelcome: true,
@@ -18905,6 +18909,14 @@ async function saveWelcomeProspectAssignment_(options = {}) {
     delayMs: 450
   });
   renderApp();
+  if (initialTelegramSent) {
+    showToast(
+      options.successTitle || "Prospecto actualizado",
+      options.successMessage || initialTelegramNotification.detail || "El prospecto quedó pendiente por registrar y Telegram avisó automáticamente al líder.",
+      "success"
+    );
+    return true;
+  }
   showToast(
     options.successTitle || "Prospecto actualizado",
     "El prospecto quedó guardado. Telegram se está enviando en segundo plano.",
@@ -18918,7 +18930,37 @@ async function saveWelcomeProspectAssignment_(options = {}) {
   return true;
 }
 
+function normalizeTelegramNotification_(notification) {
+  if (!notification || typeof notification !== "object") {
+    return null;
+  }
+  return {
+    sent: notification.sent === true || String(notification.status || "").trim().toUpperCase() === "ENVIADO",
+    sentAt: String(notification.sentAt || "").trim(),
+    status: String(notification.status || "").trim(),
+    detail: String(notification.detail || "").trim()
+  };
+}
+
+function telegramNotificationWasSent_(notification) {
+  return notification?.sent === true
+    || String(notification?.status || "").trim().toUpperCase() === "ENVIADO";
+}
+
+function isMissingWelcomeProspectNotifyActionError_(error) {
+  const message = String(error?.message || "").trim();
+  return message.includes("Unknown action: welcome.followups.notifyProspectLeader");
+}
+
 async function notifyWelcomeProspectLeaderInBackground_(response, payload, options = {}) {
+  const legacyNotification = normalizeTelegramNotification_(response?.notification);
+  if (telegramNotificationWasSent_(legacyNotification)) {
+    return {
+      notification: legacyNotification,
+      followup: response?.followup || null
+    };
+  }
+
   const followupId = String(response?.followup?.id || "").trim();
   const requestPayload = {
     followupId,
@@ -18930,9 +18972,8 @@ async function notifyWelcomeProspectLeaderInBackground_(response, payload, optio
 
   try {
     const notifyResponse = await apiPost("welcome.followups.notifyProspectLeader", requestPayload);
-    const telegramNotification = notifyResponse?.notification || null;
-    const telegramSent = telegramNotification?.sent === true
-      || String(telegramNotification?.status || "").trim().toUpperCase() === "ENVIADO";
+    const telegramNotification = normalizeTelegramNotification_(notifyResponse?.notification);
+    const telegramSent = telegramNotificationWasSent_(telegramNotification);
 
     if (notifyResponse?.followup) {
       const optimisticProfile = buildOptimisticWelcomeProfileAfterFollowupSave_({
@@ -18946,12 +18987,7 @@ async function notifyWelcomeProspectLeaderInBackground_(response, payload, optio
         state.ui.welcomeModal = {
           ...state.ui.welcomeModal,
           notification: telegramNotification
-            ? {
-              sent: Boolean(telegramNotification.sent),
-              sentAt: String(telegramNotification.sentAt || "").trim(),
-              status: String(telegramNotification.status || "").trim(),
-              detail: String(telegramNotification.detail || "").trim()
-            }
+            ? telegramNotification
             : {
               sent: false,
               sentAt: "",
@@ -18972,6 +19008,28 @@ async function notifyWelcomeProspectLeaderInBackground_(response, payload, optio
     );
     return notifyResponse;
   } catch (error) {
+    if (isMissingWelcomeProspectNotifyActionError_(error)) {
+      if (state.ui.welcomeModal?.kind === "prospect" && String(state.ui.welcomeModal?.personId || "") === String(payload?.personId || "")) {
+        state.ui.welcomeModal = {
+          ...state.ui.welcomeModal,
+          notification: {
+            sent: false,
+            sentAt: "",
+            status: "PENDIENTE",
+            detail: "La API publicada aún no incluye el aviso diferido. Si el líder ya recibió Telegram, puedes continuar con el flujo normal."
+          }
+        };
+        renderApp();
+      }
+
+      showToast(
+        "API pendiente de actualizar",
+        "Tu despliegue actual todavía no incluye el aviso diferido de Telegram. Si el mensaje ya llegó al líder, puedes continuar normalmente.",
+        "warning"
+      );
+      return null;
+    }
+
     if (state.ui.welcomeModal?.kind === "prospect" && String(state.ui.welcomeModal?.personId || "") === String(payload?.personId || "")) {
       state.ui.welcomeModal = {
         ...state.ui.welcomeModal,
@@ -19060,6 +19118,18 @@ async function savePendingProspectGroupAlert_(personId) {
     personId: cleanPersonId,
     delayMs: 450
   });
+  const initialTelegramNotification = normalizeTelegramNotification_(response?.notification);
+  if (telegramNotificationWasSent_(initialTelegramNotification)) {
+    showToast(
+      "Grupo actualizado",
+      draft.groupDirty
+        ? `El grupo cambió a ${selectedGroupName}. ${initialTelegramNotification.detail || "Telegram ya avisó al nuevo liderazgo."}`
+        : (initialTelegramNotification.detail || "Telegram ya avisó al liderazgo de ese grupo."),
+      "success"
+    );
+    renderApp();
+    return true;
+  }
   showToast(
     "Grupo actualizado",
     draft.groupDirty
@@ -19268,6 +19338,16 @@ async function saveWelcomeFollowup_(rawPayload) {
     delayMs: 450
   });
   if (shouldNotifyProspectLeader) {
+    const initialTelegramNotification = normalizeTelegramNotification_(response?.notification);
+    if (telegramNotificationWasSent_(initialTelegramNotification)) {
+      showToast(
+        "Aviso enviado",
+        initialTelegramNotification.detail || "Telegram avisó correctamente al liderazgo del grupo.",
+        "success"
+      );
+      renderApp();
+      return false;
+    }
     showToast("Prospecto guardado", "La bitácora quedó guardada. Telegram se está enviando en segundo plano.", "success");
     renderApp();
     void notifyWelcomeProspectLeaderInBackground_(response, payload, {
