@@ -18865,6 +18865,8 @@ async function saveWelcomeProspectAssignment_(options = {}) {
     owner: "BIENVENIDA",
     systemUserName: currentAuditUser.name,
     systemUserEmail: currentAuditUser.email,
+    skipTelegram: true,
+    skipProfile: true,
     nextFollowUpDate: modalState.person.nextFollowUpDate || "",
     status: "PROSPECTO GP",
     suggestedGroupId: modalState.groupId,
@@ -18874,21 +18876,13 @@ async function saveWelcomeProspectAssignment_(options = {}) {
   try {
     await withLoading(async () => {
       response = await apiPost("welcome.followups.save", payload);
-      state.welcomeProfile = response.profile;
-      await refreshPeopleSources_();
+      applyWelcomeProfileToLocalState_(buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload));
       invalidateWelcomeCache_();
-      await loadWelcomePeople_({
-        force: true,
-        showLoading: false
-      });
     }, options.loadingMessage || "Guardando y convirtiendo a PGC...");
   } catch (error) {
     throw error;
   }
 
-  const telegramNotification = response?.notification || null;
-  const telegramSent = telegramNotification?.sent === true
-    || String(telegramNotification?.status || "").trim().toUpperCase() === "ENVIADO";
   state.ui.selectedWelcomePersonId = payload.personId;
   state.ui.selectedWelcomeFollowupId = String(response?.followup?.id || "");
   state.ui.welcomeModal = {
@@ -18897,31 +18891,107 @@ async function saveWelcomeProspectAssignment_(options = {}) {
     groupId: modalState.groupId,
     suggestedAt: payload.actionDate,
     notes: payload.notes,
-    notification: telegramNotification
-      ? {
-        sent: Boolean(telegramNotification.sent),
-        sentAt: String(telegramNotification.sentAt || "").trim(),
-        status: String(telegramNotification.status || "").trim(),
-        detail: String(telegramNotification.detail || "").trim()
-      }
-      : {
-        sent: false,
-        sentAt: "",
-        status: "ERROR",
-        detail: "No se pudo confirmar el envío del aviso por Telegram."
-      }
+    notification: {
+      sent: false,
+      sentAt: "",
+      status: "ENVIANDO",
+      detail: "Guardado correcto. Enviando aviso por Telegram..."
+    }
   };
-  showToast(
-    telegramSent
-      ? (options.successTitle || "Prospecto actualizado")
-      : "Prospecto guardado con aviso pendiente",
-    telegramSent
-      ? (options.successMessage || "El prospecto quedó pendiente por registrar y Telegram avisó automáticamente al líder.")
-      : `El prospecto quedó pendiente por registrar. ${telegramNotification?.detail || "Telegram no pudo avisar al líder."} Usa WhatsApp solo como respaldo.`,
-    telegramSent ? "success" : "warning"
-  );
+  schedulePeopleSourcesResync_({
+    refreshWelcome: true,
+    refreshProfile: true,
+    personId: payload.personId,
+    delayMs: 450
+  });
   renderApp();
+  showToast(
+    options.successTitle || "Prospecto actualizado",
+    "El prospecto quedó guardado. Telegram se está enviando en segundo plano.",
+    "success"
+  );
+  void notifyWelcomeProspectLeaderInBackground_(response, payload, {
+    successTitle: options.successTitle || "Prospecto actualizado",
+    successMessage: options.successMessage || "El prospecto quedó pendiente por registrar y Telegram avisó automáticamente al líder.",
+    errorPrefix: "El prospecto quedó guardado, pero"
+  });
   return true;
+}
+
+async function notifyWelcomeProspectLeaderInBackground_(response, payload, options = {}) {
+  const followupId = String(response?.followup?.id || "").trim();
+  const requestPayload = {
+    followupId,
+    personId: String(payload?.personId || "").trim(),
+    suggestedGroupId: String(payload?.suggestedGroupId || "").trim(),
+    actionDate: String(payload?.actionDate || "").trim(),
+    notes: String(payload?.notes || "").trim()
+  };
+
+  try {
+    const notifyResponse = await apiPost("welcome.followups.notifyProspectLeader", requestPayload);
+    const telegramNotification = notifyResponse?.notification || null;
+    const telegramSent = telegramNotification?.sent === true
+      || String(telegramNotification?.status || "").trim().toUpperCase() === "ENVIADO";
+
+    if (notifyResponse?.followup) {
+      const optimisticProfile = buildOptimisticWelcomeProfileAfterFollowupSave_({
+        followup: notifyResponse.followup,
+        profile: state.welcomeProfile
+      }, payload);
+      applyWelcomeProfileToLocalState_(optimisticProfile);
+      state.ui.selectedWelcomeFollowupId = String(notifyResponse.followup.id || state.ui.selectedWelcomeFollowupId || "");
+
+      if (state.ui.welcomeModal?.kind === "prospect" && String(state.ui.welcomeModal?.personId || "") === String(payload?.personId || "")) {
+        state.ui.welcomeModal = {
+          ...state.ui.welcomeModal,
+          notification: telegramNotification
+            ? {
+              sent: Boolean(telegramNotification.sent),
+              sentAt: String(telegramNotification.sentAt || "").trim(),
+              status: String(telegramNotification.status || "").trim(),
+              detail: String(telegramNotification.detail || "").trim()
+            }
+            : {
+              sent: false,
+              sentAt: "",
+              status: "ERROR",
+              detail: "No se pudo confirmar el envío del aviso por Telegram."
+            }
+        };
+      }
+    }
+
+    renderApp();
+    showToast(
+      telegramSent ? (options.successTitle || "Telegram enviado") : "Aviso pendiente",
+      telegramSent
+        ? (options.successMessage || "Telegram avisó correctamente al liderazgo.")
+        : `${options.errorPrefix || "Se guardó el caso, pero"} ${telegramNotification?.detail || "Telegram no pudo confirmar el envío automático."}`,
+      telegramSent ? "success" : "warning"
+    );
+    return notifyResponse;
+  } catch (error) {
+    if (state.ui.welcomeModal?.kind === "prospect" && String(state.ui.welcomeModal?.personId || "") === String(payload?.personId || "")) {
+      state.ui.welcomeModal = {
+        ...state.ui.welcomeModal,
+        notification: {
+          sent: false,
+          sentAt: "",
+          status: "ERROR",
+          detail: error?.message || "No se pudo completar el aviso automático por Telegram."
+        }
+      };
+      renderApp();
+    }
+
+    showToast(
+      "Aviso pendiente",
+      `${options.errorPrefix || "Se guardó el caso, pero"} ${error?.message || "Telegram no pudo completar el envío automático."}`,
+      "warning"
+    );
+    return null;
+  }
 }
 
 async function savePendingProspectGroupAlert_(personId) {
@@ -18963,6 +19033,8 @@ async function savePendingProspectGroupAlert_(personId) {
     owner: "GRUPOS_CONEXION",
     systemUserName: currentAuditUser.name,
     systemUserEmail: currentAuditUser.email,
+    skipTelegram: true,
+    skipProfile: true,
     nextFollowUpDate: person.nextFollowUpDate || "",
     status: "PROSPECTO GP",
     suggestedGroupId: selectedGroupId,
@@ -18974,35 +19046,35 @@ async function savePendingProspectGroupAlert_(personId) {
     applyWelcomeProfileToLocalState_(buildOptimisticWelcomeProfileAfterFollowupSave_(response, payload));
     invalidateWelcomeCache_();
   }, draft.groupDirty
-    ? "Guardando cambio de grupo y avisando por Telegram..."
-    : "Avisando al líder por Telegram...");
+    ? "Guardando cambio de grupo..."
+    : "Guardando grupo...");
 
   updatePendingProspectDraft_(cleanPersonId, {
     seasonId: draft.seasonId,
     groupId: selectedGroupId
   });
 
-  void loadWelcomePeople_({
-    force: true,
-    showLoading: false
-  }).then(() => {
-    renderApp();
-  }).catch(() => {});
-
-  const telegramNotification = response?.notification || null;
-  const telegramSent = telegramNotification?.sent === true
-    || String(telegramNotification?.status || "").trim().toUpperCase() === "ENVIADO";
-
+  schedulePeopleSourcesResync_({
+    refreshWelcome: true,
+    refreshProfile: true,
+    personId: cleanPersonId,
+    delayMs: 450
+  });
   showToast(
-    telegramSent ? "Grupo actualizado" : "Grupo guardado con aviso pendiente",
-    telegramSent
-      ? (draft.groupDirty
-        ? `El prospecto cambió a ${selectedGroupName} y Telegram ya avisó al nuevo liderazgo.`
-        : "Telegram confirmó el aviso al liderazgo de ese grupo.")
-      : `El grupo quedó guardado en ${selectedGroupName}, pero ${telegramNotification?.detail || "Telegram no pudo confirmar el aviso automático al líder"}.`,
-    telegramSent ? "success" : "warning"
+    "Grupo actualizado",
+    draft.groupDirty
+      ? `El grupo cambió a ${selectedGroupName}. Telegram se está enviando al nuevo liderazgo.`
+      : "El grupo quedó guardado. Telegram se está enviando al liderazgo.",
+    "success"
   );
   renderApp();
+  void notifyWelcomeProspectLeaderInBackground_(response, payload, {
+    successTitle: "Grupo actualizado",
+    successMessage: draft.groupDirty
+      ? `El prospecto cambió a ${selectedGroupName} y Telegram ya avisó al nuevo liderazgo.`
+      : "Telegram confirmó el aviso al liderazgo de ese grupo.",
+    errorPrefix: `El grupo quedó guardado en ${selectedGroupName}, pero`
+  });
   return true;
 }
 
@@ -19148,10 +19220,12 @@ async function saveWelcomePerson_(rawPayload, options = {}) {
 async function saveWelcomeFollowup_(rawPayload) {
   const currentAuditUser = getCurrentSystemUserAudit_();
   const currentScope = String(state.filters.welcome.status || "ALL").toUpperCase();
+  const normalizedActionType = V(rawPayload.actionType).toUpperCase();
+  const shouldNotifyProspectLeader = normalizedActionType === "PROSPECTO_GC";
   const payload = {
     personId: V(rawPayload.personId),
     actionDate: V(rawPayload.actionDate),
-    actionType: V(rawPayload.actionType),
+    actionType: normalizedActionType,
     result: V(rawPayload.result),
     owner: V(rawPayload.owner) || currentAuditUser.name || "BIENVENIDA",
     systemUserName: currentAuditUser.name,
@@ -19159,7 +19233,9 @@ async function saveWelcomeFollowup_(rawPayload) {
     nextFollowUpDate: V(rawPayload.nextFollowUpDate),
     status: V(rawPayload.status),
     suggestedGroupId: V(rawPayload.suggestedGroupId),
-    notes: V(rawPayload.notes)
+    notes: V(rawPayload.notes),
+    skipTelegram: shouldNotifyProspectLeader,
+    skipProfile: shouldNotifyProspectLeader
   };
 
   if (!payload.personId) {
@@ -19191,6 +19267,17 @@ async function saveWelcomeFollowup_(rawPayload) {
     personId: payload.personId,
     delayMs: 450
   });
+  if (shouldNotifyProspectLeader) {
+    showToast("Prospecto guardado", "La bitácora quedó guardada. Telegram se está enviando en segundo plano.", "success");
+    renderApp();
+    void notifyWelcomeProspectLeaderInBackground_(response, payload, {
+      successTitle: "Aviso enviado",
+      successMessage: "Telegram avisó correctamente al liderazgo del grupo.",
+      errorPrefix: "La bitácora quedó guardada, pero"
+    });
+    return false;
+  }
+
   showToast("Evento registrado", "La bitácora de seguimiento ya quedó actualizada.", "success");
   return false;
 }
