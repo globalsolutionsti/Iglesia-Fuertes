@@ -1383,6 +1383,162 @@ div {
   width: 100%;
 }
 
+.formation-ledger-head-route,
+.formation-ledger-row-route {
+  grid-template-columns: minmax(0, 2.1fr) minmax(280px, 1.35fr) minmax(250px, 1.2fr) minmax(250px, 1fr);
+  gap: 18px;
+}
+
+.formation-ledger-row-route {
+  align-items: stretch;
+  padding: 22px 20px;
+}
+
+.formation-ledger-row-route .formation-ledger-cell {
+  gap: 10px;
+}
+
+.formation-ledger-route-identity strong {
+  font-size: 20px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.formation-ledger-route-inline,
+.formation-ledger-route-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formation-ledger-route-code,
+.formation-ledger-route-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.formation-ledger-route-chip {
+  color: var(--text);
+  background: linear-gradient(180deg, #fbfbfb 0%, #f4f4f4 100%);
+}
+
+.formation-ledger-route-stage {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 247, 247, 0.98) 100%);
+}
+
+.formation-ledger-route-stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.formation-ledger-route-stage-head strong {
+  font-size: 22px;
+  line-height: 1.02;
+}
+
+.formation-ledger-route-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.formation-ledger-route-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 12px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.formation-ledger-route-metric label {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.formation-ledger-route-metric strong {
+  font-size: 15px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.formation-ledger-route-metric span {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.formation-ledger-route-followup {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 248, 248, 0.98) 100%);
+}
+
+.formation-ledger-route-followup strong {
+  font-size: 16px;
+}
+
+.formation-ledger-route-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.formation-ledger-route-note-label {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.formation-ledger-route-actions {
+  justify-content: stretch;
+  align-content: stretch;
+}
+
+.formation-action-stack-route {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.formation-action-stack-route .btn:last-child {
+  grid-column: 1 / -1;
+}
+
+.formation-ledger-route-actions .btn {
+  min-height: 50px;
+  padding-left: 16px;
+  padding-right: 16px;
+  font-size: 15px;
+}
+
+.formation-ledger-action-note {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .formation-profile-head-actions {
   display: inline-flex;
   align-items: center;
@@ -5620,6 +5776,60 @@ tbody tr:hover {
     display: block;
   }
 
+  .app-shell.view-formation .formation-ledger-row-route {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 18px 16px;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-inline,
+  .app-shell.view-formation .formation-ledger-route-context {
+    gap: 6px;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-code,
+  .app-shell.view-formation .formation-ledger-route-chip {
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-stage,
+  .app-shell.view-formation .formation-ledger-route-followup {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-stage-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-stage-head strong {
+    font-size: 20px;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-metric strong {
+    font-size: 14px;
+  }
+
+  .app-shell.view-formation .formation-action-stack-route {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-formation .formation-action-stack-route .btn:last-child {
+    grid-column: auto;
+  }
+
+  .app-shell.view-formation .formation-ledger-route-actions .btn {
+    min-height: 46px;
+    font-size: 14px;
+  }
+
   .app-shell.view-formation .formation-route-pill-stack {
     justify-content: flex-start;
   }
@@ -8108,6 +8318,10 @@ tbody tr:hover {
   .app-shell.view-formation .formation-ledger-card {
     padding: 16px;
     border-radius: 22px;
+  }
+
+  .app-shell.view-formation .formation-ledger-card-head h3 {
+    font-size: 22px;
   }
 
   .app-shell.view-formation .formation-scan-shell,
