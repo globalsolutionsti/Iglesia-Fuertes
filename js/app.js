@@ -1060,12 +1060,14 @@ function buildFormationProfileFromLoadedData_(personId, seasonId = "") {
     || latestRecord?.personName
     || "Congregante"
   ).trim();
-  const currentLevelName = String(
-    currentCandidate?.currentLevel
-    || latestRecord?.levelName
-    || directoryPerson?.nivelFormacionActual
-    || getFormationDefaultLevelName_()
-  ).trim();
+  const currentLevelName = getFormationDisplayLevelName_({
+    currentLevel: currentCandidate?.currentLevel,
+    stageLabel: latestRecord?.stageLabel,
+    levelName: latestRecord?.levelName,
+    nivelFormacionActual: directoryPerson?.nivelFormacionActual,
+    formationStatus: currentCandidate?.formationStatus || latestRecord?.status || directoryPerson?.estatusFormacion,
+    origin: latestRecord?.origin
+  }, getFormationDefaultLevelName_()).trim();
   const currentStatus = String(
     currentCandidate?.formationStatus
     || latestRecord?.status
@@ -4015,7 +4017,7 @@ function renderStudentPortalLevelCard_(level) {
 }
 
 function renderStudentPortalRecordCard_(record, index) {
-  const title = record?.levelName || "Sin nivel";
+  const title = getFormationDisplayLevelName_(record, "Sin nivel");
   const actor = record?.reviewedBy || record?.requestedBy || "Sistema";
   const moment = formatDate(
     record?.encounterRegisteredAt
@@ -5732,7 +5734,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
   const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
   const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
-  const levelName = sanitizeFormationDisplayText_(candidate?.currentLevel, getFormationDefaultLevelName_());
+  const levelName = getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
   const seasonName = resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada";
   const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
   const inviteLabel = candidate?.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
@@ -5957,7 +5959,7 @@ function renderFormationCasesWorkspace_(context) {
                   <span class="row-title">${escapeHtml(record.personName)}</span>
                   <span class="row-meta">${escapeHtml(record.groupName || "Sin grupo")} | ${escapeHtml(resolveSeasonName_(record.seasonId) || record.seasonId || "Sin temporada")}</span>
                 </td>
-                <td>${escapeHtml(record.levelName || "Sin nivel")}</td>
+                <td>${escapeHtml(getFormationDisplayLevelName_(record, "Sin nivel"))}</td>
                 <td>${renderWorkflowStatusPill_(record.status)}</td>
                 <td>
                   <span class="row-title">${escapeHtml(formatDate(record.requestedAt) || "Sin fecha")}</span>
@@ -7150,7 +7152,14 @@ function renderFormationProfileSection_(profile) {
           </div>
           <div class="summary-box">
             <span class="status-chip neutral">Etapa actual</span>
-            <strong>${escapeHtml(profile.currentCandidate?.currentLevel || profile.person.nivelFormacionActual || getFormationDefaultLevelName_())}</strong>
+            <strong>${escapeHtml(getFormationDisplayLevelName_({
+              currentLevel: profile.currentCandidate?.currentLevel,
+              stageLabel: latestRecord?.stageLabel,
+              levelName: latestRecord?.levelName,
+              nivelFormacionActual: profile.person.nivelFormacionActual,
+              formationStatus: profile.currentCandidate?.formationStatus || profile.person.estatusFormacion,
+              origin: latestRecord?.origin
+            }, getFormationDefaultLevelName_()))}</strong>
             <span>${escapeHtml(getWorkflowStatusLabel_(profile.currentCandidate?.formationStatus || profile.person.estatusFormacion || "SIN_PROCESO"))}</span>
           </div>
           <div class="summary-box">
@@ -7222,7 +7231,7 @@ function renderFormationProfileSection_(profile) {
                 <tr>
                   <td>${escapeHtml(formatDate(record.encounterRegisteredAt || record.invitedAt || record.requestedAt) || "-")}</td>
                   <td>
-                    <span class="row-title">${escapeHtml(record.levelName || "Sin nivel")}</span>
+                    <span class="row-title">${escapeHtml(getFormationDisplayLevelName_(record, "Sin nivel"))}</span>
                     <span class="row-meta">${escapeHtml(record.reviewedBy || record.requestedBy || "Sin responsable")}</span>
                   </td>
                   <td>${renderWorkflowStatusPill_(record.status)}</td>
@@ -21110,6 +21119,7 @@ async function sendFormationEncounterInvite_(candidate) {
     });
   }, "Registrando invitación a Encuentro...");
 
+  const portalAccess = response?.portalAccess || null;
   applyFormationRecordToLocalState_(response?.record || null);
   state.ui.selectedFormationPersonId = candidate.personId;
   state.ui.formationSection = "route";
@@ -24354,6 +24364,50 @@ function buildFormationSummary_() {
 function getFormationDefaultLevelName_() {
   const sortedLevels = getFormationSortedLevels_();
   return sortedLevels[0]?.name || "Encuentro";
+}
+
+function getFormationPreStageLabel_() {
+  return "Pre-Encuentro";
+}
+
+function isFormationPreEncounterStatus_(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  return normalized === "CANDIDATO_ENCUENTRO"
+    || normalized === "INVITACION_ENVIADA"
+    || normalized === "PROSPECTO_FORMACION"
+    || normalized === "PROSPECTO GF";
+}
+
+function getFormationDisplayLevelName_(source, fallback = "") {
+  if (!source) {
+    return fallback;
+  }
+
+  if (typeof source === "string") {
+    return sanitizeFormationDisplayText_(source, fallback);
+  }
+
+  const directText = sanitizeFormationDisplayText_(
+    source.stageLabel
+    || source.levelName
+    || source.currentLevel
+    || source.nivelFormacionActual
+    || "",
+    ""
+  );
+
+  if (directText) {
+    return directText;
+  }
+
+  if (
+    isFormationPreEncounterStatus_(source.formationStatus || source.status || source.estatusFormacion)
+    || String(source.origin || source.origen || "").trim().toUpperCase() === "ASISTENCIA_3_CONSECUTIVAS"
+  ) {
+    return getFormationPreStageLabel_();
+  }
+
+  return fallback;
 }
 
 function renderFormationTimelineItem_(label, value, emptyLabel = "Pendiente") {
