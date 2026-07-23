@@ -21782,6 +21782,8 @@ function applyScrapDeleteFormationProcessLocally_(processId) {
   state.formationProcesses = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).filter((process) => String(process?.id || "").trim() !== cleanProcessId);
   state.formationOfferings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).filter((offering) => String(offering?.processId || "").trim() !== cleanProcessId);
   state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((enrollment) => String(enrollment?.processId || "").trim() !== cleanProcessId);
+  state.loaded.formationRecords = false;
+  state.cacheKeys.formationRecords = "";
   state.ui.scrapFormationProcessPreview = String(state.ui.scrapFormationProcessPreview?.processId || "") === cleanProcessId ? null : state.ui.scrapFormationProcessPreview;
   state.ui.selectedScrapFormationProcessId = String(state.ui.selectedScrapFormationProcessId || "") === cleanProcessId ? "" : state.ui.selectedScrapFormationProcessId;
 
@@ -22020,7 +22022,7 @@ async function executeScrapDeleteFormationProcess_(processId) {
 
   showToast(
     "Proceso demo eliminado",
-    `${response?.processName || cleanProcessId} se eliminó con ${response?.deletedOfferings || 0} nivel(es) operativo(s), ${response?.deletedScheduledSessions || 0} sesión(es) programada(s), ${response?.deletedEnrollments || 0} inscripción(es) y ${response?.deletedLevelAttendances || 0} asistencia(s) por nivel.`,
+    `${response?.processName || cleanProcessId} se eliminó con ${response?.deletedOfferings || 0} nivel(es) operativo(s), ${response?.deletedScheduledSessions || 0} sesión(es) programada(s), ${response?.deletedFormationRecords || 0} registro(s) formativo(s), ${response?.deletedEnrollments || 0} inscripción(es) y ${response?.deletedLevelAttendances || 0} asistencia(s) por nivel.`,
     "success"
   );
   renderApp();
@@ -22067,7 +22069,7 @@ async function executeDeleteFormationLevel_(levelId) {
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "FORMATION_LEVEL_IN_USE") {
       showToast(
         "Nivel protegido",
-        `No se puede eliminar porque tiene ${error.details?.offerings || 0} nivel(es) operativos, ${error.details?.records || 0} registro(s) y ${error.details?.enrollments || 0} inscripción(es) ligados.`,
+        `No se puede eliminar porque tiene ${error.details?.offerings || 0} nivel(es) operativos, ${error.details?.records || 0} registro(s) y ${error.details?.enrollments || 0} inscripción(es) ligados. Si es información demo, límpiala desde SCRAP total de persona o SCRAP del Proceso de Formación, no desde el catálogo base.`,
         "warning"
       );
       return;
