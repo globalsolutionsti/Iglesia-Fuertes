@@ -5709,12 +5709,11 @@ function renderFormationRouteWorkspace_(context) {
 
         ${candidates.length ? `
           <div class="formation-ledger">
-            <div class="formation-ledger-head" aria-hidden="true">
+            <div class="formation-ledger-head formation-ledger-head-route" aria-hidden="true">
               <span>Congregante</span>
-              <span>Nivel</span>
-              <span>Estatus</span>
+              <span>Ruta y avance</span>
               <span>Seguimiento</span>
-              <span>Acción</span>
+              <span>Acciones</span>
             </div>
             ${candidates.map((candidate) => renderFormationRouteResultRow_(candidate, activePersonId)).join("")}
           </div>
@@ -5737,10 +5736,16 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const levelName = getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
   const seasonName = resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada";
   const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
-  const inviteLabel = candidate?.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
+  const leaderSummary = sanitizeFormationDisplayText_(
+    candidate?.leaderName
+      ? `${candidate.leaderName}${candidate?.leaderPhone ? ` · ${candidate.leaderPhone}` : ""}`
+      : "",
+    "Liderazgo pendiente"
+  );
+  const inviteLabel = candidate?.invitedAt ? "Reenviar invitación" : "Enviar invitación";
   const encounterLabel = candidate?.encounterRegisteredAt
     ? "Encuentro registrado"
-    : (candidate?.invitedAt ? "Continuar inscripción" : "Primero envía invitación");
+    : (candidate?.invitedAt ? "Continuar inscripción" : "Invita primero");
   const inviteDisabled = candidate?.personPhone ? "" : "disabled";
   const encounterDisabled = candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled";
   const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
@@ -5759,53 +5764,78 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
       : leaderNotice);
 
   return `
-    <article class="formation-ledger-row ${isActive ? "is-active" : ""}">
-      <div class="formation-ledger-cell formation-ledger-cell-main">
+    <article class="formation-ledger-row formation-ledger-row-route ${isActive ? "is-active" : ""}">
+      <div class="formation-ledger-cell formation-ledger-cell-main formation-ledger-route-identity">
         <small>Congregante</small>
         <strong>${escapeHtml(personName)}</strong>
-        <span>${escapeHtml(personNumber)} | QR ${escapeHtml(candidate?.personId || "-")} | ${escapeHtml(personPhone)}</span>
-        <span>${escapeHtml(groupName)} | ${escapeHtml(seasonName)}</span>
+        <div class="formation-ledger-route-inline">
+          <span class="formation-ledger-route-code">${escapeHtml(personNumber)}</span>
+          <span class="formation-ledger-route-code">QR ${escapeHtml(candidate?.personId || "-")}</span>
+          <span class="formation-ledger-route-code">${escapeHtml(personPhone)}</span>
+        </div>
+        <div class="formation-ledger-route-context">
+          <span class="formation-ledger-route-chip">${escapeHtml(groupName)}</span>
+          <span class="formation-ledger-route-chip">${escapeHtml(seasonName)}</span>
+        </div>
       </div>
-      <div class="formation-ledger-cell">
-        <small>Nivel</small>
-        <strong>${escapeHtml(levelName)}</strong>
-        <span>${escapeHtml(attendanceSummary)}</span>
+      <div class="formation-ledger-cell formation-ledger-route-stage">
+        <small>Ruta y avance</small>
+        <div class="formation-ledger-route-stage-head">
+          <strong>${escapeHtml(levelName)}</strong>
+          <div>${renderWorkflowStatusPill_(candidate?.formationStatus || "SIN_PROCESO")}</div>
+        </div>
+        <div class="formation-ledger-route-metrics">
+          <div class="formation-ledger-route-metric">
+            <label>Asistencia</label>
+            <strong>${escapeHtml(attendanceSummary)}</strong>
+            <span>capturadas en la temporada</span>
+          </div>
+          <div class="formation-ledger-route-metric">
+            <label>Regla cumplida</label>
+            <strong>${escapeHtml(consecutiveSummary)}</strong>
+            <span>lista para invitación</span>
+          </div>
+        </div>
       </div>
-      <div class="formation-ledger-cell">
-        <small>Estatus</small>
-        <div>${renderWorkflowStatusPill_(candidate?.formationStatus || "SIN_PROCESO")}</div>
-        <span>${escapeHtml(consecutiveSummary)}</span>
-      </div>
-      <div class="formation-ledger-cell">
+      <div class="formation-ledger-cell formation-ledger-route-followup">
         <small>Seguimiento</small>
         <strong>${escapeHtml(followupTitle)}</strong>
         <span>${escapeHtml(followupMeta)}</span>
+        <div class="formation-ledger-route-note">
+          <span class="formation-ledger-route-note-label">Lider responsable</span>
+          <strong>${escapeHtml(leaderSummary)}</strong>
+          <span>${escapeHtml(leaderNotice)}</span>
+        </div>
       </div>
-      <div class="formation-ledger-cell formation-ledger-actions">
-        <small>Acción</small>
-        <button
-          class="btn btn-ghost"
-          data-action="open-formation-profile"
-          data-person-id="${escapeHtml(candidate?.personId || "")}"
-        >
-          Ver perfil
-        </button>
-        <button
-          class="btn btn-secondary"
-          data-action="formation-send-encounter-invite"
-          data-person-id="${escapeHtml(candidate?.personId || "")}"
-          ${inviteDisabled}
-        >
-          ${escapeHtml(inviteLabel)}
-        </button>
-        <button
-          class="btn btn-primary"
-          data-action="formation-register-encounter"
-          data-person-id="${escapeHtml(candidate?.personId || "")}"
-          ${encounterDisabled}
-        >
-          ${escapeHtml(encounterLabel)}
-        </button>
+      <div class="formation-ledger-cell formation-ledger-actions formation-ledger-route-actions">
+        <small>Acciones</small>
+        <div class="formation-action-stack formation-action-stack-route">
+          <button
+            class="btn btn-ghost"
+            data-action="open-formation-profile"
+            data-person-id="${escapeHtml(candidate?.personId || "")}"
+          >
+            Ver perfil
+          </button>
+          <button
+            class="btn btn-secondary"
+            data-action="formation-send-encounter-invite"
+            data-person-id="${escapeHtml(candidate?.personId || "")}"
+            title="Enviar invitación por WhatsApp"
+            ${inviteDisabled}
+          >
+            ${escapeHtml(inviteLabel)}
+          </button>
+          <button
+            class="btn btn-primary"
+            data-action="formation-register-encounter"
+            data-person-id="${escapeHtml(candidate?.personId || "")}"
+            ${encounterDisabled}
+          >
+            ${escapeHtml(encounterLabel)}
+          </button>
+        </div>
+        <span class="formation-ledger-action-note">Orden sugerido: perfil, invitación y luego inscripción.</span>
       </div>
     </article>
   `;
