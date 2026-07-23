@@ -1528,14 +1528,13 @@ function scheduleBackgroundWarmers_() {
           await Promise.all([
             state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_(),
             state.loaded.seasons ? Promise.resolve() : refreshSeasons(),
+            loadFormationProcesses_({
+              showLoading: false
+            }),
             loadFormationCatalog_({
               showLoading: false
             })
           ]);
-
-          await loadFormationData_({
-            showLoading: false
-          });
         }
       } catch (error) {
         console.warn("No se pudo precalentar la navegación de módulos.", error);
@@ -5452,7 +5451,9 @@ function renderFormationView_() {
   const formationDraft = getFormationFilterDraft_();
   const formationFilterDirty = isFormationFilterDirty_();
   const candidates = getFilteredFormationCandidates_();
-  const allRecords = state.formationRecords;
+  const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
+  const recordsReady = state.loaded.formationRecords && String(state.cacheKeys.formationRecords || "") === String(seasonId || "");
+  const allRecords = recordsReady ? state.formationRecords : [];
   const formationFilterFeedback = renderFormationFilterFeedback_(candidates);
   const formationRouteContext = renderFormationRouteContext_(candidates);
   const profile = state.formationProfile;
@@ -5475,7 +5476,6 @@ function renderFormationView_() {
   const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
   const editingRecord = allRecords.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || profile?.records?.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || null;
   const summary = buildFormationSummary_();
-  const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
 
   return `
     <section class="view-grid">
@@ -5514,14 +5514,15 @@ function renderFormationView_() {
         </article>
         <article class="stat-card">
           <span class="status-chip success">Historial formativo</span>
-          <strong>${escapeHtml(String(allRecords.length))}</strong>
-          <span>Casos registrados dentro del proceso de formación y discipulado.</span>
+          <strong>${escapeHtml(recordsReady ? String(allRecords.length) : "—")}</strong>
+          <span>${escapeHtml(recordsReady ? "Casos registrados dentro del proceso de formación y discipulado." : "Se completa al abrir Casos formativos para no frenar la entrada.")}</span>
         </article>
       </div>
 
       ${renderFormationWorkspaceTabs_(activeSection, {
         routeCount: candidates.length,
         recordsCount: allRecords.length,
+        recordsReady,
         processCount: state.formationProcesses.length,
         operationsCount: state.formationOfferings.length,
         portalCount: state.formationEnrollments.length,
@@ -5572,7 +5573,7 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
     {
       key: "cases",
       label: "Casos formativos",
-      description: `${counts.recordsCount || 0} registros`
+      description: counts.recordsReady ? `${counts.recordsCount || 0} registros` : "carga al abrir"
     },
     {
       key: "operations",
@@ -15331,6 +15332,11 @@ async function handleClick(event) {
       if (state.ui.formationSection === "route") {
         clearFormationProfileSelection_();
       }
+      if (state.ui.formationSection === "cases") {
+        await loadFormationRecords_({
+          message: "Cargando casos formativos..."
+        });
+      }
       if (state.ui.formationSection === "operations" || state.ui.formationSection === "portal") {
         await ensureFormationOperationsViewData_({
           message: "Preparando operación formativa..."
@@ -18594,7 +18600,67 @@ async function syncFormationFilterState_() {
   state.filters.formation.levelId = "";
 }
 
-async function loadFormationData_(options = {}) {
+function invalidateFormationRecordsCache_(options = {}) {
+  state.loaded.formationRecords = false;
+  state.cacheKeys.formationRecords = "";
+
+  if (options.clearData) {
+    state.formationRecords = [];
+  }
+}
+
+async function loadFormationRecords_(options = {}) {
+  await loadFormationCatalog_({
+    force: options.force,
+    showLoading: false
+  });
+  await syncFormationFilterState_();
+
+  const filter = state.filters.formation;
+  const recordsKey = `${filter.seasonId || ""}`;
+
+  if (!filter.seasonId) {
+    invalidateFormationRecordsCache_({
+      clearData: true
+    });
+    return [];
+  }
+
+  if (
+    !options.force &&
+    state.loaded.formationRecords &&
+    state.cacheKeys.formationRecords === recordsKey
+  ) {
+    return state.formationRecords;
+  }
+
+  const task = () => runSharedLoad_(`formationRecords::${recordsKey}`, async () => {
+    try {
+      const records = await apiGet("formation.records.list", {
+        seasonId: filter.seasonId
+      });
+
+      state.formationRecords = Array.isArray(records) ? records : [];
+      state.cacheKeys.formationRecords = recordsKey;
+      state.loaded.formationRecords = true;
+      return state.formationRecords;
+    } catch (error) {
+      if (!isUnknownActionError_(error, "formation.records.list")) {
+        throw error;
+      }
+
+      throw buildBackendRouteMissingError_("formation.records.list", "la ruta formation.records.list");
+    }
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Cargando casos formativos...");
+}
+
+async function loadFormationCandidates_(options = {}) {
   await loadFormationCatalog_({
     force: options.force,
     showLoading: false
@@ -18604,79 +18670,111 @@ async function loadFormationData_(options = {}) {
   const filter = state.filters.formation;
   const requestedGroupId = String(options.groupId !== undefined ? options.groupId : (filter.groupId || ""));
   const shouldSyncCandidates = Boolean(options.syncCandidates);
-  const recordsKey = `${filter.seasonId}`;
-  const candidatesKey = `${filter.seasonId}`;
+  const recordsKey = `${filter.seasonId || ""}`;
+  const candidatesKey = `${filter.seasonId || ""}`;
+
+  if (!filter.seasonId) {
+    state.formationCandidates = [];
+    state.cacheKeys.formationCandidates = "";
+    state.loaded.formationCandidates = false;
+    return [];
+  }
 
   if (
     !options.force &&
-    state.loaded.formationRecords &&
+    !shouldSyncCandidates &&
     state.loaded.formationCandidates &&
-    state.cacheKeys.formationRecords === recordsKey &&
     state.cacheKeys.formationCandidates === candidatesKey
   ) {
-    return;
+    return state.formationCandidates;
   }
 
-  const task = async () => {
-    let syncResponse = null;
-    let records = null;
-    let candidates = null;
+  const task = () => runSharedLoad_(
+    `formationCandidates::${candidatesKey}::${requestedGroupId || "ALL"}::${shouldSyncCandidates ? "sync" : "list"}`,
+    async () => {
+      let candidates = null;
 
-    if (shouldSyncCandidates) {
-      try {
-        syncResponse = await apiPost("formation.candidates.sync", {
-          seasonId: filter.seasonId,
-          groupId: requestedGroupId
-        });
-      } catch (error) {
-        if (!isUnknownActionError_(error, "formation.candidates.sync")) {
-          throw error;
+      if (shouldSyncCandidates) {
+        try {
+          const syncResponse = await apiPost("formation.candidates.sync", {
+            seasonId: filter.seasonId,
+            groupId: requestedGroupId
+          });
+
+          if (Array.isArray(syncResponse?.records)) {
+            state.formationRecords = syncResponse.records;
+            state.cacheKeys.formationRecords = recordsKey;
+            state.loaded.formationRecords = true;
+          } else {
+            invalidateFormationRecordsCache_({
+              clearData: true
+            });
+          }
+
+          candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
+        } catch (error) {
+          if (!isUnknownActionError_(error, "formation.candidates.sync")) {
+            throw error;
+          }
+
+          throw buildBackendRouteMissingError_("formation.candidates.sync", "la ruta formation.candidates.sync");
         }
-
-        throw buildBackendRouteMissingError_("formation.candidates.sync", "la ruta formation.candidates.sync");
       }
 
-      records = Array.isArray(syncResponse?.records) ? syncResponse.records : null;
-      candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
-    }
-
-    if (!records || !candidates) {
-      const fallbackResponses = await Promise.all([
-        records
-          ? Promise.resolve(records)
-          : apiGet("formation.records.list", {
-            seasonId: filter.seasonId
-          }).catch((error) => {
-            if (!isUnknownActionError_(error, "formation.records.list")) {
-              throw error;
-            }
-
-            throw buildBackendRouteMissingError_("formation.records.list", "la ruta formation.records.list");
-          }),
-        candidates
-          ? Promise.resolve(candidates)
-          : apiGet("formation.candidates.list", {
+      if (!candidates) {
+        try {
+          candidates = await apiGet("formation.candidates.list", {
             seasonId: filter.seasonId,
             groupId: shouldSyncCandidates ? requestedGroupId : ""
-          }).catch((error) => {
-            if (!isUnknownActionError_(error, "formation.candidates.list")) {
-              throw error;
-            }
+          });
+        } catch (error) {
+          if (!isUnknownActionError_(error, "formation.candidates.list")) {
+            throw error;
+          }
 
-            throw buildBackendRouteMissingError_("formation.candidates.list", "la ruta formation.candidates.list");
-          })
-      ]);
+          throw buildBackendRouteMissingError_("formation.candidates.list", "la ruta formation.candidates.list");
+        }
+      }
 
-      records = fallbackResponses[0];
-      candidates = fallbackResponses[1];
+      state.formationCandidates = Array.isArray(candidates) ? candidates : [];
+      state.cacheKeys.formationCandidates = candidatesKey;
+      state.loaded.formationCandidates = true;
+      return state.formationCandidates;
+    }
+  );
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Cargando ruta a Encuentro...");
+}
+
+async function loadFormationData_(options = {}) {
+  const includeRecords = options.includeRecords !== false;
+  const includeCandidates = options.includeCandidates !== false;
+  const task = async () => {
+    const requests = [];
+
+    if (includeCandidates) {
+      requests.push(loadFormationCandidates_({
+        ...options,
+        showLoading: false
+      }));
     }
 
-    state.formationRecords = records;
-    state.formationCandidates = candidates;
-    state.cacheKeys.formationRecords = recordsKey;
-    state.cacheKeys.formationCandidates = candidatesKey;
-    state.loaded.formationRecords = true;
-    state.loaded.formationCandidates = true;
+    if (includeRecords) {
+      requests.push(loadFormationRecords_({
+        ...options,
+        showLoading: false
+      }));
+    }
+
+    if (!requests.length) {
+      return;
+    }
+
+    await Promise.all(requests);
   };
 
   if (options.showLoading === false) {
@@ -19104,6 +19202,10 @@ async function ensureFormationOperationsViewData_(options = {}) {
 }
 
 async function ensureFormationViewData_(options = {}) {
+  const activeSection = getActiveFormationSection_();
+  const requestedSeasonId = ensureValidSeasonId(state.filters.formation.seasonId) || getLatestSeason()?.id || "";
+  const shouldLoadRecords = activeSection === "cases";
+
   await Promise.all([
     state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_(),
     state.loaded.seasons ? Promise.resolve() : refreshSeasons(),
@@ -19115,9 +19217,22 @@ async function ensureFormationViewData_(options = {}) {
     })
   ]);
 
-  await loadFormationData_(options);
+  if (
+    !shouldLoadRecords &&
+    (!state.loaded.formationRecords || String(state.cacheKeys.formationRecords || "") !== String(requestedSeasonId || ""))
+  ) {
+    invalidateFormationRecordsCache_({
+      clearData: true
+    });
+  }
 
-  if (getActiveFormationSection_() === "operations") {
+  await loadFormationData_({
+    ...options,
+    includeCandidates: true,
+    includeRecords: shouldLoadRecords
+  });
+
+  if (activeSection === "operations") {
     await ensureFormationOperationsViewData_({
       force: options.force,
       showLoading: false
@@ -24344,7 +24459,9 @@ function buildFormationOperationsSummary_() {
 }
 
 function buildFormationSummary_() {
-  const records = getFilteredFormationRecords_();
+  const seasonId = String(state.filters.formation.seasonId || getLatestSeason()?.id || "");
+  const recordsReady = state.loaded.formationRecords && String(state.cacheKeys.formationRecords || "") === seasonId;
+  const sourceRows = recordsReady ? getFilteredFormationRecords_() : getFilteredFormationCandidates_();
   const summary = {
     candidates: getFilteredFormationCandidates_().length,
     encounterCandidates: 0,
@@ -24356,8 +24473,8 @@ function buildFormationSummary_() {
     approved: 0
   };
 
-  records.forEach((record) => {
-    const status = String(record.status || "").toUpperCase();
+  sourceRows.forEach((row) => {
+    const status = String(recordsReady ? row.status : (row.formationStatus || row.status || "")).toUpperCase();
 
     if (status === "CANDIDATO_ENCUENTRO") {
       summary.encounterCandidates += 1;
@@ -26252,6 +26369,7 @@ async function applyFormationFilters_(options = {}) {
   const seasonChanged = nextSeasonId !== previousSeasonId;
   const nextGroupId = String(draft.groupId || "");
   const shouldSyncCandidates = Boolean(options.syncCandidates);
+  const shouldLoadRecords = getActiveFormationSection_() === "cases";
 
   if (shouldSyncCandidates && options.requireGroup && !nextGroupId) {
     showToast("Selecciona un grupo", "Primero elige el grupo que deseas actualizar para que la validación sea rápida.", "warning");
@@ -26267,12 +26385,21 @@ async function applyFormationFilters_(options = {}) {
   if (seasonChanged) {
     state.ui.editingFormationRecordId = "";
     state.formationProfile = null;
+
+    if (!shouldLoadRecords) {
+      invalidateFormationRecordsCache_({
+        clearData: true
+      });
+    }
+
     await runFormationFilterTask_(shouldSyncCandidates ? "Actualizando grupo..." : "Aplicando temporada...", async () => {
       await loadFormationData_({
         force: true,
         showLoading: false,
         syncCandidates: shouldSyncCandidates,
-        groupId: nextGroupId
+        groupId: nextGroupId,
+        includeCandidates: true,
+        includeRecords: shouldLoadRecords
       });
       syncFormationSelectionAfterFilter_();
       if (state.ui.selectedFormationPersonId) {
@@ -26292,7 +26419,9 @@ async function applyFormationFilters_(options = {}) {
         force: true,
         showLoading: false,
         syncCandidates: true,
-        groupId: nextGroupId
+        groupId: nextGroupId,
+        includeCandidates: true,
+        includeRecords: shouldLoadRecords
       });
     }
 
