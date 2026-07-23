@@ -3892,7 +3892,7 @@ function renderStudentPortalLevelCard_(level) {
 
       <div class="student-level-card-body">
         <span>${escapeHtml(descriptor)}</span>
-        <span>${escapeHtml(level?.offering?.name || "Sin curso programado todavía")}</span>
+        <span>${escapeHtml(level?.offering?.name || "Sin nivel en operación todavía")}</span>
         <span>${escapeHtml(level?.offering?.leaderName || "Lider pendiente de asignar")}</span>
       </div>
 
@@ -5966,6 +5966,9 @@ function renderFormationOperationsWorkspace_(context) {
   const attendanceContext = selectedOffering && String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering.id || "")
     ? state.formationAttendanceContext
     : null;
+  const scheduledSessions = attendanceContext?.sessions?.length
+    ? attendanceContext.sessions
+    : (selectedOffering?.sessionSchedule || []);
   const filteredEnrollments = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
   const selectedEnrollment = getSelectedFormationEnrollment_(filteredEnrollments);
   const peopleSuggestions = getFormationEnrollmentSearchResults_(selectedOffering);
@@ -5974,11 +5977,14 @@ function renderFormationOperationsWorkspace_(context) {
     || attendanceContext?.sessionNumber
     || "1"
   );
-  const sessionOptions = Array.from({
-    length: Math.max(Number(selectedOffering?.totalSessions || attendanceContext?.sessions?.length || 0), 1)
+  const sessionOptions = (scheduledSessions.length ? scheduledSessions : Array.from({
+    length: Math.max(Number(selectedOffering?.totalSessions || 0), 1)
   }, (_, index) => ({
-    value: String(index + 1),
+    number: String(index + 1),
     label: `Sesion ${index + 1}`
+  }))).map((session) => ({
+    value: String(session.number || session.value || ""),
+    label: String(session.label || `Sesion ${session.number || session.value || ""}`)
   }));
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
 
@@ -5987,7 +5993,7 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Operación formativa</h2>
-          <p>Desde aquí creas el curso programado, inscribes asistentes, capturas asistencia del nivel y evalúas si se desbloquea el siguiente paso sin depender de la temporada de grupos.</p>
+          <p>Desde aquí dejas listo cada nivel en operación, activas su sesión dominical, inscribes asistentes, capturas asistencia y evalúas si se desbloquea el siguiente paso.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral">Temporada de origen solo informativa</span>
@@ -5999,12 +6005,12 @@ function renderFormationOperationsWorkspace_(context) {
         <article class="stat-card">
           <span class="status-chip warning">Cursos activos</span>
           <strong>${escapeHtml(String(summary.offerings))}</strong>
-          <span>Niveles o grupos formativos disponibles para operar.</span>
+          <span>Niveles en operación listos para trabajar este domingo.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip neutral">Inscritos</span>
           <strong>${escapeHtml(String(summary.enrollments))}</strong>
-          <span>Asistentes vinculados a cursos programados; la temporada solo se conserva como referencia de origen.</span>
+          <span>Asistentes vinculados a niveles en operación; la temporada solo se conserva como referencia de origen.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip success">Acreditados</span>
@@ -6019,7 +6025,8 @@ function renderFormationOperationsWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Regla operativa:</strong> los cursos de formación no dependen de la temporada de grupos.</span>
+        <span class="context-item"><strong>Secuencia operativa:</strong> eliges nivel, activas sesión y entonces capturas asistencia.</span>
+        <span class="context-item"><strong>Regla operativa:</strong> la asistencia de formación siempre queda amarrada al nivel y a la sesión activa.</span>
         <span class="context-item"><strong>Temporada de origen:</strong> queda guardada solo para referencia pastoral e histórica del asistente.</span>
       </div>
 
@@ -6038,15 +6045,15 @@ function renderFormationOperationsWorkspace_(context) {
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-offering">Curso programado</label>
+          <label for="formation-ops-offering">Nivel en operación</label>
           <select id="formation-ops-offering">
             ${renderOptions(
               filteredOfferings.map((offering) => ({
                 value: offering.id,
-                label: `${offering.name} | ${offering.levelName}`
+                label: `${offering.levelName} | ${offering.name}`
               })),
               selectedOffering?.id || state.filters.formationOps.offeringId,
-              "Selecciona curso"
+              "Selecciona nivel en operación"
             )}
           </select>
         </div>
@@ -6078,10 +6085,10 @@ function renderFormationOperationsWorkspace_(context) {
       <article class="panel-card module-section-anchor" id="formation-offering-panel">
         <div class="panel-head">
           <div>
-            <h2>${editingOffering ? "Editar curso programado" : "Crear curso programado"}</h2>
-            <p>Define quién lidera el nivel, fechas, sesiones y deja lista la operación para asistencia y evaluación.</p>
+            <h2>${editingOffering ? "Editar nivel en operación" : "Crear nivel en operación"}</h2>
+            <p>Defines el nombre operativo del nivel, su fecha de arranque y cuántas sesiones dominicales tendrá. El sistema calcula automáticamente las fechas siguientes.</p>
           </div>
-          ${editingOffering ? `<span class="pill dark">${escapeHtml(editingOffering.levelName || "Curso")}</span>` : `<span class="pill neutral">Nuevo curso</span>`}
+          ${editingOffering ? `<span class="pill dark">${escapeHtml(editingOffering.levelName || "Nivel")}</span>` : `<span class="pill neutral">Nuevo nivel</span>`}
         </div>
 
         <form id="formation-offering-form">
@@ -6101,8 +6108,8 @@ function renderFormationOperationsWorkspace_(context) {
               </select>
             </div>
             <div class="field">
-              <label for="formation-offering-name">Nombre del curso programado</label>
-              <input id="formation-offering-name" name="name" value="${escapeHtml(editingOffering?.name || "")}" placeholder="Encuentro Septiembre 2026" required>
+              <label for="formation-offering-name">Nombre operativo del nivel</label>
+              <input id="formation-offering-name" name="name" value="${escapeHtml(editingOffering?.name || "")}" placeholder="Nivel 2 - Sanidad Total" required>
             </div>
             <div class="field">
               <label for="formation-offering-leader">Lider del nivel</label>
@@ -6113,12 +6120,8 @@ function renderFormationOperationsWorkspace_(context) {
               <input id="formation-offering-phone" name="leaderPhone" value="${escapeHtml(editingOffering?.leaderPhone || "")}" placeholder="5512345678" inputmode="tel">
             </div>
             <div class="field">
-              <label for="formation-offering-start">Fecha de inicio</label>
+              <label for="formation-offering-start">Fecha del primer domingo</label>
               <input id="formation-offering-start" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingOffering?.startDate) || "")}">
-            </div>
-            <div class="field">
-              <label for="formation-offering-end">Fecha final</label>
-              <input id="formation-offering-end" name="endDate" type="date" value="${escapeHtml(formatDateForInput_(editingOffering?.endDate) || "")}">
             </div>
             <div class="field">
               <label for="formation-offering-total-sessions">Total de sesiones</label>
@@ -6139,8 +6142,12 @@ function renderFormationOperationsWorkspace_(context) {
             </div>
           </div>
 
+          <div class="footer-note" style="margin-top: 10px;">
+            Usa aquí el domingo de arranque. El sistema generará automáticamente las sesiones siguientes cada 7 días y dejará calculada la fecha final.
+          </div>
+
           <div class="actions-row">
-            <button class="btn btn-primary" type="submit">${editingOffering ? "Guardar curso" : "Crear curso"}</button>
+            <button class="btn btn-primary" type="submit">${editingOffering ? "Guardar nivel" : "Crear nivel"}</button>
             <button class="btn btn-ghost" type="button" data-action="clear-formation-offering-form" ${editingOffering ? "" : "disabled"}>Limpiar</button>
           </div>
         </form>
@@ -6149,8 +6156,8 @@ function renderFormationOperationsWorkspace_(context) {
       <article class="detail-card formation-offering-list-card">
         <div class="panel-head">
           <div>
-            <h2>Cursos programados</h2>
-            <p>Elige un curso programado para operar sus inscritos, asistencias y evaluación.</p>
+            <h2>Niveles en operación</h2>
+            <p>Elige el nivel activo para trabajar sus inscritos, su sesión dominical y su evaluación.</p>
           </div>
           <span class="pill dark">${escapeHtml(String(filteredOfferings.length))} visibles</span>
         </div>
@@ -6160,9 +6167,10 @@ function renderFormationOperationsWorkspace_(context) {
             <article class="formation-offering-item ${String(selectedOffering?.id || "") === String(offering.id || "") ? "is-active" : ""}">
               <div>
                 <small>${escapeHtml(offering.levelName || "Nivel")}</small>
-                <strong>${escapeHtml(offering.name || "Curso programado")}</strong>
+                <strong>${escapeHtml(offering.name || "Nivel en operación")}</strong>
                 <span>${escapeHtml(offering.leaderName || "Sin líder")} | ${escapeHtml(offering.totalSessions ? `${offering.totalSessions} sesiones` : "Sesiones por definir")}</span>
                 <span>${escapeHtml(formatDate(offering.startDate) || "Sin fecha")} ${offering.endDate ? `al ${escapeHtml(formatDate(offering.endDate))}` : ""}</span>
+                <span>${escapeHtml(offering.activeSession?.label ? `Activa: ${offering.activeSession.label}` : "Sin sesión activa")}</span>
               </div>
               <div class="formation-offering-item-actions">
                 ${renderPill(offering.status || "ACTIVO")}
@@ -6171,7 +6179,7 @@ function renderFormationOperationsWorkspace_(context) {
               </div>
             </article>
           `).join("") : `
-            <div class="empty-state">Todavía no hay cursos programados creados para los niveles de formación.</div>
+            <div class="empty-state">Todavía no hay niveles en operación creados para los niveles de formación.</div>
           `}
         </div>
       </article>
@@ -6181,14 +6189,14 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Inscribir al siguiente nivel</h2>
-          <p>Busca a la persona y desde aquí la inscribes al curso programado. Si le corresponde, su cuenta del portal queda lista o se mantiene vigente.</p>
+          <p>Busca a la persona y desde aquí la inscribes al nivel en operación. Si le corresponde, su cuenta del portal queda lista o se mantiene vigente.</p>
         </div>
-        ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.levelName || "Nivel")}</span>` : `<span class="pill dark">Primero elige un curso</span>`}
+        ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.levelName || "Nivel")}</span>` : `<span class="pill dark">Primero elige un nivel</span>`}
       </div>
 
       ${selectedOffering ? `
         <div class="summary-strip">
-          <span class="context-item"><strong>Curso programado:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
+          <span class="context-item"><strong>Nivel en operación:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
           <span class="context-item"><strong>Líder:</strong> ${escapeHtml(selectedOffering.leaderName || "Sin líder")}</span>
           <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(selectedOffering.totalSessions || 0))}</span>
         </div>
@@ -6207,11 +6215,11 @@ function renderFormationOperationsWorkspace_(context) {
               <button class="btn btn-primary" type="button" data-action="assign-formation-person" data-person-id="${escapeHtml(person.id || "")}">Inscribir</button>
             </article>
           `).join("") : `
-            <div class="empty-state">${state.filters.formationOps.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya están inscritas en este curso." : "Escribe parte del nombre, QR ID, número o teléfono para empezar a buscar personas."}</div>
+            <div class="empty-state">${state.filters.formationOps.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya están inscritas en este nivel." : "Escribe parte del nombre, QR ID, número o teléfono para empezar a buscar personas."}</div>
           `}
         </div>
       ` : `
-        <div class="empty-state">Selecciona primero un curso programado para habilitar las inscripciones al nivel.</div>
+        <div class="empty-state">Selecciona primero un nivel en operación para habilitar las inscripciones.</div>
       `}
     </article>
 
@@ -6219,15 +6227,15 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Asistencia por nivel</h2>
-          <p>Trabaja la asistencia del curso programado en modo manual, QR asistido o kiosko sin salir de Proceso de Formación.</p>
+          <p>Primero activa la sesión correcta del nivel y después captura asistencia en modo manual, QR asistido o kiosko.</p>
         </div>
-        ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Curso programado")}</span>` : `<span class="pill dark">Sin curso activo</span>`}
+        ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Nivel en operación")}</span>` : `<span class="pill dark">Sin nivel activo</span>`}
       </div>
 
       ${selectedOffering ? `
         ${renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants)}
       ` : `
-        <div class="empty-state">Selecciona un curso programado para cargar la asistencia por sesión.</div>
+        <div class="empty-state">Selecciona un nivel en operación para cargar la asistencia por sesión.</div>
       `}
     </article>
 
@@ -6310,7 +6318,7 @@ function renderFormationOperationsWorkspace_(context) {
                 <span>${escapeHtml(selectedEnrollment.attendance?.completed ? "Requisito completo" : "Aún faltan sesiones para acreditar")}</span>
               </div>
               <div class="summary-box">
-                <span class="status-chip neutral">Curso programado</span>
+                <span class="status-chip neutral">Nivel en operación</span>
                 <strong>${escapeHtml(selectedEnrollment.offeringName || "-")}</strong>
                 <span>${escapeHtml(selectedEnrollment.levelName || "-")}</span>
               </div>
@@ -6348,7 +6356,7 @@ function renderFormationOperationsWorkspace_(context) {
           <div class="empty-state" style="margin-top: 18px;">Selecciona un inscrito para registrar su evaluación y desbloquear el siguiente nivel cuando cumpla todos los requisitos.</div>
         `}
       ` : `
-        <div class="empty-state">Selecciona un curso programado para operar sus inscritos y evaluaciones.</div>
+        <div class="empty-state">Selecciona un nivel en operación para operar sus inscritos y evaluaciones.</div>
       `}
     </article>
   `;
@@ -6384,7 +6392,7 @@ function renderFormationPortalWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Uso recomendado:</strong> selecciona primero el curso programado de Encuentro.</span>
+        <span class="context-item"><strong>Uso recomendado:</strong> selecciona primero el nivel en operación de Encuentro.</span>
         <span class="context-item"><strong>Vista espejo:</strong> aquí ves prácticamente la misma experiencia que el asistente consulta desde su portal.</span>
       </div>
 
@@ -6403,7 +6411,7 @@ function renderFormationPortalWorkspace_(context) {
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-offering">Curso programado</label>
+          <label for="formation-ops-offering">Nivel en operación</label>
           <select id="formation-ops-offering">
             ${renderOptions(
               filteredOfferings.map((offering) => ({
@@ -6462,10 +6470,10 @@ function renderFormationPortalWorkspace_(context) {
               ${roster.map((enrollment) => renderFormationPortalEnrollmentRow_(enrollment, previewPersonId)).join("")}
             </div>
           ` : `
-            <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este curso programado.</div>
+            <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este nivel en operación.</div>
           `}
         ` : `
-          <div class="empty-state">Selecciona primero un curso programado para ver el listado de inscritos.</div>
+          <div class="empty-state">Selecciona primero un nivel en operación para ver el listado de inscritos.</div>
         `}
       </article>
 
@@ -6521,7 +6529,7 @@ function renderFormationPortalEnrollmentRow_(enrollment, activePersonId) {
       </div>
       <div class="formation-ledger-cell">
         <small>Curso</small>
-        <strong>${escapeHtml(enrollment?.offeringName || "Curso programado")}</strong>
+        <strong>${escapeHtml(enrollment?.offeringName || "Nivel en operación")}</strong>
         <span>${escapeHtml(enrollment?.levelName || "Sin nivel")} | ${escapeHtml(originSeason)}</span>
       </div>
       <div class="formation-ledger-cell">
@@ -6544,11 +6552,19 @@ function renderFormationPortalEnrollmentRow_(enrollment, activePersonId) {
 }
 
 function renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants) {
+  const attendanceContext = String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering?.id || "")
+    ? state.formationAttendanceContext
+    : null;
   const mode = resolveFormationAttendanceMode_();
   const isKiosk = mode === "kiosk";
   const scanResult = state.qrScanner.result;
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
   const attendanceYesCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "SI").length;
+  const selectedSession = attendanceContext?.selectedSession
+    || (selectedOffering?.sessionSchedule || []).find((session) => String(session.number || "") === String(currentSessionNumber || ""))
+    || null;
+  const activeSession = attendanceContext?.activeSession || selectedOffering?.activeSession || null;
+  const captureEnabled = Boolean(attendanceContext?.captureEnabled || (activeSession && String(activeSession.number || "") === String(currentSessionNumber || "")));
   const scanBadge = scanResult?.badge || (state.qrScanner.enabled ? (isKiosk ? "Kiosko activo" : "Escaneo activo") : "Cámara en espera");
   const scanTitle = scanResult?.title || (isKiosk ? "Escanea el QR del asistente" : "Escaneo QR asistido");
   const scanMessage = scanResult?.message || (state.qrScanner.enabled
@@ -6558,10 +6574,25 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
 
   return `
     <div class="summary-strip formation-attendance-mode-strip">
-      <span class="context-item"><strong>Curso:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
-      <span class="context-item"><strong>Nivel:</strong> ${escapeHtml(selectedOffering.levelName || "-")}</span>
-      <span class="context-item"><strong>Sesión:</strong> ${escapeHtml(`Sesión ${currentSessionNumber}`)}</span>
+      <span class="context-item"><strong>Nivel catálogo:</strong> ${escapeHtml(selectedOffering.levelName || "-")}</span>
+      <span class="context-item"><strong>Nivel en operación:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
+      <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(selectedSession?.label || `Sesión ${currentSessionNumber}`)}</span>
+      <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSession?.label || "Todavía no activada")}</span>
       <span class="context-item"><strong>Avance:</strong> ${escapeHtml(`${attendanceYesCount}/${attendanceParticipants.length} con asistencia SI`)}</span>
+    </div>
+
+    <div class="summary-strip">
+      <span class="context-item"><strong>Paso 1:</strong> elige el nivel en operación</span>
+      <span class="context-item"><strong>Paso 2:</strong> elige la sesión correcta</span>
+      <span class="context-item"><strong>Paso 3:</strong> activa esa sesión para el domingo actual</span>
+      <span class="context-item"><strong>Paso 4:</strong> ahora sí captura asistencia</span>
+    </div>
+
+    <div class="actions-row" style="margin-top: 14px;">
+      <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}">
+        ${captureEnabled ? "Sesión ya activa" : "Activar sesión seleccionada"}
+      </button>
+      <span class="footer-note">${escapeHtml(captureEnabled ? "La asistencia ya se guardará en esta sesión del nivel." : "Hasta que actives la sesión, el sistema bloqueará manual, QR y kiosko para evitar errores.")}</span>
     </div>
 
     <div class="toggle-group formation-attendance-toggle">
@@ -6575,7 +6606,9 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
         <input type="hidden" name="offeringId" value="${escapeHtml(selectedOffering.id || "")}">
         <input type="hidden" name="sessionNumber" value="${escapeHtml(currentSessionNumber)}">
 
-        ${attendanceParticipants.length ? `
+        ${!captureEnabled ? `
+          <div class="empty-state">Activa primero la sesión ${escapeHtml(selectedSession?.label || currentSessionNumber)} para habilitar el guardado manual.</div>
+        ` : attendanceParticipants.length ? `
           <div class="table-wrap">
             <table>
               <thead>
@@ -6611,14 +6644,14 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             <button class="btn btn-primary" type="submit">Guardar asistencia del nivel</button>
           </div>
         ` : `
-          <div class="empty-state">No hay inscritos visibles para este curso con los filtros actuales.</div>
+          <div class="empty-state">No hay inscritos visibles para este nivel con los filtros actuales.</div>
         `}
       </form>
     ` : `
       <div class="formation-scan-layout">
         <div class="kiosk-scanner-shell formation-scan-shell">
           <div class="kiosk-head-actions formation-scan-actions">
-            <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" type="button" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}">
+            <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" type="button" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}" ${captureEnabled ? "" : "disabled"}>
               ${state.qrScanner.enabled ? "Detener cámara" : "Activar cámara"}
             </button>
             <div class="toggle-group kiosk-toggle-group">
@@ -6632,8 +6665,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           <div class="kiosk-scanner-frame">
             <video id="qr-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
             <div class="kiosk-video-placeholder ${state.qrScanner.enabled ? "hidden" : ""}">
-              <strong>Cámara en espera</strong>
-              <span>${escapeHtml(isKiosk ? "Ideal para recibir un QR tras otro en la entrada del curso." : "Usa este modo cuando un operador registra cada QR desde su dispositivo.")}</span>
+              <strong>${escapeHtml(captureEnabled ? "Cámara en espera" : "Sesión aún no activada")}</strong>
+              <span>${escapeHtml(captureEnabled ? (isKiosk ? "Ideal para recibir un QR tras otro en la entrada del curso." : "Usa este modo cuando un operador registra cada QR desde su dispositivo.") : "Activa la sesión correcta y luego habilita la cámara para evitar registros en un domingo equivocado.")}</span>
             </div>
             <div class="kiosk-scan-overlay">
               <span class="kiosk-corner kiosk-corner-tl"></span>
@@ -6648,7 +6681,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           <div class="kiosk-scanner-meta">
             <span class="status-chip ${state.qrScanner.enabled ? "success" : "neutral"}">${state.qrScanner.enabled ? "Cámara activa" : "Cámara apagada"}</span>
             <span class="kiosk-camera-note">Vista actual: ${escapeHtml(activeCameraLabel)}</span>
-            <span class="footer-note">${escapeHtml(isKiosk ? "El kiosko registra en la sesión elegida del curso programado." : "El operador valida un QR a la vez y el sistema responde al instante.")}</span>
+            <span class="footer-note">${escapeHtml(captureEnabled ? (isKiosk ? "El kiosko registra en la sesión activa del nivel." : "El operador valida un QR a la vez y el sistema responde al instante.") : "Mientras la sesión no esté activa, QR y kiosko quedan protegidos por el sistema.")}</span>
           </div>
         </div>
 
@@ -6663,8 +6696,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
               <strong>${escapeHtml(scanResult?.name || "Esperando lectura")}</strong>
             </div>
             <div class="kiosk-result-item">
-              <label>Curso programado</label>
-              <strong>${escapeHtml(scanResult?.groupName || selectedOffering.name || "Pendiente")}</strong>
+              <label>Nivel en operación</label>
+              <strong>${escapeHtml(scanResult?.groupName || selectedOffering.name || selectedOffering.levelName || "Pendiente")}</strong>
             </div>
             <div class="kiosk-result-item">
               <label>ID de inscripción</label>
@@ -6697,13 +6730,13 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             ${activity.map((item) => `
               <article class="formation-scan-activity-item">
                 <strong>${escapeHtml(item.name || "Congregante")}</strong>
-                <span>${escapeHtml(item.groupName || selectedOffering.name || "Curso programado")}</span>
+                <span>${escapeHtml(item.groupName || selectedOffering.name || selectedOffering.levelName || "Nivel en operación")}</span>
                 <span>${escapeHtml(item.sessionName || `Sesión ${currentSessionNumber}`)} | ${escapeHtml(item.timestampLabel || "-")}</span>
               </article>
             `).join("")}
           </div>
         ` : `
-          <div class="empty-state">Todavía no hay lecturas recientes en este curso programado.</div>
+          <div class="empty-state">Todavía no hay lecturas recientes en este nivel en operación.</div>
         `}
       </div>
     `}
@@ -13899,6 +13932,7 @@ function buildFormationQrSuccessResult_(response, personId, source) {
   const attendance = response?.attendance || {};
   const programmedCourse = response?.programmedCourse || {};
   const sessionNumber = String(attendance.sessionNumber || state.filters.formationOps.sessionNumber || "1");
+  const activeSession = response?.activeSession || programmedCourse?.activeSession || null;
 
   return {
     tone: "success",
@@ -13906,12 +13940,12 @@ function buildFormationQrSuccessResult_(response, personId, source) {
     title: source === "scanner" ? "Acceso autorizado" : "Asistencia guardada",
     message: source === "scanner"
       ? "La persona fue validada correctamente. El lector ya puede recibir el siguiente QR."
-      : "La asistencia quedó registrada en el curso programado seleccionado.",
+      : "La asistencia quedó registrada en el nivel en operación seleccionado.",
     name: participant.name || attendance.name || "Sin nombre",
-    groupName: programmedCourse.name || "Curso programado",
+    groupName: programmedCourse.name || "Nivel en operación",
     participantId: participant.id || attendance.enrollmentId || "Sin inscripción",
     personId: attendance.personId || personId,
-    sessionName: `Sesión ${sessionNumber}`,
+    sessionName: activeSession?.label || `Sesión ${sessionNumber}`,
     timestampLabel: formatDateTime_(attendance.registeredAt || new Date()),
     levelName: programmedCourse.levelName || "Nivel"
   };
@@ -13950,6 +13984,7 @@ function buildFormationQrFailureResult_(error, personId) {
   const titleMap = {
     DUPLICATE_FORMATION_QR_ATTENDANCE: "Asistencia ya registrada",
     FORMATION_ENROLLMENT_NOT_FOUND: "Persona fuera del curso",
+    FORMATION_SESSION_NOT_ACTIVE: "Activa la sesión primero",
     MISSING_FORMATION_QR_CONTEXT: "Contexto incompleto",
     UNSUPPORTED_QR_SCANNER: "Escáner no soportado",
     CAMERA_PERMISSION_DENIED: "Permiso de cámara denegado",
@@ -13962,7 +13997,7 @@ function buildFormationQrFailureResult_(error, personId) {
     title: titleMap[normalizedCode] || "No se pudo registrar",
     message: error instanceof Error ? error.message : "Ocurrió un problema al registrar el QR del nivel.",
     name: "Sin registro",
-    groupName: "Curso programado",
+    groupName: "Nivel en operación",
     participantId: "Pendiente",
     personId: personId || "Sin dato",
     sessionName: "Formación",
@@ -16151,6 +16186,14 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "activate-formation-session") {
+      await activateFormationAttendanceSession_(
+        button.dataset.offeringId || "",
+        button.dataset.sessionNumber || state.filters.formationOps.sessionNumber || "1"
+      );
+      return;
+    }
+
     if (action === "select-formation-enrollment") {
       state.ui.selectedFormationEnrollmentId = String(button.dataset.enrollmentId || "");
       renderApp();
@@ -17944,10 +17987,13 @@ function syncFormationOperationsSelection_() {
   }
 
   const totalSessions = Math.max(Number(nextOffering.totalSessions || 0), 1);
-  let nextSessionNumber = Math.max(Number(state.filters.formationOps.sessionNumber || 1), 1);
+  let nextSessionNumber = Math.max(
+    Number(state.filters.formationOps.sessionNumber || nextOffering.activeSessionNumber || 1),
+    1
+  );
 
   if (nextSessionNumber > totalSessions) {
-    nextSessionNumber = 1;
+    nextSessionNumber = Math.max(Number(nextOffering.activeSessionNumber || 1), 1);
   }
 
   state.filters.formationOps.sessionNumber = String(nextSessionNumber);
@@ -20002,7 +20048,6 @@ async function saveFormationOffering_(rawPayload) {
     leaderName: V(rawPayload.leaderName),
     leaderPhone: V(rawPayload.leaderPhone),
     startDate: V(rawPayload.startDate),
-    endDate: V(rawPayload.endDate),
     totalSessions: V(rawPayload.totalSessions),
     status: V(rawPayload.status),
     description: V(rawPayload.description)
@@ -20022,12 +20067,48 @@ async function saveFormationOffering_(rawPayload) {
       offeringId: savedOffering.id,
       sessionNumber: "1"
     });
-  }, payload.id ? "Actualizando curso programado..." : "Creando curso programado...");
+  }, payload.id ? "Actualizando nivel en operación..." : "Creando nivel en operación...");
 
   state.ui.editingFormationOfferingId = "";
   state.ui.formationSection = "operations";
-  showToast("Curso guardado", "La operación del nivel quedó lista para inscripción, asistencia y evaluación.", "success");
+  showToast("Nivel guardado", "El nivel quedó listo con sus sesiones dominicales para inscripción, asistencia y evaluación.", "success");
   renderApp();
+}
+
+async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
+  const cleanOfferingId = String(offeringId || "").trim();
+  const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  let response = null;
+
+  if (!cleanOfferingId) {
+    showToast("Selecciona un nivel", "Primero elige el nivel en operación que vas a trabajar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("formation.levelAttendance.activateSession", {
+      offeringId: cleanOfferingId,
+      sessionNumber: cleanSessionNumber,
+      activatedBy: state.user?.name || ""
+    });
+
+    state.filters.formationOps.offeringId = cleanOfferingId;
+    state.ui.selectedFormationOfferingId = cleanOfferingId;
+    state.filters.formationOps.sessionNumber = String(response?.context?.sessionNumber || cleanSessionNumber || "1");
+    await loadFormationOperationsData_({
+      force: true,
+      showLoading: false,
+      offeringId: cleanOfferingId,
+      sessionNumber: state.filters.formationOps.sessionNumber
+    });
+  }, "Activando sesión del nivel...");
+
+  renderApp();
+  showToast(
+    "Sesión activada",
+    `${response?.activeSession?.label || `Sesión ${state.filters.formationOps.sessionNumber}`} quedó lista para capturar asistencia.`,
+    "success"
+  );
 }
 
 async function assignFormationEnrollment_(personId) {
@@ -20043,7 +20124,7 @@ async function assignFormationEnrollment_(personId) {
   }
 
   if (!selectedOffering?.id) {
-    showToast("Selecciona un curso", "Primero elige el curso programado del nivel para poder inscribir congregantes.", "warning");
+    showToast("Selecciona un nivel", "Primero elige el nivel en operación donde vas a inscribir congregantes.", "warning");
     return;
   }
 
@@ -20107,6 +20188,9 @@ async function assignFormationEnrollment_(personId) {
 async function saveFormationLevelAttendance_(form) {
   const offeringId = String(form.offeringId?.value || "").trim();
   const sessionNumber = String(form.sessionNumber?.value || state.filters.formationOps.sessionNumber || "1").trim();
+  const currentContext = String(state.formationAttendanceContext?.offering?.id || "") === offeringId
+    ? state.formationAttendanceContext
+    : null;
   const selects = Array.from(form.querySelectorAll("[data-formation-attendance-person]"));
   const attendances = selects
     .map((element) => ({
@@ -20117,7 +20201,12 @@ async function saveFormationLevelAttendance_(form) {
   let response = null;
 
   if (!offeringId) {
-    showToast("Selecciona un curso", "Primero elige el curso programado del nivel para guardar asistencia.", "warning");
+    showToast("Selecciona un nivel", "Primero elige el nivel en operación para guardar asistencia.", "warning");
+    return;
+  }
+
+  if (!currentContext?.captureEnabled) {
+    showToast("Activa la sesión", "Primero activa la sesión correcta del nivel para proteger el registro de asistencia.", "warning");
     return;
   }
 
@@ -21272,9 +21361,17 @@ async function registerQrAttendance(personId, options = {}) {
 
   if (options.context === "formation" || isFormationOperationsQrActive_()) {
     const formationContext = resolveFormationQrContext_();
+    const attendanceContext = state.formationAttendanceContext || null;
 
     if (!formationContext?.offeringId) {
-      throw new ApiError("Selecciona primero un curso programado y la sesión del nivel antes de usar QR o kiosko.", "MISSING_FORMATION_QR_CONTEXT");
+      throw new ApiError("Selecciona primero el nivel en operación y la sesión correspondiente antes de usar QR o kiosko.", "MISSING_FORMATION_QR_CONTEXT");
+    }
+
+    if (
+      String(attendanceContext?.offering?.id || "") !== String(formationContext.offeringId || "") ||
+      !attendanceContext?.captureEnabled
+    ) {
+      throw new ApiError("Primero activa la sesión correcta del nivel antes de registrar asistencia por QR o kiosko.", "FORMATION_SESSION_NOT_ACTIVE");
     }
 
     const source = options.source || "manual";
@@ -21305,7 +21402,7 @@ async function registerQrAttendance(personId, options = {}) {
       if (options.showLoading === false) {
         await task();
       } else {
-        await withLoading(task, "Registrando asistencia del curso programado...");
+        await withLoading(task, "Registrando asistencia del nivel...");
       }
 
       if (!options.suppressToast) {
