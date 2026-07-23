@@ -324,6 +324,8 @@ const state = {
     scrapPreview: null,
     selectedScrapSeasonId: "",
     scrapSeasonPreview: null,
+    selectedScrapFormationProcessId: "",
+    scrapFormationProcessPreview: null,
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
@@ -2216,6 +2218,11 @@ async function confirmSystemAction_() {
 
   if (confirmation.kind === "scrap-delete-season") {
     await executeScrapDeleteSeason_(confirmation.payload.seasonId);
+    return;
+  }
+
+  if (confirmation.kind === "scrap-delete-formation-process") {
+    await executeScrapDeleteFormationProcess_(confirmation.payload.processId);
     return;
   }
 
@@ -7308,6 +7315,16 @@ function getSelectedScrapSeason_() {
   return (Array.isArray(state.seasons) ? state.seasons : []).find((season) => String(season?.id || "").trim() === seasonId) || null;
 }
 
+function getSelectedScrapFormationProcess_() {
+  const processId = String(state.ui.selectedScrapFormationProcessId || "").trim();
+
+  if (!processId) {
+    return null;
+  }
+
+  return (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((process) => String(process?.id || "").trim() === processId) || null;
+}
+
 function buildScrapPreviewNotes_(preview, person, originView) {
   const personName = preview?.personName || person?.nombreCompleto || person?.nombre || "Sin nombre";
   const personId = preview?.personId || person?.id || "-";
@@ -7374,6 +7391,10 @@ function renderAdminScrapCenter_() {
   const selectedSeason = getSelectedScrapSeason_();
   const seasonPreview = selectedSeason && String(state.ui.scrapSeasonPreview?.seasonId || "") === String(selectedSeason.id || "")
     ? state.ui.scrapSeasonPreview
+    : null;
+  const selectedFormationProcess = getSelectedScrapFormationProcess_();
+  const formationProcessPreview = selectedFormationProcess && String(state.ui.scrapFormationProcessPreview?.processId || "") === String(selectedFormationProcess.id || "")
+    ? state.ui.scrapFormationProcessPreview
     : null;
 
   if (!canDeleteScrap) {
@@ -7608,6 +7629,103 @@ function renderAdminScrapCenter_() {
           <div class="scrap-danger-note">
             <strong>Flujo recomendado para demos</strong>
             <span>1. Borra primero al asistente demo con SCRAP total si ya llegó hasta Formación. 2. Después vuelve aquí y elimina la temporada de ejemplo. Así no dejas referencias huérfanas.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="view-grid columns-2 scrap-panel-grid" style="margin-top: 24px;">
+        <div class="summary-box">
+          <span class="status-chip neutral">Proceso de Formación demo</span>
+          <strong>${escapeHtml(selectedFormationProcess?.name || "Selecciona el proceso demo")}</strong>
+          <span>Este flujo borra integralmente el Proceso de Formación seleccionado, junto con sus niveles operativos, sesiones programadas, inscripciones y asistencias por nivel. No toca el padrón base ni las cuentas portal.</span>
+
+          <div class="field" style="margin-top: 16px;">
+            <label for="admin-scrap-formation-process">Proceso a limpiar</label>
+            <select id="admin-scrap-formation-process">
+              <option value="">Selecciona proceso demo</option>
+              ${state.formationProcesses.map((process) => `
+                <option value="${escapeHtml(process.id || "")}" ${String(selectedFormationProcess?.id || "") === String(process.id || "") ? "selected" : ""}>
+                  ${escapeHtml(`${process.name || process.id} (${process.id || "-"})`)}
+                </option>
+              `).join("")}
+            </select>
+          </div>
+
+          <div class="summary-strip" style="margin-top: 16px;">
+            <span class="context-item"><strong>Protege:</strong> padrón base y cuentas</span>
+            <span class="context-item"><strong>Borra:</strong> niveles, sesiones, inscripciones y asistencias</span>
+            <span class="context-item"><strong>Uso:</strong> demos y pruebas controladas</span>
+          </div>
+
+          <div class="actions-row scrap-preview-actions">
+            <button class="btn btn-primary" type="button" data-action="analyze-scrap-formation-process" ${selectedFormationProcess ? "" : "disabled"}>Analizar proceso</button>
+            <button class="btn btn-ghost" type="button" data-action="clear-scrap-formation-process-preview" ${selectedFormationProcess || formationProcessPreview ? "" : "disabled"}>Limpiar selección</button>
+          </div>
+        </div>
+
+        <div class="summary-box">
+          <span class="status-chip ${formationProcessPreview ? "warning" : "neutral"}">Vista previa de Formación</span>
+          <strong>${escapeHtml(selectedFormationProcess ? `${selectedFormationProcess.name || selectedFormationProcess.id}` : "Sin proceso seleccionado")}</strong>
+          <span>${selectedFormationProcess ? "Revisa el impacto total del borrado antes de eliminar un proceso demo." : "Elige un Proceso de Formación y pulsa Analizar para revisar cuántos niveles, sesiones e inscripciones se limpiarán."}</span>
+
+          ${selectedFormationProcess ? `
+            <div class="summary-strip" style="margin-top: 16px;">
+              <span class="context-item"><strong>ID:</strong> ${escapeHtml(selectedFormationProcess.id || "-")}</span>
+              <span class="context-item"><strong>Estado:</strong> ${escapeHtml(getStatusLabel_(selectedFormationProcess.status || ""))}</span>
+              <span class="context-item"><strong>Inicio:</strong> ${escapeHtml(formatDate(selectedFormationProcess.startDate) || "Sin fecha")}</span>
+            </div>
+
+            ${formationProcessPreview ? `
+              <div class="summary-stack dashboard-summary-grid scrap-preview-grid">
+                <div class="summary-box">
+                  <span class="status-chip dark">Niveles</span>
+                  <strong>${escapeHtml(String(formationProcessPreview.footprint?.levels || 0))}</strong>
+                  <span>Niveles distintos dentro del proceso.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Niveles operativos</span>
+                  <strong>${escapeHtml(String(formationProcessPreview.footprint?.offerings || 0))}</strong>
+                  <span>Instancias operativas que se eliminarán.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip warning">Sesiones programadas</span>
+                  <strong>${escapeHtml(String(formationProcessPreview.footprint?.scheduledSessions || 0))}</strong>
+                  <span>Sesiones dominicales generadas por los niveles.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Inscripciones</span>
+                  <strong>${escapeHtml(String(formationProcessPreview.footprint?.enrollments || 0))}</strong>
+                  <span>${escapeHtml(`${formationProcessPreview.footprint?.uniquePeople || 0} persona(s) involucradas`)}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Asistencias</span>
+                  <strong>${escapeHtml(String(formationProcessPreview.footprint?.levelAttendances || 0))}</strong>
+                  <span>Registros de asistencia por nivel.</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip warning">Huella operativa</span>
+                  <strong>${escapeHtml(String(formationProcessPreview.footprint?.totalOperational || 0))}</strong>
+                  <span>${escapeHtml(`${formationProcessPreview.footprint?.linkedSeasons || 0} temporada(s) de origen referenciadas`)}</span>
+                </div>
+              </div>
+
+              <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-formation-process" data-process-id="${escapeHtml(selectedFormationProcess.id || "")}">Eliminar proceso demo</button>
+                <button class="btn btn-ghost" type="button" data-action="clear-scrap-formation-process-preview">Limpiar selección</button>
+              </div>
+            ` : `
+              <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-primary" type="button" data-action="analyze-scrap-formation-process" ${selectedFormationProcess ? "" : "disabled"}>Analizar proceso</button>
+                <button class="btn btn-ghost" type="button" data-action="clear-scrap-formation-process-preview">Limpiar selección</button>
+              </div>
+            `}
+          ` : `
+            <div class="empty-state" style="margin-top: 16px;">Todavía no hay un Proceso de Formación seleccionado para revisar.</div>
+          `}
+
+          <div class="scrap-danger-note">
+            <strong>Secuencia recomendada</strong>
+            <span>1. Si el demo ya involucró asistentes reales de prueba, primero limpia a la persona demo con SCRAP total. 2. Después elimina el Proceso de Formación demo para no dejar niveles ni sesiones operativas de ejemplo.</span>
           </div>
         </div>
       </div>
@@ -15304,6 +15422,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "analyze-scrap-formation-process") {
+      const processId = String(button.dataset.processId || state.ui.selectedScrapFormationProcessId || "");
+      const process = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((item) => String(item.id || "") === processId);
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!processId || !process) {
+        showToast("Proceso no disponible", "Selecciona el Proceso de Formación demo que deseas revisar e inténtalo nuevamente.", "warning");
+        return;
+      }
+
+      const preview = await loadScrapFormationProcessPreview_(processId, {
+        force: true,
+        message: "Analizando impacto del Proceso de Formación demo..."
+      });
+      if (!preview) {
+        showToast("Vista previa no disponible", "La API publicada todavía no incluye la ruta scrap.previewFormationProcess. Actualiza el backend y vuelve a publicar la Web App.", "warning");
+      }
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
+    if (action === "clear-scrap-formation-process-preview") {
+      state.ui.selectedScrapFormationProcessId = "";
+      state.ui.scrapFormationProcessPreview = null;
+      renderApp();
+      scrollToSection_("admin-scrap-center");
+      return;
+    }
+
     if (action === "prompt-scrap-delete-season") {
       const seasonId = String(button.dataset.seasonId || state.ui.selectedScrapSeasonId || "");
       const season = (Array.isArray(state.seasons) ? state.seasons : []).find((item) => String(item.id || "") === seasonId);
@@ -15340,6 +15492,46 @@ async function handleClick(event) {
         notes: buildScrapSeasonPreviewNotes_(preview, season),
         payload: {
           seasonId
+        }
+      });
+      return;
+    }
+
+    if (action === "prompt-scrap-delete-formation-process") {
+      const processId = String(button.dataset.processId || state.ui.selectedScrapFormationProcessId || "");
+      const process = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((item) => String(item.id || "") === processId);
+      let preview = null;
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!processId || !process) {
+        showToast("Proceso no disponible", "Selecciona primero el Proceso de Formación demo que deseas borrar.", "warning");
+        return;
+      }
+
+      preview = await loadScrapFormationProcessPreview_(processId, {
+        message: "Preparando confirmación del borrado de Formación..."
+      });
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-formation-process",
+        title: "Eliminar Proceso de Formación demo",
+        copy: "Se borrará el Proceso de Formación seleccionado junto con sus niveles operativos, sesiones programadas, inscripciones y asistencias por nivel. Esta acción está pensada solo para demos o pruebas controladas.",
+        badge: "Borrado Formación",
+        confirmLabel: "Eliminar proceso",
+        tone: "danger",
+        notes: [
+          preview?.processName || process?.name || "Proceso demo",
+          `ID: ${preview?.processId || processId}`,
+          `Niveles: ${preview?.footprint?.levels || 0} | Sesiones programadas: ${preview?.footprint?.scheduledSessions || 0}`,
+          `Inscripciones: ${preview?.footprint?.enrollments || 0} | Asistencias: ${preview?.footprint?.levelAttendances || 0}`,
+          `Personas involucradas: ${preview?.footprint?.uniquePeople || 0}`
+        ],
+        payload: {
+          processId
         }
       });
       return;
@@ -16975,6 +17167,16 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "admin-scrap-formation-process") {
+      const nextProcessId = String(target.value || "");
+      state.ui.selectedScrapFormationProcessId = nextProcessId;
+      if (String(state.ui.scrapFormationProcessPreview?.processId || "") !== nextProcessId) {
+        state.ui.scrapFormationProcessPreview = null;
+      }
+      renderApp();
+      return;
+    }
+
   } catch (error) {
     handleError(error);
   }
@@ -18519,6 +18721,9 @@ async function ensureDashboardViewData_(options = {}) {
 async function ensureAdminViewData_() {
   await loadCatalogs({
     includeMinistries: true
+  });
+  await loadFormationProcesses_({
+    showLoading: false
   });
   await loadTelegramConfig_();
   await loadAdminUsers_({
@@ -21116,6 +21321,52 @@ async function loadScrapSeasonPreview_(seasonId, options = {}) {
   return withLoading(task, options.message || "Analizando impacto de la temporada...");
 }
 
+async function loadScrapFormationProcessPreview_(processId, options = {}) {
+  const cleanProcessId = String(processId || "").trim();
+
+  if (!cleanProcessId) {
+    state.ui.selectedScrapFormationProcessId = "";
+    state.ui.scrapFormationProcessPreview = null;
+    return null;
+  }
+
+  if (
+    !options.force &&
+    String(state.ui.selectedScrapFormationProcessId || "") === cleanProcessId &&
+    String(state.ui.scrapFormationProcessPreview?.processId || "") === cleanProcessId
+  ) {
+    return state.ui.scrapFormationProcessPreview;
+  }
+
+  const task = async () => {
+    let preview = null;
+
+    try {
+      preview = await apiGet("scrap.previewFormationProcess", {
+        processId: cleanProcessId
+      });
+    } catch (error) {
+      if (isUnknownActionError_(error, "scrap.previewFormationProcess")) {
+        state.ui.selectedScrapFormationProcessId = cleanProcessId;
+        state.ui.scrapFormationProcessPreview = null;
+        return null;
+      }
+
+      throw error;
+    }
+
+    state.ui.selectedScrapFormationProcessId = cleanProcessId;
+    state.ui.scrapFormationProcessPreview = preview;
+    return preview;
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Analizando impacto del proceso de formación...");
+}
+
 function applyScrapDeleteSeasonLocally_(seasonId) {
   const cleanSeasonId = String(seasonId || "").trim();
 
@@ -21177,6 +21428,54 @@ function applyScrapDeleteSeasonLocally_(seasonId) {
     state.qrSessionActivity = [];
     state.cacheKeys.qrSummary = "";
   }
+}
+
+function applyScrapDeleteFormationProcessLocally_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  const deletedOfferingIds = new Set(
+    (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
+      .filter((offering) => String(offering?.processId || "").trim() === cleanProcessId)
+      .map((offering) => String(offering?.id || "").trim())
+      .filter(Boolean)
+  );
+
+  if (!cleanProcessId) {
+    return;
+  }
+
+  state.formationProcesses = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).filter((process) => String(process?.id || "").trim() !== cleanProcessId);
+  state.formationOfferings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).filter((offering) => String(offering?.processId || "").trim() !== cleanProcessId);
+  state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((enrollment) => String(enrollment?.processId || "").trim() !== cleanProcessId);
+  state.ui.scrapFormationProcessPreview = String(state.ui.scrapFormationProcessPreview?.processId || "") === cleanProcessId ? null : state.ui.scrapFormationProcessPreview;
+  state.ui.selectedScrapFormationProcessId = String(state.ui.selectedScrapFormationProcessId || "") === cleanProcessId ? "" : state.ui.selectedScrapFormationProcessId;
+
+  if (String(state.filters.formationOps.processId || "") === cleanProcessId) {
+    state.filters.formationOps.processId = "";
+    state.filters.formationOps.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
+    state.ui.selectedFormationEnrollmentId = "";
+    state.ui.editingFormationProcessId = "";
+    state.ui.editingFormationOfferingId = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
+  }
+
+  if (
+    String(state.ui.selectedFormationOfferingId || "")
+    && deletedOfferingIds.has(String(state.ui.selectedFormationOfferingId || "").trim())
+  ) {
+    state.ui.selectedFormationOfferingId = "";
+    state.filters.formationOps.offeringId = "";
+    state.ui.selectedFormationEnrollmentId = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
+  }
+
+  state.cacheKeys.formationProcesses = "";
+  state.cacheKeys.formationOfferings = "";
+  state.cacheKeys.formationEnrollments = "";
 }
 
 function applyScrapDeletePersonLocally_(personId) {
@@ -21283,6 +21582,57 @@ async function executeScrapDeleteSeason_(seasonId) {
   showToast(
     "Temporada demo eliminada",
     `${response?.seasonName || cleanSeasonId} se eliminó con ${response?.deletedSessions || 0} sesión(es), ${response?.deletedSessionGroups || 0} grupo(s) por sesión, ${response?.deletedParticipants || 0} participante(s) y ${response?.deletedAttendances || 0} asistencia(s).`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
+}
+
+async function executeScrapDeleteFormationProcess_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  let response = null;
+
+  if (!cleanProcessId) {
+    showToast("Falta proceso", "Selecciona el Proceso de Formación demo que deseas eliminar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteFormationProcess", {
+      processId: cleanProcessId
+    });
+
+    applyScrapDeleteFormationProcessLocally_(cleanProcessId);
+
+    const refreshResults = await Promise.allSettled([
+      loadFormationProcesses_({
+        force: true,
+        showLoading: false
+      }),
+      (state.loaded.formationOfferings || state.loaded.formationEnrollments)
+        ? loadFormationOperationsData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      state.currentView === "formation"
+        ? ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve()
+    ]);
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP formation process refresh warning", result.reason);
+      });
+  }, "Eliminando Proceso de Formación demo...");
+
+  showToast(
+    "Proceso demo eliminado",
+    `${response?.processName || cleanProcessId} se eliminó con ${response?.deletedOfferings || 0} nivel(es) operativo(s), ${response?.deletedScheduledSessions || 0} sesión(es) programada(s), ${response?.deletedEnrollments || 0} inscripción(es) y ${response?.deletedLevelAttendances || 0} asistencia(s) por nivel.`,
     "success"
   );
   renderApp();
@@ -25773,6 +26123,8 @@ function resetRuntimeState() {
     scrapPreview: null,
     selectedScrapSeasonId: "",
     scrapSeasonPreview: null,
+    selectedScrapFormationProcessId: "",
+    scrapFormationProcessPreview: null,
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
