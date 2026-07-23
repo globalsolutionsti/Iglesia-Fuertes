@@ -313,6 +313,7 @@ const state = {
     welcomeWorkbenchMode: "",
     welcomeModal: null,
     selectedFormationPersonId: "",
+    pendingFormationEnrollmentPersonId: "",
     selectedFormationOfferingId: "",
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
@@ -909,6 +910,92 @@ function getFormationSortedLevels_() {
     .slice()
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
     .filter((level) => String(level.status || "ACTIVO").toUpperCase() !== "INACTIVO");
+}
+
+function getPreviousFormationLevel_(levelId) {
+  const cleanLevelId = String(levelId || "").trim();
+  const levels = getFormationSortedLevels_();
+  const currentIndex = levels.findIndex((level) => String(level.id || "") === cleanLevelId);
+
+  if (currentIndex <= 0) {
+    return null;
+  }
+
+  return levels[currentIndex - 1] || null;
+}
+
+function getLatestFormationEnrollmentByPersonLevel_(personId, levelId) {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanLevelId = String(levelId || "").trim();
+
+  if (!cleanPersonId || !cleanLevelId) {
+    return null;
+  }
+
+  return state.formationEnrollments
+    .filter((enrollment) => {
+      return String(enrollment?.personId || "").trim() === cleanPersonId
+        && String(enrollment?.levelId || "").trim() === cleanLevelId;
+    })
+    .slice()
+    .sort((left, right) => {
+      const leftTimestamp = parseDateToTimestamp_(left?.enrolledAt || left?.startDate || left?.endDate, true);
+      const rightTimestamp = parseDateToTimestamp_(right?.enrolledAt || right?.startDate || right?.endDate, true);
+      return rightTimestamp - leftTimestamp;
+    })[0] || null;
+}
+
+function canAssignPersonToFormationOffering_(personId, offering) {
+  const cleanPersonId = String(personId || "").trim();
+  const offeringId = String(offering?.id || "").trim();
+  const levelId = String(offering?.levelId || "").trim();
+
+  if (!cleanPersonId || !offeringId || !levelId) {
+    return false;
+  }
+
+  const latestSameLevelEnrollment = getLatestFormationEnrollmentByPersonLevel_(cleanPersonId, levelId);
+  const latestSameLevelStatus = String(latestSameLevelEnrollment?.status || "").trim().toUpperCase();
+
+  if (
+    latestSameLevelEnrollment
+    && (
+      latestSameLevelStatus === "EN_CURSO"
+      || latestSameLevelStatus === "ACREDITADO"
+    )
+  ) {
+    return false;
+  }
+
+  const previousLevel = getPreviousFormationLevel_(levelId);
+
+  if (!previousLevel) {
+    return true;
+  }
+
+  const previousEnrollment = getLatestFormationEnrollmentByPersonLevel_(cleanPersonId, previousLevel.id);
+  return String(previousEnrollment?.status || "").trim().toUpperCase() === "ACREDITADO";
+}
+
+function getFormationPendingEnrollmentCandidate_() {
+  const cleanPersonId = String(state.ui.pendingFormationEnrollmentPersonId || "").trim();
+
+  if (!cleanPersonId) {
+    return null;
+  }
+
+  return state.formationCandidates.find((candidate) => String(candidate?.personId || "").trim() === cleanPersonId) || null;
+}
+
+function getAssignableFormationOfferings_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+  const offerings = getFilteredFormationOfferings_();
+
+  if (!cleanPersonId) {
+    return offerings;
+  }
+
+  return offerings.filter((offering) => canAssignPersonToFormationOffering_(cleanPersonId, offering));
 }
 
 function resolveFormationNextLevelFromLoadedData_(currentLevelName = "", currentStatus = "") {
@@ -5476,7 +5563,7 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
     },
     {
       key: "operations",
-      label: "Operacion por nivel",
+      label: "Discipulado",
       description: `${counts.operationsCount || 0} niveles`
     },
     {
@@ -5593,7 +5680,7 @@ function renderFormationRouteWorkspace_(context) {
         <span class="context-item"><strong>Paso 1:</strong> el sistema lo detecta por 3 asistencias consecutivas</span>
         <span class="context-item"><strong>Paso 2:</strong> Telegram avisa automáticamente al líder</span>
         <span class="context-item"><strong>Paso 3:</strong> desde aquí se envía la invitación al congregante</span>
-        <span class="context-item"><strong>Paso 4:</strong> si acepta, se registra a Encuentro</span>
+        <span class="context-item"><strong>Paso 4:</strong> si acepta, pasa a Discipulado para elegir Proceso y Nivel</span>
       </div>
 
       ${formationRouteContext}
@@ -5640,7 +5727,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const inviteLabel = candidate?.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
   const encounterLabel = candidate?.encounterRegisteredAt
     ? "Encuentro registrado"
-    : (candidate?.invitedAt ? "Registrar a Encuentro" : "Primero envía invitación");
+    : (candidate?.invitedAt ? "Continuar inscripción" : "Primero envía invitación");
   const inviteDisabled = candidate?.personPhone ? "" : "disabled";
   const encounterDisabled = candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled";
   const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
@@ -5973,9 +6060,12 @@ function renderFormationLevelsWorkspace_(context) {
 
 function renderFormationOperationsWorkspace_(context) {
   const summary = buildFormationOperationsSummary_();
+  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
   const selectedProcess = getSelectedFormationProcess_();
   const editingProcess = state.formationProcesses.find((item) => String(item.id || "") === String(state.ui.editingFormationProcessId || "")) || null;
-  const filteredOfferings = getFilteredFormationOfferings_();
+  const filteredOfferings = pendingCandidate
+    ? getAssignableFormationOfferings_(pendingCandidate.personId)
+    : getFilteredFormationOfferings_();
   const selectedOffering = getSelectedFormationOffering_();
   const editingOffering = state.formationOfferings.find((item) => String(item.id || "") === String(state.ui.editingFormationOfferingId || "")) || null;
   const attendanceContext = selectedOffering && String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering.id || "")
@@ -6007,11 +6097,11 @@ function renderFormationOperationsWorkspace_(context) {
     <article class="panel-card module-section-anchor" id="formation-operations-workspace">
       <div class="panel-head">
         <div>
-          <h2>Operación formativa</h2>
-          <p>Primero creas el Proceso de Formación principal y después, dentro de ese proceso, das de alta sus niveles con sus sesiones dominicales.</p>
+          <h2>Discipulado - Proceso de Formación</h2>
+          <p>Aquí se define el proceso principal, sus niveles y la inscripción guiada del congregante. Primero eliges el proceso y después trabajas el nivel correcto.</p>
         </div>
         <div class="actions-row">
-          <span class="status-chip neutral">Etapa 1: proceso padre y niveles</span>
+          <span class="status-chip neutral">Proceso → Nivel → Sesiones → Portal</span>
           <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar operación</button>
         </div>
       </div>
@@ -6041,10 +6131,32 @@ function renderFormationOperationsWorkspace_(context) {
 
       <div class="summary-strip">
         <span class="context-item"><strong>Secuencia base:</strong> primero eliges o creas el Proceso de Formación.</span>
-        <span class="context-item"><strong>Paso siguiente:</strong> dentro de ese proceso creas cada nivel con su número de sesiones.</span>
-        <span class="context-item"><strong>Regla operativa:</strong> la asistencia de formación siempre queda amarrada al nivel y a la sesión activa.</span>
-        <span class="context-item"><strong>Temporada de origen:</strong> queda guardada solo para referencia pastoral e histórica del asistente.</span>
+        <span class="context-item"><strong>Después:</strong> dentro del proceso das de alta cada nivel con sus sesiones dominicales.</span>
+        <span class="context-item"><strong>Inscripción guiada:</strong> el congregante nuevo solo puede entrar al primer nivel; los demás se desbloquean al acreditar.</span>
+        <span class="context-item"><strong>Temporada de origen:</strong> queda guardada solo como referencia pastoral e histórica.</span>
       </div>
+
+      ${pendingCandidate ? `
+        <div class="detail-card" style="margin-top: 18px;">
+          <div class="panel-head">
+            <div>
+              <h2>Candidato listo para inscribir</h2>
+              <p>Este paso viene desde Ruta a Encuentro. Elige el proceso, confirma el nivel habilitado y completa la inscripción para generar su usuario y PIN del portal.</p>
+            </div>
+            <div class="actions-row">
+              <span class="pill warning">${escapeHtml(pendingCandidate.invitedAt ? "Invitación aceptada / por inscribir" : "Paso preparado")}</span>
+              <button class="btn btn-ghost" type="button" data-action="clear-formation-enrollment-candidate">Quitar selección</button>
+            </div>
+          </div>
+
+          <div class="summary-strip">
+            <span class="context-item"><strong>Congregante:</strong> ${escapeHtml(pendingCandidate.personName || "Sin nombre")}</span>
+            <span class="context-item"><strong>Grupo:</strong> ${escapeHtml(pendingCandidate.groupName || "Sin grupo")}</span>
+            <span class="context-item"><strong>Temporada origen:</strong> ${escapeHtml(resolveSeasonName_(pendingCandidate.seasonId) || pendingCandidate.seasonId || "Sin temporada")}</span>
+            <span class="context-item"><strong>Regla:</strong> mientras no acredite el nivel actual, el siguiente permanece bloqueado.</span>
+          </div>
+        </div>
+      ` : ""}
 
       <div class="field-grid two formation-ops-toolbar">
         <div class="field">
@@ -6074,7 +6186,7 @@ function renderFormationOperationsWorkspace_(context) {
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-offering">Nivel en operación</label>
+          <label for="formation-ops-offering">Nivel programado</label>
           <select id="formation-ops-offering">
             ${renderOptions(
               filteredOfferings.map((offering) => ({
@@ -6082,7 +6194,7 @@ function renderFormationOperationsWorkspace_(context) {
                 label: `${offering.levelName} | ${offering.name}`
               })),
               selectedOffering?.id || state.filters.formationOps.offeringId,
-              "Selecciona nivel en operación"
+              pendingCandidate ? "Selecciona nivel habilitado" : "Selecciona nivel en operación"
             )}
           </select>
         </div>
@@ -6300,38 +6412,57 @@ function renderFormationOperationsWorkspace_(context) {
     <article class="detail-card formation-assignment-card">
       <div class="panel-head">
         <div>
-          <h2>Inscribir al siguiente nivel</h2>
-          <p>Busca a la persona y desde aquí la inscribes al nivel en operación. Si le corresponde, su cuenta del portal queda lista o se mantiene vigente.</p>
+          <h2>Inscripción al proceso</h2>
+          <p>${pendingCandidate ? "Confirma el proceso y el nivel habilitado para completar la inscripción. Al guardar, el sistema registra al congregante en todas las sesiones del nivel y genera su acceso al portal." : "Busca a la persona y desde aquí la inscribes al nivel en operación. Si le corresponde, su cuenta del portal queda lista o se mantiene vigente."}</p>
         </div>
         ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.levelName || "Nivel")}</span>` : `<span class="pill dark">Primero elige un nivel</span>`}
       </div>
 
       ${selectedOffering ? `
         <div class="summary-strip">
+          <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedOffering.processName || selectedProcess?.name || "Sin proceso")}</span>
           <span class="context-item"><strong>Nivel en operación:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
           <span class="context-item"><strong>Líder:</strong> ${escapeHtml(selectedOffering.leaderName || "Sin líder")}</span>
           <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(selectedOffering.totalSessions || 0))}</span>
         </div>
-        <div class="field" style="margin-top: 16px;">
-          <label for="formation-ops-person-search">Buscar congregante</label>
-          <input id="formation-ops-person-search" value="${escapeHtml(state.filters.formationOps.personSearch || "")}" placeholder="Busca por nombre, QR ID, número o teléfono">
-        </div>
-        <div class="formation-assign-list">
-          ${peopleSuggestions.length ? peopleSuggestions.map((person) => `
+        ${pendingCandidate ? `
+          <div class="formation-assign-list" style="margin-top: 16px;">
             <article class="formation-assign-item">
               <div>
-                <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Congregante")}</strong>
-                <span>${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")}</span>
-                <span>${escapeHtml(getPersonTypeDisplayLabel_(person.tipoPersona || person.type || "CONGREGANTE"))} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+                <strong>${escapeHtml(pendingCandidate.personName || "Congregante")}</strong>
+                <span>${escapeHtml(pendingCandidate.personNumber || "-")} | QR ${escapeHtml(pendingCandidate.personId || "-")}</span>
+                <span>${escapeHtml(pendingCandidate.personPhone || "Sin teléfono")} | ${escapeHtml(pendingCandidate.groupName || "Sin grupo")}</span>
               </div>
-              <button class="btn btn-primary" type="button" data-action="assign-formation-person" data-person-id="${escapeHtml(person.id || "")}">Inscribir</button>
+              <button class="btn btn-primary" type="button" data-action="assign-formation-person" data-person-id="${escapeHtml(pendingCandidate.personId || "")}">
+                ${escapeHtml(`Inscribir en ${selectedOffering.levelName || "este nivel"}`)}
+              </button>
             </article>
-          `).join("") : `
-            <div class="empty-state">${state.filters.formationOps.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya están inscritas en este nivel." : "Escribe parte del nombre, QR ID, número o teléfono para empezar a buscar personas."}</div>
-          `}
+          </div>
+        ` : `
+          <div class="field" style="margin-top: 16px;">
+            <label for="formation-ops-person-search">Buscar congregante</label>
+            <input id="formation-ops-person-search" value="${escapeHtml(state.filters.formationOps.personSearch || "")}" placeholder="Busca por nombre, QR ID, número o teléfono">
+          </div>
+          <div class="formation-assign-list">
+            ${peopleSuggestions.length ? peopleSuggestions.map((person) => `
+              <article class="formation-assign-item">
+                <div>
+                  <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Congregante")}</strong>
+                  <span>${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")}</span>
+                  <span>${escapeHtml(getPersonTypeDisplayLabel_(person.tipoPersona || person.type || "CONGREGANTE"))} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+                </div>
+                <button class="btn btn-primary" type="button" data-action="assign-formation-person" data-person-id="${escapeHtml(person.id || "")}">Inscribir</button>
+              </article>
+            `).join("") : `
+              <div class="empty-state">${state.filters.formationOps.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya están inscritas en este nivel." : "Escribe parte del nombre, QR ID, número o teléfono para empezar a buscar personas."}</div>
+            `}
+          </div>
+        `}
+        <div class="footer-note" style="margin-top: 14px;">
+          Al confirmar la inscripción, el sistema registra a la persona en todas las sesiones de este nivel y, si es su primer ingreso al discipulado, genera su usuario y PIN temporal para el portal.
         </div>
       ` : `
-        <div class="empty-state">Selecciona primero un nivel en operación para habilitar las inscripciones.</div>
+        <div class="empty-state">${pendingCandidate ? "Primero elige el Proceso de Formación y luego el nivel habilitado para este congregante." : "Selecciona primero un nivel en operación para habilitar las inscripciones."}</div>
       `}
     </article>
 
@@ -6493,9 +6624,9 @@ function renderFormationPortalWorkspace_(context) {
   return `
     <article class="panel-card module-section-anchor" id="formation-portal-workspace">
       <div class="panel-head">
-        <div>
-          <h2>Inscritos y portal del asistente</h2>
-          <p>Desde esta ficha el usuario administrativo ve quién ya está inscrito a Encuentro o a otros niveles, abre el portal espejo del asistente y consulta su avance real, asistencias y exámenes.</p>
+          <div>
+            <h2>Inscritos y portal del asistente</h2>
+            <p>Desde esta ficha el usuario administrativo ve quién ya está inscrito a Encuentro o a otros niveles, abre el portal espejo del asistente y consulta su avance real, asistencias y exámenes.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral">${escapeHtml(String(roster.length))} inscritos visibles</span>
@@ -6574,7 +6705,7 @@ function renderFormationPortalWorkspace_(context) {
             <div class="formation-ledger" style="margin-top: 16px;">
               <div class="formation-ledger-head" aria-hidden="true">
                 <span>Congregante</span>
-                <span>Curso</span>
+                <span>Proceso / nivel</span>
                 <span>Estatus</span>
                 <span>Evaluación</span>
                 <span>Acción</span>
@@ -6640,9 +6771,9 @@ function renderFormationPortalEnrollmentRow_(enrollment, activePersonId) {
         <span>${escapeHtml(enrollment?.personNumber || "-")} | QR ${escapeHtml(enrollment?.personId || "-")} | ${escapeHtml(enrollment?.personPhone || "Sin teléfono")}</span>
       </div>
       <div class="formation-ledger-cell">
-        <small>Curso</small>
+        <small>Proceso / nivel</small>
         <strong>${escapeHtml(enrollment?.offeringName || "Nivel en operación")}</strong>
-        <span>${escapeHtml(enrollment?.levelName || "Sin nivel")} | ${escapeHtml(originSeason)}</span>
+        <span>${escapeHtml(enrollment?.processName || "Sin proceso")} | ${escapeHtml(enrollment?.levelName || "Sin nivel")} | ${escapeHtml(originSeason)}</span>
       </div>
       <div class="formation-ledger-cell">
         <small>Estatus</small>
@@ -16398,7 +16529,15 @@ async function handleClick(event) {
     if (action === "formation-register-encounter") {
       const candidate = state.formationCandidates.find((item) => String(item.personId) === String(button.dataset.personId || ""));
       await registerFormationEncounter_(candidate || null);
-      scrollToSection_("formation-profile");
+      scrollToSection_("formation-operations-workspace");
+      return;
+    }
+
+    if (action === "clear-formation-enrollment-candidate") {
+      state.ui.pendingFormationEnrollmentPersonId = "";
+      state.filters.formationOps.personSearch = "";
+      renderApp();
+      scrollToSection_("formation-operations-workspace");
       return;
     }
 
@@ -18372,7 +18511,10 @@ function syncFormationOperationsSelection_() {
     state.filters.formationOps.levelId = "";
   }
 
-  const availableOfferings = getFilteredFormationOfferings_();
+  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
+  const availableOfferings = pendingCandidate
+    ? getAssignableFormationOfferings_(pendingCandidate.personId)
+    : getFilteredFormationOfferings_();
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "");
   const nextOffering = availableOfferings.find((item) => String(item.id || "") === currentOfferingId)
     || availableOfferings[0]
@@ -20597,6 +20739,7 @@ async function assignFormationEnrollment_(personId) {
   const cleanPersonId = String(personId || "").trim();
   const selectedOffering = getSelectedFormationOffering_();
   const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || null;
+  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
   const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId);
   let response = null;
 
@@ -20657,11 +20800,24 @@ async function assignFormationEnrollment_(personId) {
     clearStudentPortalByPersonCache_(cleanPersonId);
   }
 
+  if (response?.record) {
+    applyFormationRecordToLocalState_(response.record, {
+      portalAccount: response?.account || null,
+      removeCandidatePersonId: cleanPersonId
+    });
+  } else if (pendingCandidate && String(pendingCandidate.personId || "") === cleanPersonId) {
+    state.formationCandidates = state.formationCandidates.filter((candidate) => String(candidate?.personId || "") !== cleanPersonId);
+  }
+
+  if (pendingCandidate && String(pendingCandidate.personId || "") === cleanPersonId) {
+    state.ui.pendingFormationEnrollmentPersonId = "";
+  }
+
   renderApp();
   showToast(
     response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción guardada",
     response?.account?.temporaryPin
-      ? `La persona quedó inscrita. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}.`
+      ? `La persona quedó inscrita. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya puedes abrir Inscritos y portal para enviarlo por WhatsApp.`
       : `${person.nombreCompleto || person.nombre || "La persona"} ya quedó inscrita a ${selectedOffering.levelName || "este nivel"}.`,
     "success"
   );
@@ -20838,41 +20994,61 @@ async function registerFormationEncounter_(candidate) {
     return;
   }
 
-  let portalAccess = null;
+  if (!state.formationProcesses.length) {
+    state.ui.formationSection = "operations";
+    renderApp();
+    showToast(
+      "Primero crea el proceso",
+      "Antes de inscribir al congregante, crea al menos un Proceso de Formación y su primer nivel programado.",
+      "warning"
+    );
+    scrollToSection_("formation-process-panel");
+    return;
+  }
 
-  await withLoading(async () => {
-    const response = await apiPost("formation.encounter.register", {
-      personId: candidate.personId,
-      seasonId: candidate.seasonId,
-      registeredBy: state.user?.name || ""
-    });
-    applyFormationRecordToLocalState_(response?.record || null, {
-      portalAccount: response?.portalAccess?.account || null
-    });
-    portalAccess = response.portalAccess || null;
-  }, "Registrando a Encuentro...");
-
+  const preferredProcessId = String(state.filters.formationOps.processId || state.formationProcesses[0]?.id || "").trim();
+  state.ui.pendingFormationEnrollmentPersonId = candidate.personId;
   state.ui.selectedFormationPersonId = candidate.personId;
-  state.ui.formationSection = "route";
-  state.formationProfile = buildFormationProfileFromLoadedData_(candidate.personId, candidate.seasonId) || state.formationProfile;
-  if (portalAccess?.account) {
-    applyPortalAccountToFormationProfile_(candidate.personId, portalAccess.account, {
-      seasonId: candidate.seasonId
-    });
-  }
+  state.ui.formationSection = "operations";
+  state.filters.formationOps.processId = preferredProcessId;
+  state.filters.formationOps.levelId = "";
+  state.filters.formationOps.offeringId = "";
+  state.filters.formationOps.personSearch = "";
 
-  if (state.formationProfile) {
-    cacheFormationProfile_(state.formationProfile, candidate.personId, candidate.seasonId);
-  }
+  await loadFormationOperationsData_({
+    force: false,
+    showLoading: false,
+    processId: preferredProcessId,
+    levelId: "",
+    offeringId: "",
+    sessionNumber: "1"
+  });
 
-  clearStudentPortalByPersonCache_(candidate.personId);
+  const eligibleOfferings = getAssignableFormationOfferings_(candidate.personId);
+  const firstEligibleOffering = eligibleOfferings[0] || null;
+
+  if (firstEligibleOffering) {
+    state.filters.formationOps.levelId = String(firstEligibleOffering.levelId || "");
+    state.filters.formationOps.offeringId = String(firstEligibleOffering.id || "");
+    state.ui.selectedFormationOfferingId = String(firstEligibleOffering.id || "");
+    syncFormationOperationsSelection_();
+  }
 
   renderApp();
+
+  if (!firstEligibleOffering) {
+    showToast(
+      "Falta nivel habilitado",
+      "La persona ya está lista, pero en el proceso seleccionado todavía no existe un nivel disponible para inscribirla. Crea o activa el primer nivel.",
+      "warning"
+    );
+    scrollToSection_("formation-offering-panel");
+    return;
+  }
+
   showToast(
-    "Encuentro registrado",
-    portalAccess?.account?.temporaryPin
-      ? `La persona quedó registrada. Acceso creado: usuario ${portalAccess.account.username} con PIN ${portalAccess.account.temporaryPin}.`
-      : "La persona quedó como Prospecto GF y ya se guardó la fecha del registro.",
+    "Paso listo",
+    `Ahora confirma el Proceso de Formación y completa la inscripción de ${candidate.personName || "la persona"} en ${firstEligibleOffering.levelName || "el primer nivel"}.`,
     "success"
   );
 }
@@ -23596,10 +23772,17 @@ function getFilteredFormationOfferings_() {
 
 function getSelectedFormationOffering_() {
   const requestedId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "");
-  const filteredOfferings = getFilteredFormationOfferings_();
+  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
+  const filteredOfferings = pendingCandidate
+    ? getAssignableFormationOfferings_(pendingCandidate.personId)
+    : getFilteredFormationOfferings_();
   const allOfferings = state.formationOfferings.filter((item) => {
     const processId = String(state.filters.formationOps.processId || "");
-    return !processId || String(item.processId || "") === processId;
+    const matchesProcess = !processId || String(item.processId || "") === processId;
+    const matchesEligibility = pendingCandidate
+      ? canAssignPersonToFormationOffering_(pendingCandidate.personId, item)
+      : true;
+    return matchesProcess && matchesEligibility;
   });
 
   if (requestedId) {
@@ -23714,8 +23897,9 @@ function getFormationAttendanceParticipants_(attendanceContext, filteredEnrollme
 
 function getFormationEnrollmentSearchResults_(selectedOffering) {
   const search = normalizeText(state.filters.formationOps.personSearch);
+  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
 
-  if (!selectedOffering || !search) {
+  if (!selectedOffering) {
     return [];
   }
 
@@ -23725,9 +23909,21 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
       .map((item) => String(item.personId || ""))
   );
 
-  return state.peopleDirectory
+  const matchingPeople = state.peopleDirectory
     .filter((person) => {
       if (enrolledPeople.has(String(person.id || ""))) {
+        return false;
+      }
+
+      if (!canAssignPersonToFormationOffering_(person.id || "", selectedOffering)) {
+        return false;
+      }
+
+      if (pendingCandidate) {
+        return String(person.id || "") === String(pendingCandidate.personId || "");
+      }
+
+      if (!search) {
         return false;
       }
 
@@ -23743,7 +23939,9 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
 
       return haystack.includes(search);
     })
-    .slice(0, 8);
+    .slice(0, pendingCandidate ? 1 : 8);
+
+  return matchingPeople;
 }
 
 function buildFormationOperationsSummary_() {
@@ -24049,15 +24247,15 @@ function renderFormationEncounterRouteCard_(candidate) {
   const inviteLabel = candidate.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
   const encounterLabel = candidate.encounterRegisteredAt
     ? "Encuentro registrado"
-    : (candidate.invitedAt ? "Registrar a Encuentro" : "Primero envía invitación");
+    : (candidate.invitedAt ? "Continuar inscripción" : "Primero envía invitación");
   const inviteDisabled = candidate.personPhone ? "" : "disabled";
   const encounterDisabled = candidate.invitedAt && !candidate.encounterRegisteredAt ? "" : "disabled";
   const routeHelper = candidate.encounterRegisteredAt
     ? `Registrado a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
     : (candidate.invitedAt
-      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, registra su Encuentro.`
+      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, continúa la inscripción desde Discipulado.`
       : (candidate.personPhone
-        ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, registra su Encuentro."
+        ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, continúa la inscripción."
         : "Falta teléfono del congregante para poder abrir la invitación por WhatsApp."));
 
   return `
@@ -26110,6 +26308,7 @@ function resetRuntimeState() {
     welcomeWorkbenchMode: "",
     welcomeModal: null,
     selectedFormationPersonId: "",
+    pendingFormationEnrollmentPersonId: "",
     selectedFormationOfferingId: "",
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
