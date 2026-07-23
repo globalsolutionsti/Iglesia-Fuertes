@@ -200,6 +200,7 @@ const state = {
   dashboardSeasonMatrix: null,
   welcomePeople: [],
   welcomeProfile: null,
+  formationProcesses: [],
   formationCatalog: [],
   formationRecords: [],
   formationCandidates: [],
@@ -228,6 +229,7 @@ const state = {
     qrSummary: "",
     dashboardSeasonMatrix: "",
     welcomePeople: "",
+    formationProcesses: "",
     formationRecords: "",
     formationCandidates: "",
     formationOfferings: "",
@@ -245,6 +247,7 @@ const state = {
     users: false,
     telegramConfig: false,
     welcome: false,
+    formationProcesses: false,
     formationCatalog: false,
     formationRecords: false,
     formationCandidates: false,
@@ -296,6 +299,7 @@ const state = {
     editingMinistryId: "",
     editingUserEmail: "",
     editingWelcomeNewId: "",
+    editingFormationProcessId: "",
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     editingFormationOfferingId: "",
@@ -387,6 +391,7 @@ const state = {
       search: ""
     },
     formationOps: {
+      processId: "",
       levelId: "",
       offeringId: "",
       enrollmentStatus: "ALL",
@@ -416,6 +421,7 @@ const pendingResourceLoads = {
   telegramConfig: null,
   welcome: null,
   welcomeProfile: null,
+  formationProcesses: null,
   formationCatalog: null,
   formationRecords: null,
   formationCandidates: null,
@@ -5464,7 +5470,7 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
     {
       key: "operations",
       label: "Operacion por nivel",
-      description: `${counts.operationsCount || 0} cursos`
+      description: `${counts.operationsCount || 0} niveles`
     },
     {
       key: "portal",
@@ -5960,6 +5966,8 @@ function renderFormationLevelsWorkspace_(context) {
 
 function renderFormationOperationsWorkspace_(context) {
   const summary = buildFormationOperationsSummary_();
+  const selectedProcess = getSelectedFormationProcess_();
+  const editingProcess = state.formationProcesses.find((item) => String(item.id || "") === String(state.ui.editingFormationProcessId || "")) || null;
   const filteredOfferings = getFilteredFormationOfferings_();
   const selectedOffering = getSelectedFormationOffering_();
   const editingOffering = state.formationOfferings.find((item) => String(item.id || "") === String(state.ui.editingFormationOfferingId || "")) || null;
@@ -5993,24 +6001,24 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Operación formativa</h2>
-          <p>Desde aquí dejas listo cada nivel en operación, activas su sesión dominical, inscribes asistentes, capturas asistencia y evalúas si se desbloquea el siguiente paso.</p>
+          <p>Primero creas el Proceso de Formación principal y después, dentro de ese proceso, das de alta sus niveles con sus sesiones dominicales.</p>
         </div>
         <div class="actions-row">
-          <span class="status-chip neutral">Temporada de origen solo informativa</span>
+          <span class="status-chip neutral">Etapa 1: proceso padre y niveles</span>
           <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar operación</button>
         </div>
       </div>
 
       <div class="stats-grid assistants-stats-grid">
         <article class="stat-card">
-          <span class="status-chip warning">Cursos activos</span>
-          <strong>${escapeHtml(String(summary.offerings))}</strong>
-          <span>Niveles en operación listos para trabajar este domingo.</span>
+          <span class="status-chip warning">Procesos</span>
+          <strong>${escapeHtml(String(summary.processes || 0))}</strong>
+          <span>Procesos de Formación dados de alta para operar niveles dentro de cada uno.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip neutral">Inscritos</span>
-          <strong>${escapeHtml(String(summary.enrollments))}</strong>
-          <span>Asistentes vinculados a niveles en operación; la temporada solo se conserva como referencia de origen.</span>
+          <span class="status-chip neutral">Niveles operativos</span>
+          <strong>${escapeHtml(String(summary.offerings))}</strong>
+          <span>Niveles creados dentro del proceso seleccionado, listos para sesiones, inscripciones y asistencia.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip success">Acreditados</span>
@@ -6025,12 +6033,26 @@ function renderFormationOperationsWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Secuencia operativa:</strong> eliges nivel, activas sesión y entonces capturas asistencia.</span>
+        <span class="context-item"><strong>Secuencia base:</strong> primero eliges o creas el Proceso de Formación.</span>
+        <span class="context-item"><strong>Paso siguiente:</strong> dentro de ese proceso creas cada nivel con su número de sesiones.</span>
         <span class="context-item"><strong>Regla operativa:</strong> la asistencia de formación siempre queda amarrada al nivel y a la sesión activa.</span>
         <span class="context-item"><strong>Temporada de origen:</strong> queda guardada solo para referencia pastoral e histórica del asistente.</span>
       </div>
 
       <div class="field-grid two formation-ops-toolbar">
+        <div class="field">
+          <label for="formation-ops-process">Proceso de Formación</label>
+          <select id="formation-ops-process">
+            ${renderOptions(
+              state.formationProcesses.map((process) => ({
+                value: process.id,
+                label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
+              })),
+              selectedProcess?.id || state.filters.formationOps.processId,
+              "Selecciona proceso"
+            )}
+          </select>
+        </div>
         <div class="field">
           <label for="formation-ops-level">Nivel</label>
           <select id="formation-ops-level">
@@ -6076,27 +6098,110 @@ function renderFormationOperationsWorkspace_(context) {
         </div>
         <div class="field" style="grid-column: 1 / -1;">
           <label for="formation-ops-search">Buscar inscrito</label>
-          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, nivel, curso o teléfono">
+          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, nivel o teléfono">
         </div>
       </div>
     </article>
+
+    <div class="view-grid columns-2 formation-ops-grid">
+      <article class="panel-card module-section-anchor" id="formation-process-panel">
+        <div class="panel-head">
+          <div>
+            <h2>${editingProcess ? "Editar Proceso de Formación" : "Crear Proceso de Formación"}</h2>
+            <p>Este es el contenedor principal, similar a una temporada de Grupos de Conexión. Después de guardarlo podrás crear dentro sus niveles.</p>
+          </div>
+          ${editingProcess ? `<span class="pill dark">${escapeHtml(editingProcess.name || "Proceso")}</span>` : `<span class="pill neutral">Nuevo proceso</span>`}
+        </div>
+
+        <form id="formation-process-form">
+          <input type="hidden" name="id" value="${escapeHtml(editingProcess?.id || "")}">
+          <div class="field-grid two">
+            <div class="field">
+              <label for="formation-process-name">Nombre del proceso</label>
+              <input id="formation-process-name" name="name" value="${escapeHtml(editingProcess?.name || "")}" placeholder="Proceso de Formación 1" required>
+            </div>
+            <div class="field">
+              <label for="formation-process-start">Fecha de inicio</label>
+              <input id="formation-process-start" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingProcess?.startDate) || "")}" required>
+            </div>
+            <div class="field">
+              <label for="formation-process-status">Estado</label>
+              <select id="formation-process-status" name="status">
+                ${renderOptions([
+                  { value: "ACTIVO", label: "ACTIVO" },
+                  { value: "INACTIVO", label: "INACTIVO" }
+                ], editingProcess?.status || "ACTIVO", "Selecciona estado")}
+              </select>
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label for="formation-process-description">Descripción</label>
+              <textarea id="formation-process-description" name="description" rows="3" placeholder="Describe el alcance pastoral u operativo del proceso.">${escapeHtml(editingProcess?.description || "")}</textarea>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" type="submit">${editingProcess ? "Guardar proceso" : "Crear proceso"}</button>
+            <button class="btn btn-ghost" type="button" data-action="clear-formation-process-form" ${editingProcess ? "" : "disabled"}>Limpiar</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="detail-card formation-offering-list-card">
+        <div class="panel-head">
+          <div>
+            <h2>Procesos creados</h2>
+            <p>Selecciona el proceso que vas a trabajar. Todos los niveles operativos de abajo se crearán dentro de ese proceso.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(state.formationProcesses.length))} visibles</span>
+        </div>
+
+        <div class="formation-offering-list">
+          ${state.formationProcesses.length ? state.formationProcesses.map((process) => `
+            <article class="formation-offering-item ${String(selectedProcess?.id || "") === String(process.id || "") ? "is-active" : ""}">
+              <div>
+                <small>${escapeHtml(formatDate(process.startDate) || "Sin fecha")}</small>
+                <strong>${escapeHtml(process.name || "Proceso de Formación")}</strong>
+                <span>${escapeHtml(process.description || "Sin descripción")}</span>
+                <span>${escapeHtml(`${process.levelsCount || 0} niveles | ${process.activeLevelsCount || 0} activos`)}</span>
+              </div>
+              <div class="formation-offering-item-actions">
+                ${renderPill(process.status || "ACTIVO")}
+                <button class="btn btn-secondary" type="button" data-action="select-formation-process" data-process-id="${escapeHtml(process.id || "")}">Usar</button>
+                <button class="btn btn-ghost" type="button" data-action="edit-formation-process" data-process-id="${escapeHtml(process.id || "")}">Editar</button>
+              </div>
+            </article>
+          `).join("") : `
+            <div class="empty-state">Todavía no hay procesos creados. Empieza con Proceso de Formación 1.</div>
+          `}
+        </div>
+      </article>
+    </div>
 
     <div class="view-grid columns-2 formation-ops-grid">
       <article class="panel-card module-section-anchor" id="formation-offering-panel">
         <div class="panel-head">
           <div>
             <h2>${editingOffering ? "Editar nivel en operación" : "Crear nivel en operación"}</h2>
-            <p>Defines el nombre operativo del nivel, su fecha de arranque y cuántas sesiones dominicales tendrá. El sistema calcula automáticamente las fechas siguientes.</p>
+            <p>Dentro del proceso seleccionado defines el nivel, su nombre operativo, su domingo de arranque y cuántas sesiones tendrá. El sistema calcula automáticamente las fechas siguientes.</p>
           </div>
-          ${editingOffering ? `<span class="pill dark">${escapeHtml(editingOffering.levelName || "Nivel")}</span>` : `<span class="pill neutral">Nuevo nivel</span>`}
+          ${editingOffering ? `<span class="pill dark">${escapeHtml(editingOffering.levelName || "Nivel")}</span>` : `<span class="pill neutral">${selectedProcess ? "Nuevo nivel" : "Primero crea un proceso"}</span>`}
         </div>
 
         <form id="formation-offering-form">
           <input type="hidden" name="id" value="${escapeHtml(editingOffering?.id || "")}">
+          <input type="hidden" name="processId" value="${escapeHtml(selectedProcess?.id || state.filters.formationOps.processId || "")}">
+          ${selectedProcess ? `
+            <div class="summary-strip">
+              <span class="context-item"><strong>Proceso activo:</strong> ${escapeHtml(selectedProcess.name || "-")}</span>
+              <span class="context-item"><strong>Inicio:</strong> ${escapeHtml(formatDate(selectedProcess.startDate) || selectedProcess.startDate || "-")}</span>
+            </div>
+          ` : `
+            <div class="empty-state" style="margin-bottom: 18px;">Primero crea o selecciona un Proceso de Formación para habilitar la creación de niveles.</div>
+          `}
           <div class="field-grid two">
             <div class="field">
               <label for="formation-offering-level">Nivel</label>
-              <select id="formation-offering-level" name="levelId" required>
+              <select id="formation-offering-level" name="levelId" ${selectedProcess ? "" : "disabled"} required>
                 ${renderOptions(
                   state.formationCatalog.map((level) => ({
                     value: level.id,
@@ -6109,27 +6214,27 @@ function renderFormationOperationsWorkspace_(context) {
             </div>
             <div class="field">
               <label for="formation-offering-name">Nombre operativo del nivel</label>
-              <input id="formation-offering-name" name="name" value="${escapeHtml(editingOffering?.name || "")}" placeholder="Nivel 2 - Sanidad Total" required>
+              <input id="formation-offering-name" name="name" value="${escapeHtml(editingOffering?.name || "")}" placeholder="Nivel 2 - Sanidad Total" ${selectedProcess ? "" : "disabled"} required>
             </div>
             <div class="field">
               <label for="formation-offering-leader">Lider del nivel</label>
-              <input id="formation-offering-leader" name="leaderName" value="${escapeHtml(editingOffering?.leaderName || "")}" placeholder="Nombre del responsable">
+              <input id="formation-offering-leader" name="leaderName" value="${escapeHtml(editingOffering?.leaderName || "")}" placeholder="Nombre del responsable" ${selectedProcess ? "" : "disabled"}>
             </div>
             <div class="field">
               <label for="formation-offering-phone">Teléfono del lider</label>
-              <input id="formation-offering-phone" name="leaderPhone" value="${escapeHtml(editingOffering?.leaderPhone || "")}" placeholder="5512345678" inputmode="tel">
+              <input id="formation-offering-phone" name="leaderPhone" value="${escapeHtml(editingOffering?.leaderPhone || "")}" placeholder="5512345678" inputmode="tel" ${selectedProcess ? "" : "disabled"}>
             </div>
             <div class="field">
               <label for="formation-offering-start">Fecha del primer domingo</label>
-              <input id="formation-offering-start" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingOffering?.startDate) || "")}">
+              <input id="formation-offering-start" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingOffering?.startDate) || "")}" ${selectedProcess ? "" : "disabled"}>
             </div>
             <div class="field">
               <label for="formation-offering-total-sessions">Total de sesiones</label>
-              <input id="formation-offering-total-sessions" name="totalSessions" type="number" min="1" value="${escapeHtml(String(editingOffering?.totalSessions || 4))}" required>
+              <input id="formation-offering-total-sessions" name="totalSessions" type="number" min="1" value="${escapeHtml(String(editingOffering?.totalSessions || 4))}" ${selectedProcess ? "" : "disabled"} required>
             </div>
             <div class="field">
               <label for="formation-offering-status">Estado</label>
-              <select id="formation-offering-status" name="status">
+              <select id="formation-offering-status" name="status" ${selectedProcess ? "" : "disabled"}>
                 ${renderOptions([
                   { value: "ACTIVO", label: "ACTIVO" },
                   { value: "INACTIVO", label: "INACTIVO" }
@@ -6138,7 +6243,7 @@ function renderFormationOperationsWorkspace_(context) {
             </div>
             <div class="field" style="grid-column: 1 / -1;">
               <label for="formation-offering-description">Descripción</label>
-              <textarea id="formation-offering-description" name="description" rows="3" placeholder="Objetivo, notas operativas o instrucciones del nivel.">${escapeHtml(editingOffering?.description || "")}</textarea>
+              <textarea id="formation-offering-description" name="description" rows="3" placeholder="Objetivo, notas operativas o instrucciones del nivel." ${selectedProcess ? "" : "disabled"}>${escapeHtml(editingOffering?.description || "")}</textarea>
             </div>
           </div>
 
@@ -6147,7 +6252,7 @@ function renderFormationOperationsWorkspace_(context) {
           </div>
 
           <div class="actions-row">
-            <button class="btn btn-primary" type="submit">${editingOffering ? "Guardar nivel" : "Crear nivel"}</button>
+            <button class="btn btn-primary" type="submit" ${selectedProcess ? "" : "disabled"}>${editingOffering ? "Guardar nivel" : "Crear nivel"}</button>
             <button class="btn btn-ghost" type="button" data-action="clear-formation-offering-form" ${editingOffering ? "" : "disabled"}>Limpiar</button>
           </div>
         </form>
@@ -6157,7 +6262,7 @@ function renderFormationOperationsWorkspace_(context) {
         <div class="panel-head">
           <div>
             <h2>Niveles en operación</h2>
-            <p>Elige el nivel activo para trabajar sus inscritos, su sesión dominical y su evaluación.</p>
+            <p>${selectedProcess ? "Estos son los niveles creados dentro del proceso seleccionado." : "Primero selecciona un Proceso de Formación para ver aquí sus niveles."}</p>
           </div>
           <span class="pill dark">${escapeHtml(String(filteredOfferings.length))} visibles</span>
         </div>
@@ -6252,7 +6357,7 @@ function renderFormationOperationsWorkspace_(context) {
         <div class="formation-ledger-card" style="margin-top: 0;">
           <div class="panel-head formation-ledger-card-head">
             <div>
-              <h3>Inscritos en el curso</h3>
+              <h3>Inscritos en el nivel</h3>
               <p>Primero eliges a la persona y luego guardas su evaluación en el formulario de abajo.</p>
             </div>
             <span class="pill neutral">${escapeHtml(String(filteredEnrollments.length))} inscritos</span>
@@ -6419,7 +6524,7 @@ function renderFormationPortalWorkspace_(context) {
                 label: `${offering.name} | ${offering.levelName}`
               })),
               selectedOffering?.id || state.filters.formationOps.offeringId,
-              "Selecciona curso"
+              "Selecciona nivel"
             )}
           </select>
         </div>
@@ -6436,7 +6541,7 @@ function renderFormationPortalWorkspace_(context) {
         </div>
         <div class="field">
           <label for="formation-ops-search">Buscar inscrito</label>
-          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, nivel, curso o teléfono">
+          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, nivel o teléfono">
         </div>
       </div>
     </article>
@@ -6448,7 +6553,7 @@ function renderFormationPortalWorkspace_(context) {
             <h2>Listado de inscritos</h2>
             <p>Abre el portal espejo o el perfil formativo sin salir de Proceso de Formación.</p>
           </div>
-          ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.name || "Curso")}</span>` : `<span class="pill dark">Sin curso seleccionado</span>`}
+          ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.name || "Nivel")}</span>` : `<span class="pill dark">Sin nivel seleccionado</span>`}
         </div>
 
         ${selectedOffering ? `
@@ -16175,6 +16280,42 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "select-formation-process") {
+      const processId = String(button.dataset.processId || "");
+
+      state.filters.formationOps.processId = processId;
+      state.filters.formationOps.offeringId = "";
+      state.ui.selectedFormationOfferingId = "";
+      state.ui.editingFormationProcessId = "";
+      state.ui.editingFormationOfferingId = "";
+      state.qrScanner.result = null;
+      state.formationQrActivity = [];
+      await loadFormationOperationsData_({
+        force: true,
+        showLoading: false,
+        processId,
+        sessionNumber: "1"
+      });
+      renderApp();
+      scrollToSection_("formation-offering-panel");
+      return;
+    }
+
+    if (action === "edit-formation-process") {
+      const processId = String(button.dataset.processId || "");
+
+      state.ui.editingFormationProcessId = processId;
+      renderApp();
+      scrollToSection_("formation-process-panel");
+      return;
+    }
+
+    if (action === "clear-formation-process-form") {
+      state.ui.editingFormationProcessId = "";
+      renderApp();
+      return;
+    }
+
     if (action === "clear-formation-offering-form") {
       state.ui.editingFormationOfferingId = "";
       renderApp();
@@ -16388,6 +16529,12 @@ async function handleSubmit(event) {
     if (form.id === "formation-record-form") {
       const payload = Object.fromEntries(new FormData(form).entries());
       await saveFormationRecord_(payload);
+      return;
+    }
+
+    if (form.id === "formation-process-form") {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveFormationProcess_(payload);
       return;
     }
 
@@ -16706,6 +16853,24 @@ async function handleChange(event) {
 
     if (target.id === "formation-status-filter") {
       getFormationFilterDraft_().status = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "formation-ops-process") {
+      state.filters.formationOps.processId = target.value || "";
+      state.filters.formationOps.offeringId = "";
+      state.ui.selectedFormationOfferingId = "";
+      state.ui.editingFormationOfferingId = "";
+      state.qrScanner.result = null;
+      state.formationQrActivity = [];
+      await loadFormationOperationsData_({
+        force: true,
+        showLoading: false,
+        processId: state.filters.formationOps.processId,
+        levelId: state.filters.formationOps.levelId,
+        sessionNumber: "1"
+      });
       renderApp();
       return;
     }
@@ -17849,6 +18014,32 @@ async function loadFormationCatalog_(options = {}) {
   return withLoading(task, options.message || "Cargando niveles de formación...");
 }
 
+async function loadFormationProcesses_(options = {}) {
+  if (!options.force && state.loaded.formationProcesses) {
+    return state.formationProcesses;
+  }
+
+  const task = () => runSharedLoad_("formationProcesses", async () => {
+    try {
+      state.formationProcesses = await apiGet("formation.processes.list");
+      state.loaded.formationProcesses = true;
+      return state.formationProcesses;
+    } catch (error) {
+      if (!isUnknownActionError_(error, "formation.processes.list")) {
+        throw error;
+      }
+
+      throw buildBackendRouteMissingError_("formation.processes.list", "las rutas del proceso padre de Formación");
+    }
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Cargando procesos de formación...");
+}
+
 async function syncFormationFilterState_() {
   state.filters.formation.seasonId = ensureValidSeasonId(state.filters.formation.seasonId);
 
@@ -17962,6 +18153,17 @@ async function loadFormationData_(options = {}) {
 
 function syncFormationOperationsSelection_() {
   if (
+    state.filters.formationOps.processId
+    && !state.formationProcesses.some((process) => String(process.id || "") === String(state.filters.formationOps.processId || ""))
+  ) {
+    state.filters.formationOps.processId = "";
+  }
+
+  if (!state.filters.formationOps.processId && state.formationProcesses.length) {
+    state.filters.formationOps.processId = String(state.formationProcesses[0].id || "");
+  }
+
+  if (
     state.filters.formationOps.levelId
     && !state.formationCatalog.some((level) => String(level.id || "") === String(state.filters.formationOps.levelId || ""))
   ) {
@@ -18061,11 +18263,12 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
 }
 
 async function loadFormationOperationsData_(options = {}) {
+  const requestedProcessId = String(options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""));
   const requestedLevelId = String(options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""));
   const requestedOfferingId = String(options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""));
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
-  const offeringsKey = `level::${requestedLevelId || "ALL"}`;
-  const enrollmentsKey = `${requestedLevelId || "ALL"}::${requestedOfferingId || "ALL"}`;
+  const offeringsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}`;
+  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "ALL"}`;
 
   if (
     !options.force
@@ -18089,6 +18292,11 @@ async function loadFormationOperationsData_(options = {}) {
   const task = async () => {
     const offeringsParams = {};
     const enrollmentsParams = {};
+
+    if (requestedProcessId) {
+      offeringsParams.processId = requestedProcessId;
+      enrollmentsParams.processId = requestedProcessId;
+    }
 
     if (requestedLevelId) {
       offeringsParams.levelId = requestedLevelId;
@@ -18132,6 +18340,7 @@ async function loadFormationOperationsData_(options = {}) {
     state.loaded.formationEnrollments = true;
     state.cacheKeys.formationOfferings = offeringsKey;
     state.cacheKeys.formationEnrollments = enrollmentsKey;
+    state.filters.formationOps.processId = requestedProcessId || state.filters.formationOps.processId;
 
     if (requestedOfferingId) {
       state.filters.formationOps.offeringId = requestedOfferingId;
@@ -18329,6 +18538,9 @@ async function ensureFormationOperationsViewData_(options = {}) {
   const task = async () => {
     await Promise.all([
       state.loaded.peopleDirectory ? Promise.resolve() : loadPeopleDirectory(),
+      state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+        showLoading: false
+      }),
       state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
         showLoading: false
       })
@@ -18353,6 +18565,9 @@ async function ensureFormationViewData_(options = {}) {
   await Promise.all([
     state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_(),
     state.loaded.seasons ? Promise.resolve() : refreshSeasons(),
+    loadFormationProcesses_({
+      showLoading: false
+    }),
     loadFormationCatalog_({
       showLoading: false
     })
@@ -20043,6 +20258,7 @@ async function saveFormationRecord_(rawPayload) {
 async function saveFormationOffering_(rawPayload) {
   const payload = {
     id: V(rawPayload.id),
+    processId: V(rawPayload.processId),
     levelId: V(rawPayload.levelId),
     name: V(rawPayload.name),
     leaderName: V(rawPayload.leaderName),
@@ -20053,10 +20269,20 @@ async function saveFormationOffering_(rawPayload) {
     description: V(rawPayload.description)
   };
 
+  if (!payload.processId) {
+    showToast(
+      "Primero crea el proceso",
+      "Antes de dar de alta un nivel, primero crea o selecciona el Proceso de Formación principal.",
+      "warning"
+    );
+    return;
+  }
+
   let savedOffering = null;
 
   await withLoading(async () => {
     savedOffering = await apiPost("formation.offerings.save", payload);
+    state.filters.formationOps.processId = savedOffering.processId || payload.processId || state.filters.formationOps.processId;
     state.filters.formationOps.levelId = savedOffering.levelId || state.filters.formationOps.levelId;
     state.filters.formationOps.offeringId = savedOffering.id || "";
     state.ui.selectedFormationOfferingId = savedOffering.id || "";
@@ -20064,6 +20290,7 @@ async function saveFormationOffering_(rawPayload) {
     await loadFormationOperationsData_({
       force: true,
       showLoading: false,
+      processId: state.filters.formationOps.processId,
       offeringId: savedOffering.id,
       sessionNumber: "1"
     });
@@ -20072,6 +20299,56 @@ async function saveFormationOffering_(rawPayload) {
   state.ui.editingFormationOfferingId = "";
   state.ui.formationSection = "operations";
   showToast("Nivel guardado", "El nivel quedó listo con sus sesiones dominicales para inscripción, asistencia y evaluación.", "success");
+  renderApp();
+}
+
+async function saveFormationProcess_(rawPayload) {
+  const payload = {
+    id: V(rawPayload.id),
+    name: V(rawPayload.name),
+    startDate: V(rawPayload.startDate),
+    status: V(rawPayload.status) || "ACTIVO",
+    description: V(rawPayload.description)
+  };
+
+  if (!payload.name || !payload.startDate) {
+    showToast(
+      "Faltan datos",
+      "Captura al menos el nombre del proceso y la fecha de inicio para poder guardarlo.",
+      "warning"
+    );
+    return;
+  }
+
+  let savedProcess = null;
+
+  await withLoading(async () => {
+    savedProcess = await apiPost("formation.processes.save", payload);
+    state.ui.editingFormationProcessId = "";
+    state.filters.formationOps.processId = savedProcess?.id || "";
+    state.filters.formationOps.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
+    state.ui.editingFormationOfferingId = "";
+    state.qrScanner.result = null;
+    state.formationQrActivity = [];
+    await loadFormationProcesses_({
+      force: true,
+      showLoading: false
+    });
+    await loadFormationOperationsData_({
+      force: true,
+      showLoading: false,
+      processId: state.filters.formationOps.processId,
+      sessionNumber: "1"
+    });
+  }, payload.id ? "Actualizando Proceso de Formación..." : "Creando Proceso de Formación...");
+
+  state.ui.formationSection = "operations";
+  showToast(
+    "Proceso guardado",
+    "El Proceso de Formación ya quedó listo. Ahora puedes crear dentro de él los niveles con sus sesiones.",
+    "success"
+  );
   renderApp();
 }
 
@@ -22931,11 +23208,27 @@ function getFilteredFormationRecords_() {
   });
 }
 
+function getSelectedFormationProcess_() {
+  const requestedId = String(state.filters.formationOps.processId || "");
+  const rows = Array.isArray(state.formationProcesses) ? state.formationProcesses : [];
+
+  if (requestedId) {
+    return rows.find((item) => String(item.id || "") === requestedId) || null;
+  }
+
+  return rows[0] || null;
+}
+
 function getFilteredFormationOfferings_() {
+  const processId = String(state.filters.formationOps.processId || "");
   const levelId = String(state.filters.formationOps.levelId || "");
 
   return state.formationOfferings
     .filter((offering) => {
+      if (processId && String(offering.processId || "") !== processId) {
+        return false;
+      }
+
       if (levelId && String(offering.levelId || "") !== levelId) {
         return false;
       }
@@ -22954,7 +23247,10 @@ function getFilteredFormationOfferings_() {
 function getSelectedFormationOffering_() {
   const requestedId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "");
   const filteredOfferings = getFilteredFormationOfferings_();
-  const allOfferings = state.formationOfferings;
+  const allOfferings = state.formationOfferings.filter((item) => {
+    const processId = String(state.filters.formationOps.processId || "");
+    return !processId || String(item.processId || "") === processId;
+  });
 
   if (requestedId) {
     return filteredOfferings.find((item) => String(item.id || "") === requestedId)
@@ -23103,6 +23399,7 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
 function buildFormationOperationsSummary_() {
   const enrollmentRows = Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [];
   const summary = {
+    processes: state.formationProcesses.length,
     offerings: state.formationOfferings.length,
     enrollments: enrollmentRows.length,
     inProgress: 0,
@@ -25357,6 +25654,7 @@ function resetRuntimeState() {
   state.ui.welcomeNewRefreshing = false;
   state.ui.welcomeNewSnapshotSource = "";
   state.welcomeProfile = null;
+  state.formationProcesses = [];
   state.formationCatalog = [];
   state.formationRecords = [];
   state.formationCandidates = [];
@@ -25385,6 +25683,7 @@ function resetRuntimeState() {
     qrSummary: "",
     dashboardSeasonMatrix: "",
     welcomePeople: "",
+    formationProcesses: "",
     formationRecords: "",
     formationCandidates: "",
     formationOfferings: "",
@@ -25402,6 +25701,7 @@ function resetRuntimeState() {
     users: false,
     telegramConfig: false,
     welcome: false,
+    formationProcesses: false,
     formationCatalog: false,
     formationRecords: false,
     formationCandidates: false,
@@ -25448,6 +25748,7 @@ function resetRuntimeState() {
     editingMinistryId: "",
     editingUserEmail: "",
     editingWelcomeNewId: "",
+    editingFormationProcessId: "",
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     editingFormationOfferingId: "",
@@ -25538,6 +25839,7 @@ function resetRuntimeState() {
     search: ""
   };
   state.filters.formationOps = {
+    processId: "",
     levelId: "",
     offeringId: "",
     enrollmentStatus: "ALL",
