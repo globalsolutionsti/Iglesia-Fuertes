@@ -3219,6 +3219,10 @@ tbody tr:hover {
   margin-top: 16px;
 }
 
+.dashboard-overview-segment-grid.dashboard-overview-segment-grid-extended {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .dashboard-overview-segment-card {
   display: grid;
   gap: 12px;
@@ -3439,6 +3443,10 @@ tbody tr:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.dashboard-overview-card .dashboard-kpi-card-base {
+  grid-column: 1 / -1;
+}
+
 .dashboard-summary-grid .summary-box:not(.dashboard-kpi-card) {
   background: rgba(255, 255, 255, 0.88);
 }
@@ -3487,6 +3495,13 @@ tbody tr:hover {
   border-color: rgba(184, 132, 30, 0.2);
   box-shadow: 0 22px 42px rgba(206, 160, 66, 0.18);
   color: #1f2937;
+}
+
+.dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-heart {
+  background: linear-gradient(145deg, #f8ecff 0%, #d6b6f1 100%);
+  border-color: rgba(124, 58, 237, 0.16);
+  box-shadow: 0 22px 42px rgba(142, 92, 193, 0.16);
+  color: #2d1a42;
 }
 
 .dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-marriages {
