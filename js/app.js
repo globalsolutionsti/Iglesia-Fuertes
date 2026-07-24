@@ -10621,6 +10621,9 @@ function renderDashboardView() {
   const selectedSessionDate = selectedSessionSummary?.date ? formatDate(selectedSessionSummary.date) : "Sin fecha";
   const selectedSessionAttendanceBase = Number(selectedSessionSummary?.capturedBaseTotal || 0);
   const globalAttendancePercentLabel = selectedSessionAttendance > 0 ? "100%" : "S/C";
+  const selectedSessionRegisteredVsAttendanceLabel = selectedSessionAttendanceBase
+    ? formatDashboardGlobalPercent_(selectedSessionAttendance, selectedSessionAttendanceBase)
+    : "S/C";
   const dashboardOverviewSegmentGridClassName = attendanceSegments.length > 3
     ? "dashboard-overview-segment-grid dashboard-overview-segment-grid-extended"
     : "dashboard-overview-segment-grid";
@@ -10722,6 +10725,24 @@ function renderDashboardView() {
               </div>
               <p class="dashboard-dual-metric-copy">
                 ${escapeHtml(selectedSessionDate)} · ${selectedSessionAttendanceBase ? `Base capturada ${selectedSessionAttendanceBase}` : "Sin captura todavia"}
+              </p>
+            </div>
+            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-total">
+              <span class="status-chip neutral">Total Asistentes</span>
+              <div class="dashboard-dual-metric">
+                <div class="dashboard-dual-metric-total-block">
+                  <small>Total de inscritos</small>
+                  <strong>${escapeHtml(String(selectedSessionAttendanceBase || 0))}</strong>
+                </div>
+                <div class="dashboard-dual-metric-highlight">
+                  <span class="dashboard-dual-metric-percent">${escapeHtml(String(selectedSessionAttendance || 0))}</span>
+                  <small>total de asistentes</small>
+                </div>
+              </div>
+              <p class="dashboard-dual-metric-copy">
+                ${selectedSessionAttendanceBase
+                  ? escapeHtml(`${selectedSessionRegisteredVsAttendanceLabel} de asistencia sobre inscritos en ${selectedSessionLabel}.`)
+                  : "Todavia no hay base capturada para esta sesion."}
               </p>
             </div>
             ${attendanceSegmentSummaryCardsHtml}
