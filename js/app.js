@@ -303,6 +303,8 @@ const state = {
     editingFormationLevelId: "",
     editingFormationRecordId: "",
     editingFormationOfferingId: "",
+    formationProcessSaving: false,
+    formationProcessSavingMessage: "",
     formationSection: "route",
     formationProfileLoading: false,
     formationProfileLoadingPersonId: "",
@@ -6629,7 +6631,11 @@ function renderFormationLevelsWorkspace_(context) {
           <h2>${editingProcess ? "Editar Proceso de Formación" : "Crear Proceso de Formación"}</h2>
           <p>Este proceso agrupa una generación completa. Aquí solo defines el contenedor principal y después programas la ruta dentro de él.</p>
         </div>
-        <span class="pill dark">${escapeHtml(String(processRows.length))} procesos</span>
+        <span class="pill ${state.ui.formationProcessSaving ? "warning" : "dark"}">
+          ${state.ui.formationProcessSaving
+            ? escapeHtml(state.ui.formationProcessSavingMessage || "Guardando...")
+            : escapeHtml(`${String(processRows.length)} procesos`)}
+        </span>
       </div>
 
       <form id="formation-process-form">
@@ -6659,8 +6665,14 @@ function renderFormationLevelsWorkspace_(context) {
         </div>
 
         <div class="actions-row">
-          <button class="btn btn-primary" type="submit">${editingProcess ? "Guardar proceso" : "Crear proceso"}</button>
-          <button class="btn btn-ghost" type="button" data-action="clear-formation-process-form" ${editingProcess ? "" : "disabled"}>Limpiar</button>
+          <button class="btn btn-primary" type="submit" ${state.ui.formationProcessSaving ? "disabled" : ""}>
+            ${escapeHtml(
+              state.ui.formationProcessSaving
+                ? (editingProcess ? "Guardando proceso..." : "Creando proceso...")
+                : (editingProcess ? "Guardar proceso" : "Crear proceso")
+            )}
+          </button>
+          <button class="btn btn-ghost" type="button" data-action="clear-formation-process-form" ${editingProcess && !state.ui.formationProcessSaving ? "" : "disabled"}>Limpiar</button>
         </div>
       </form>
     </article>
@@ -21670,26 +21682,35 @@ async function saveFormationProcess_(rawPayload) {
 
   let savedProcess = null;
 
-  await withLoading(async () => {
-    savedProcess = await apiPost("formation.processes.save", payload);
-    state.ui.editingFormationProcessId = "";
-    state.filters.formationOps.processId = savedProcess?.id || "";
-    state.filters.formationOps.offeringId = "";
-    state.ui.selectedFormationOfferingId = "";
-    state.ui.editingFormationOfferingId = "";
-    state.qrScanner.result = null;
-    state.formationQrActivity = [];
-    await loadFormationProcesses_({
-      force: true,
-      showLoading: false
-    });
-    await loadFormationOperationsData_({
-      force: true,
-      showLoading: false,
-      processId: state.filters.formationOps.processId,
-      sessionNumber: "1"
-    });
-  }, payload.id ? "Actualizando Proceso de Formación..." : "Creando Proceso de Formación...");
+  state.ui.formationProcessSaving = true;
+  state.ui.formationProcessSavingMessage = payload.id ? "Guardando..." : "Creando...";
+  renderApp();
+
+  try {
+    await withLoading(async () => {
+      savedProcess = await apiPost("formation.processes.save", payload);
+      state.ui.editingFormationProcessId = "";
+      state.filters.formationOps.processId = savedProcess?.id || "";
+      state.filters.formationOps.offeringId = "";
+      state.ui.selectedFormationOfferingId = "";
+      state.ui.editingFormationOfferingId = "";
+      state.qrScanner.result = null;
+      state.formationQrActivity = [];
+      await loadFormationProcesses_({
+        force: true,
+        showLoading: false
+      });
+      await loadFormationOperationsData_({
+        force: true,
+        showLoading: false,
+        processId: state.filters.formationOps.processId,
+        sessionNumber: "1"
+      });
+    }, payload.id ? "Actualizando Proceso de Formación..." : "Creando Proceso de Formación...");
+  } finally {
+    state.ui.formationProcessSaving = false;
+    state.ui.formationProcessSavingMessage = "";
+  }
 
   state.ui.formationSection = "levels";
   showToast(
