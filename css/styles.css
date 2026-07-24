@@ -3444,7 +3444,7 @@ tbody tr:hover {
 }
 
 .dashboard-overview-card .dashboard-kpi-card-base {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .dashboard-summary-grid .summary-box:not(.dashboard-kpi-card) {
@@ -3502,6 +3502,13 @@ tbody tr:hover {
   border-color: rgba(124, 58, 237, 0.16);
   box-shadow: 0 22px 42px rgba(142, 92, 193, 0.16);
   color: #2d1a42;
+}
+
+.dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-total {
+  background: linear-gradient(145deg, #f4f6f8 0%, #d7dde3 100%);
+  border-color: rgba(63, 81, 101, 0.14);
+  box-shadow: 0 22px 42px rgba(84, 99, 115, 0.14);
+  color: #1f2937;
 }
 
 .dashboard-summary-grid .summary-box.dashboard-kpi-card.dashboard-kpi-card-marriages {
