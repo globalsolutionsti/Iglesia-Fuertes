@@ -9700,6 +9700,12 @@ function formatDashboardGlobalPercent_(value, total) {
 function getDashboardSegmentConfigs_() {
   return [
     {
+      id: "heart",
+      label: "Corazón Sabio",
+      description: "Corazón Sabio y Corazón Sabio Online",
+      groupNames: ["corazon sabio", "corazon sabio online"]
+    },
+    {
       id: "youth",
       label: "Jóvenes",
       description: "Switch On, Exteens, Fearless y Unlimited",
@@ -9718,6 +9724,21 @@ function getDashboardSegmentConfigs_() {
       groupNames: ["entre mujeres", "hombres de valor"]
     }
   ];
+}
+
+function getDashboardSegmentKpiCardClassName_(segmentId) {
+  switch (String(segmentId || "")) {
+    case "heart":
+      return "dashboard-kpi-card-heart";
+    case "youth":
+      return "dashboard-kpi-card-youth";
+    case "marriages":
+      return "dashboard-kpi-card-marriages";
+    case "menWomen":
+      return "dashboard-kpi-card-adults";
+    default:
+      return "dashboard-kpi-card-youth";
+  }
 }
 
 function getDashboardGroupSessionSnapshot_(group, sessionId) {
@@ -10600,6 +10621,25 @@ function renderDashboardView() {
   const selectedSessionDate = selectedSessionSummary?.date ? formatDate(selectedSessionSummary.date) : "Sin fecha";
   const selectedSessionAttendanceBase = Number(selectedSessionSummary?.capturedBaseTotal || 0);
   const globalAttendancePercentLabel = selectedSessionAttendance > 0 ? "100%" : "S/C";
+  const dashboardOverviewSegmentGridClassName = attendanceSegments.length > 3
+    ? "dashboard-overview-segment-grid dashboard-overview-segment-grid-extended"
+    : "dashboard-overview-segment-grid";
+  const attendanceSegmentSummaryCardsHtml = attendanceSegments.map((segment) => `
+    <div class="summary-box dashboard-kpi-card ${getDashboardSegmentKpiCardClassName_(segment.id)}">
+      <span class="status-chip neutral">${escapeHtml(segment.label)}</span>
+      <div class="dashboard-dual-metric">
+        <div class="dashboard-dual-metric-total-block">
+          <small>Asistentes</small>
+          <strong>${escapeHtml(String(segment.presentTotal || 0))}</strong>
+        </div>
+        <div class="dashboard-dual-metric-highlight">
+          <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(segment.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
+          <small>del global</small>
+        </div>
+      </div>
+      <p class="dashboard-dual-metric-copy">${escapeHtml(segment.description || "")}.</p>
+    </div>
+  `).join("");
   const dashboardHydrating = Boolean(state.ui.dashboardHydrating);
   const dashboardHydratingMessage = state.ui.dashboardHydratingMessage || "Preparando Dashboard Iglesia...";
   const canRenderDashboardContent = Boolean(hasSeasonData && seasonMatrix);
@@ -10684,51 +10724,10 @@ function renderDashboardView() {
                 ${escapeHtml(selectedSessionDate)} · ${selectedSessionAttendanceBase ? `Base capturada ${selectedSessionAttendanceBase}` : "Sin captura todavia"}
               </p>
             </div>
-            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-youth">
-              <span class="status-chip neutral">Jóvenes</span>
-              <div class="dashboard-dual-metric">
-                <div class="dashboard-dual-metric-total-block">
-                  <small>Asistentes</small>
-                  <strong>${escapeHtml(String(attendanceSegments[0]?.presentTotal || 0))}</strong>
-                </div>
-                <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(attendanceSegments[0]?.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
-                  <small>del global</small>
-                </div>
-              </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(attendanceSegments[0]?.description || "")}.</p>
-            </div>
-            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-marriages">
-              <span class="status-chip neutral">Matrimonios</span>
-              <div class="dashboard-dual-metric">
-                <div class="dashboard-dual-metric-total-block">
-                  <small>Asistentes</small>
-                  <strong>${escapeHtml(String(attendanceSegments[1]?.presentTotal || 0))}</strong>
-                </div>
-                <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(attendanceSegments[1]?.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
-                  <small>del global</small>
-                </div>
-              </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(attendanceSegments[1]?.description || "")}.</p>
-            </div>
-            <div class="summary-box dashboard-kpi-card dashboard-kpi-card-adults">
-              <span class="status-chip neutral">Hombres y Mujeres</span>
-              <div class="dashboard-dual-metric">
-                <div class="dashboard-dual-metric-total-block">
-                  <small>Asistentes</small>
-                  <strong>${escapeHtml(String(attendanceSegments[2]?.presentTotal || 0))}</strong>
-                </div>
-                <div class="dashboard-dual-metric-highlight">
-                  <span class="dashboard-dual-metric-percent">${escapeHtml(selectedSessionAttendance ? formatDashboardGlobalPercent_(attendanceSegments[2]?.presentTotal || 0, selectedSessionAttendance) : "S/C")}</span>
-                  <small>del global</small>
-                </div>
-              </div>
-              <p class="dashboard-dual-metric-copy">${escapeHtml(attendanceSegments[2]?.description || "")}.</p>
-            </div>
+            ${attendanceSegmentSummaryCardsHtml}
           </div>
 
-          <div class="dashboard-overview-segment-grid">
+          <div class="${dashboardOverviewSegmentGridClassName}">
             ${attendanceSegments.map((segment) => `
               <article class="dashboard-overview-segment-card">
                 <div class="dashboard-overview-segment-head">
@@ -11313,6 +11312,7 @@ function buildDashboardSegmentSessionMatrix_(seasonMatrix, sessionTotals) {
       label: session?.shortLabel || session?.name || sessionId || "Sesion",
       date: session?.date || "",
       globalAttendance: Number(segmentState?.globalAttendance || session?.presentTotal || 0),
+      heart: getSegment("heart"),
       youth: getSegment("youth"),
       marriages: getSegment("marriages"),
       menWomen: getSegment("menWomen")
@@ -11604,15 +11604,16 @@ function buildDashboardPastorReportBodyHtml_(report) {
 
     ${renderDashboardReportSectionHtml_(
       "Lectura ejecutiva por sesión",
-      "Replica lo que ve el Pastor en Dashboard Iglesia: asistencia global, Jóvenes, Matrimonios y Hombres y Mujeres en cada sesión.",
+      "Replica lo que ve el Pastor en Dashboard Iglesia: asistencia global, Corazón Sabio, Jóvenes, Matrimonios y Hombres y Mujeres en cada sesión.",
       `
-        <p>Jóvenes: Switch On, Exteens, Fearless y Unlimited. Matrimonios: Inseparables. Hombres y Mujeres: Entre Mujeres y Hombres de Valor.</p>
+        <p>Corazón Sabio: Corazón Sabio y Corazón Sabio Online. Jóvenes: Switch On, Exteens, Fearless y Unlimited. Matrimonios: Inseparables. Hombres y Mujeres: Entre Mujeres y Hombres de Valor.</p>
         ${renderDashboardReportTableHtml_(
-          ["Sesión", "Fecha", "Asistencia global", "Jóvenes", "Matrimonios", "Hombres y Mujeres"],
+          ["Sesión", "Fecha", "Asistencia global", "Corazón Sabio", "Jóvenes", "Matrimonios", "Hombres y Mujeres"],
           segmentRows.map((row) => [
             row.label || "Sesión",
             formatDate(row.date) || "-",
             String(row.globalAttendance || 0),
+            formatDashboardSegmentCellLabel_(row.heart, row.globalAttendance),
             formatDashboardSegmentCellLabel_(row.youth, row.globalAttendance),
             formatDashboardSegmentCellLabel_(row.marriages, row.globalAttendance),
             formatDashboardSegmentCellLabel_(row.menWomen, row.globalAttendance)
@@ -12094,6 +12095,7 @@ function buildDashboardPdfSegmentSessionRows_(report) {
     row.label || "Sesion",
     formatDate(row.date) || "-",
     String(row.globalAttendance || 0),
+    formatDashboardSegmentCellLabel_(row.heart, row.globalAttendance),
     formatDashboardSegmentCellLabel_(row.youth, row.globalAttendance),
     formatDashboardSegmentCellLabel_(row.marriages, row.globalAttendance),
     formatDashboardSegmentCellLabel_(row.menWomen, row.globalAttendance)
@@ -12371,7 +12373,7 @@ function addDashboardPastorPdfSummaryPage_(doc, report, logoDataUrl) {
   doc.setFontSize(8);
   doc.setTextColor(96, 96, 96);
   doc.text(
-    "Jovenes: Switch On, Exteens, Fearless y Unlimited | Matrimonios: Inseparables | Hombres y Mujeres: Entre Mujeres y Hombres de Valor",
+    "Corazon Sabio: Corazon Sabio y Corazon Sabio Online | Jovenes: Switch On, Exteens, Fearless y Unlimited | Matrimonios: Inseparables | Hombres y Mujeres: Entre Mujeres y Hombres de Valor",
     26,
     cursorY + 12,
     {
@@ -12380,7 +12382,7 @@ function addDashboardPastorPdfSummaryPage_(doc, report, logoDataUrl) {
   );
   doc.autoTable({
     startY: cursorY + 20,
-    head: [["Sesion", "Fecha", "Asistencia global", "Jovenes", "Matrimonios", "Hombres y Mujeres"]],
+    head: [["Sesion", "Fecha", "Asistencia global", "Corazon Sabio", "Jovenes", "Matrimonios", "Hombres y Mujeres"]],
     body: buildDashboardPdfSegmentSessionRows_(report),
     theme: "grid",
     margin: {
@@ -12417,15 +12419,19 @@ function addDashboardPastorPdfSummaryPage_(doc, report, logoDataUrl) {
         halign: "center"
       },
       3: {
-        cellWidth: 82,
+        cellWidth: 86,
         halign: "center"
       },
       4: {
-        cellWidth: 82,
+        cellWidth: 78,
         halign: "center"
       },
       5: {
-        cellWidth: 92,
+        cellWidth: 74,
+        halign: "center"
+      },
+      6: {
+        cellWidth: 82,
         halign: "center"
       }
     }
