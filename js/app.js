@@ -6665,7 +6665,7 @@ function renderFormationLevelsWorkspace_(context) {
         </div>
 
         <div class="actions-row">
-          <button class="btn btn-primary" type="submit" ${state.ui.formationProcessSaving ? "disabled" : ""}>
+          <button class="btn btn-primary" type="button" data-action="submit-formation-process" ${state.ui.formationProcessSaving ? "disabled" : ""}>
             ${escapeHtml(
               state.ui.formationProcessSaving
                 ? (editingProcess ? "Guardando proceso..." : "Creando proceso...")
@@ -17444,6 +17444,22 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "submit-formation-process") {
+      const form = button.closest("form") || document.getElementById("formation-process-form");
+
+      if (!(form instanceof HTMLFormElement)) {
+        throw new Error("FORMATION_PROCESS_FORM_NOT_FOUND");
+      }
+
+      if (typeof form.reportValidity === "function" && !form.reportValidity()) {
+        return;
+      }
+
+      const payload = Object.fromEntries(new FormData(form).entries());
+      await saveFormationProcess_(payload);
+      return;
+    }
+
     if (action === "clear-formation-process-form") {
       state.ui.editingFormationProcessId = "";
       renderApp();
@@ -21694,18 +21710,23 @@ async function saveFormationProcess_(rawPayload) {
       state.filters.formationOps.offeringId = "";
       state.ui.selectedFormationOfferingId = "";
       state.ui.editingFormationOfferingId = "";
+      state.ui.selectedFormationEnrollmentId = "";
       state.qrScanner.result = null;
       state.formationQrActivity = [];
       await loadFormationProcesses_({
         force: true,
         showLoading: false
       });
-      await loadFormationOperationsData_({
-        force: true,
-        showLoading: false,
-        processId: state.filters.formationOps.processId,
-        sessionNumber: "1"
-      });
+      state.formationOfferings = [];
+      state.formationEnrollments = [];
+      state.formationAttendanceContext = null;
+      state.loaded.formationOfferings = false;
+      state.loaded.formationEnrollments = false;
+      state.loaded.formationAttendanceContext = false;
+      state.cacheKeys.formationOfferings = "";
+      state.cacheKeys.formationEnrollments = "";
+      state.cacheKeys.formationAttendanceContext = "";
+      state.filters.formationOps.sessionNumber = "1";
     }, payload.id ? "Actualizando Proceso de Formación..." : "Creando Proceso de Formación...");
   } finally {
     state.ui.formationProcessSaving = false;
