@@ -10699,8 +10699,6 @@ function renderDashboardView() {
       ${!canRenderDashboardContent ? `
         ${dashboardHydrating ? "" : `<div class="empty-state">${escapeHtml(dashboardEmptyMessage)}</div>`}
       ` : `
-        ${renderDashboardReportCenter_()}
-
         <article class="detail-card dashboard-overview-card module-section-anchor" id="dashboard-overview">
           <div class="panel-head">
             <div>
@@ -10710,7 +10708,7 @@ function renderDashboardView() {
             <span class="pill dark">${escapeHtml(selectedSessionLabel)}</span>
           </div>
 
-          <div class="summary-stack dashboard-summary-grid">
+          <div class="summary-stack dashboard-summary-grid dashboard-summary-grid-executive">
             <div class="summary-box dashboard-kpi-card dashboard-kpi-card-base">
               <span class="status-chip success">Asistencia global</span>
               <div class="dashboard-dual-metric">
@@ -10773,6 +10771,8 @@ function renderDashboardView() {
             `).join("")}
           </div>
         </article>
+
+        ${renderDashboardReportCenter_()}
 
         <article class="panel-card dashboard-group-focus-card module-section-anchor" id="dashboard-group-focus">
           <div class="panel-head">
