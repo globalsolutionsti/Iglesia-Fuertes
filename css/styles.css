@@ -6518,62 +6518,72 @@ tbody tr:hover {
 
   .app-shell.view-dashboard .dashboard-kpi-card .status-chip {
     font-size: 10px;
+    margin-bottom: 4px;
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
     align-items: stretch;
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric-total-block,
   .app-shell.view-dashboard .dashboard-dual-metric-highlight {
-    gap: 2px;
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(17, 17, 17, 0.08);
+    background: rgba(255, 255, 255, 0.46);
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric-highlight {
-    justify-items: start;
+    justify-items: stretch;
     text-align: left;
-    padding-top: 10px;
-    border-top: 1px solid rgba(17, 17, 17, 0.12);
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-end;
   }
 
   .app-shell.view-dashboard .dashboard-kpi-card-base .dashboard-dual-metric-highlight {
-    border-top-color: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.14);
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric-total-block strong {
-    font-size: 24px;
+    font-size: 22px;
+    line-height: 1;
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric-percent {
-    font-size: 26px;
+    font-size: 24px;
+    line-height: 1;
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric-total-block small,
   .app-shell.view-dashboard .dashboard-dual-metric-highlight small {
-    font-size: 10px;
-    letter-spacing: 0.04em;
+    font-size: 9px;
+    letter-spacing: 0.03em;
+    line-height: 1.25;
   }
 
   .app-shell.view-dashboard .dashboard-dual-metric-copy {
-    margin-top: 6px;
-    font-size: 12px;
-    line-height: 1.4;
-  }
-
-  .app-shell.view-dashboard .dashboard-kpi-card-total .dashboard-dual-metric-total-block,
-  .app-shell.view-dashboard .dashboard-kpi-card-total .dashboard-dual-metric-highlight {
-    padding: 10px 12px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.42);
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   .app-shell.view-dashboard .dashboard-kpi-card-base .dashboard-dual-metric-total-block,
   .app-shell.view-dashboard .dashboard-kpi-card-base .dashboard-dual-metric-highlight {
-    padding: 10px 12px;
-    border-radius: 14px;
     background: rgba(255, 255, 255, 0.08);
+  }
+
+  .app-shell.view-dashboard .dashboard-kpi-card-total .dashboard-dual-metric-total-block,
+  .app-shell.view-dashboard .dashboard-kpi-card-total .dashboard-dual-metric-highlight {
+    background: rgba(255, 255, 255, 0.62);
+  }
+
+  .app-shell.view-dashboard .dashboard-summary-grid-executive .dashboard-kpi-card:not(.dashboard-kpi-card-base):not(.dashboard-kpi-card-total) .dashboard-dual-metric-copy {
+    display: none;
   }
 
   .app-shell.view-dashboard .dashboard-overview-segment-card .dashboard-filter-actions {
