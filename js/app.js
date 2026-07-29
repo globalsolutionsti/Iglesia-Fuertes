@@ -336,6 +336,7 @@ const state = {
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
+    adminLeaderAccountEmail: "",
     loginMode: "admin",
     confirmation: null
   },
@@ -2152,6 +2153,7 @@ function renderApp() {
 
     ${renderSystemConfirmationDialog_()}
     ${renderWelcomeActionModal_()}
+    ${renderAdminLeaderAccountModal_()}
   `;
 
   schedulePostRenderSync_();
@@ -2184,6 +2186,67 @@ function renderSystemConfirmationDialog_() {
         <div class="actions-row">
           <button class="btn btn-ghost" data-action="cancel-system-confirmation">${escapeHtml(confirmation.cancelLabel || "Cancelar")}</button>
           <button class="btn ${confirmation.tone === "danger" ? "btn-danger" : "btn-primary"}" data-action="confirm-system-action">${escapeHtml(confirmation.confirmLabel || "Confirmar")}</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderAdminLeaderAccountModal_() {
+  const leader = getSelectedAdminLeaderAccount_();
+
+  if (!leader) {
+    return "";
+  }
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card leader-account-modal" role="dialog" aria-modal="true" aria-labelledby="leader-account-modal-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="leader-account-modal-title">Acceso del líder</h2>
+            <p>Consulta la cuenta automática, valida su alcance y envía el acceso por el canal que necesites.</p>
+          </div>
+          <span class="pill ${escapeHtml(leader.synced ? "success" : "warning")}">${escapeHtml(leader.synced ? "Cuenta creada" : "Lista para crear")}</span>
+        </div>
+
+        <div class="summary-stack leader-account-modal-summary">
+          <div class="summary-box">
+            <span class="status-chip neutral">Líder</span>
+            <strong>${escapeHtml(leader.name || "Sin nombre")}</strong>
+            <span>${escapeHtml(leader.email || "Sin correo técnico")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Grupos</span>
+            <strong>${escapeHtml(String(leader.groups.length || 0))}</strong>
+            <span>${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo vinculado")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip ${leader.phones.length ? "success" : "warning"}">Contacto</span>
+            <strong>${escapeHtml(leader.phones.length ? leader.phones.join(" / ") : "Sin teléfono")}</strong>
+            <span>${escapeHtml(leader.telegramReady ? "Telegram ya vinculado" : "Telegram pendiente de vincular")}</span>
+          </div>
+        </div>
+
+        <div class="leader-account-modal-detail">
+          <div class="leader-account-modal-line">
+            <strong>Estado de la cuenta</strong>
+            <span>${escapeHtml(leader.synced ? (leader.user?.status || "Activa") : "Pendiente de creación")}</span>
+          </div>
+          <div class="leader-account-modal-line">
+            <strong>Permisos</strong>
+            <span>${escapeHtml(leader.user?.permissions?.map((permission) => getPermissionLabel_(permission)).join(" / ") || "participants / attendance")}</span>
+          </div>
+          <div class="leader-account-modal-line">
+            <strong>Grupo(s) visibles</strong>
+            <span>${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-ghost" data-action="close-admin-leader-account-modal">Cerrar</button>
+          <button class="btn btn-secondary" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>Preparar WhatsApp</button>
+          <button class="btn btn-primary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}" ${leader.telegramReady ? "" : "disabled"}>Enviar acceso por Telegram</button>
         </div>
       </section>
     </div>
@@ -8958,14 +9021,31 @@ function buildLeaderAutoAccountRows_() {
   return Array.from(buckets.values())
     .map((row) => {
       const matchedUser = byEmail.get(String(row.email || "").toLowerCase()) || null;
+      const synced = Boolean(matchedUser);
+      const telegramReady = Boolean(row.telegramLinked);
+      const operationalStatus = synced
+        ? (telegramReady ? { label: "Listo para enviar", tone: "success" } : { label: "Falta Telegram", tone: "warning" })
+        : { label: "Pendiente de creación", tone: "dark" };
       return {
         ...row,
         user: matchedUser,
-        synced: Boolean(matchedUser),
-        status: matchedUser?.status || (row.telegramLinked ? "LISTO" : "PENDIENTE")
+        synced,
+        telegramReady,
+        status: matchedUser?.status || "",
+        operationalStatus
       };
     })
     .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es"));
+}
+
+function getSelectedAdminLeaderAccount_() {
+  const email = String(state.ui.adminLeaderAccountEmail || "").trim().toLowerCase();
+
+  if (!email) {
+    return null;
+  }
+
+  return buildLeaderAutoAccountRows_().find((leader) => String(leader.email || "").toLowerCase() === email) || null;
 }
 
 function renderAdminUsersView_() {
@@ -9016,18 +9096,16 @@ function renderAdminUsersView_() {
                     <h3>${escapeHtml(leader.name || "Líder sin nombre")}</h3>
                     <p>${escapeHtml(leader.email)}</p>
                   </div>
-                  ${renderPill(leader.status || "PENDIENTE")}
+                  <span class="pill ${escapeHtml(leader.operationalStatus?.tone || "dark")}">${escapeHtml(leader.operationalStatus?.label || "Pendiente")}</span>
                 </div>
                 <div class="leader-auto-meta">
                   <span><strong>Grupo(s):</strong> ${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
                   <span><strong>Teléfono(s):</strong> ${escapeHtml(leader.phones.join(" / ") || "Sin teléfono")}</span>
                 </div>
                 <div class="inline-actions leader-auto-actions">
-                  <button class="btn btn-secondary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}">Enviar Telegram</button>
-                  <button class="btn btn-ghost" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>Preparar WhatsApp</button>
-                  ${leader.user ? `
-                    <button class="btn btn-ghost" data-action="edit-admin-user" data-user-email="${escapeHtml(leader.user.email)}">Ver cuenta</button>
-                  ` : ``}
+                  <button class="btn btn-primary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}" ${leader.telegramReady ? "" : "disabled"}>Enviar acceso</button>
+                  <button class="btn btn-secondary" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>WhatsApp</button>
+                  <button class="btn btn-ghost" data-action="open-admin-leader-account-modal" data-user-email="${escapeHtml(leader.email)}">Detalle</button>
                 </div>
               </article>
             `).join("")}
@@ -17349,6 +17427,18 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "open-admin-leader-account-modal") {
+      state.ui.adminLeaderAccountEmail = String(button.dataset.userEmail || "").trim();
+      renderApp();
+      return;
+    }
+
+    if (action === "close-admin-leader-account-modal") {
+      state.ui.adminLeaderAccountEmail = "";
+      renderApp();
+      return;
+    }
+
     if (action === "send-leader-access-telegram") {
       const email = String(button.dataset.userEmail || "").trim();
 
@@ -22315,7 +22405,32 @@ async function saveCatalogGroupForm_(form) {
   }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
 
   state.ui.editingGroupId = String(savedGroup?.id || payload.id || "");
-  showToast("Catalogo actualizado", "El grupo quedó guardado y las cuentas automáticas de sus líderes ya quedaron sincronizadas.", "success");
+  const notifications = Array.isArray(savedGroup?.leaderAccessNotifications) ? savedGroup.leaderAccessNotifications : [];
+  const sentCount = notifications.filter((item) => String(item?.status || "").toUpperCase() === "ENVIADO").length;
+  const pendingCount = notifications.filter((item) => String(item?.status || "").toUpperCase() === "PENDIENTE_VINCULO").length;
+  const disabledCount = notifications.filter((item) => String(item?.status || "").toUpperCase() === "TELEGRAM_INACTIVO").length;
+  const errorCount = notifications.filter((item) => String(item?.status || "").toUpperCase() === "ERROR").length;
+
+  let toastTitle = "Catalogo actualizado";
+  let toastMessage = "El grupo quedó guardado y las cuentas automáticas de sus líderes ya quedaron sincronizadas.";
+  let toastTone = "success";
+
+  if (sentCount > 0 || pendingCount > 0 || disabledCount > 0 || errorCount > 0) {
+    toastMessage = [
+      "El grupo quedó guardado.",
+      sentCount ? `${sentCount} acceso(s) se enviaron automáticamente por Telegram.` : "",
+      pendingCount ? `${pendingCount} líder(es) aún no tienen Telegram vinculado.` : "",
+      disabledCount ? `${disabledCount} caso(s) no se enviaron porque Telegram está inactivo o sin configurar.` : "",
+      errorCount ? `${errorCount} envío(s) presentaron error y conviene revisarlos desde Administración.` : ""
+    ].filter(Boolean).join(" ");
+
+    if (errorCount > 0 || pendingCount > 0 || disabledCount > 0) {
+      toastTitle = sentCount > 0 ? "Guardado con observaciones" : "Guardado pendiente";
+      toastTone = sentCount > 0 ? "warning" : "warning";
+    }
+  }
+
+  showToast(toastTitle, toastMessage, toastTone);
   renderApp();
 }
 
