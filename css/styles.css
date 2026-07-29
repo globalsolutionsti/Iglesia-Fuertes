@@ -4121,6 +4121,119 @@ tbody tr:hover {
   min-height: 52px;
 }
 
+.connection-candidate-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.connection-candidate-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+  gap: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfb 100%);
+  box-shadow: 0 12px 30px rgba(17, 17, 17, 0.04);
+}
+
+.connection-candidate-card-success {
+  border-color: rgba(39, 124, 73, 0.18);
+  background: linear-gradient(180deg, rgba(240, 250, 244, 0.96) 0%, #ffffff 100%);
+}
+
+.connection-candidate-card-danger {
+  border-color: rgba(190, 60, 60, 0.16);
+  background: linear-gradient(180deg, rgba(255, 243, 243, 0.95) 0%, #ffffff 100%);
+}
+
+.connection-candidate-card-warning {
+  border-color: rgba(194, 138, 38, 0.18);
+  background: linear-gradient(180deg, rgba(255, 249, 240, 0.96) 0%, #ffffff 100%);
+}
+
+.connection-candidate-main,
+.connection-candidate-followup {
+  display: grid;
+  gap: 14px;
+}
+
+.connection-candidate-identity {
+  display: grid;
+  gap: 8px;
+}
+
+.connection-candidate-identity strong {
+  font-size: 28px;
+  line-height: 1.02;
+  letter-spacing: -0.05em;
+}
+
+.connection-candidate-identity > span:last-of-type {
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.connection-candidate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.connection-candidate-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.connection-candidate-stat,
+.connection-candidate-telegram {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  gap: 6px;
+}
+
+.connection-candidate-stat label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.connection-candidate-stat strong {
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.connection-candidate-stat span,
+.connection-candidate-telegram span:not(.status-chip) {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.connection-candidate-telegram strong {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.connection-candidate-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connection-candidate-actions .btn {
+  min-height: 48px;
+}
+
 .participants-bulk-builder {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -5553,6 +5666,24 @@ tbody tr:hover {
 
   .pending-prospect-overview {
     grid-template-columns: 1fr;
+  }
+
+  .connection-candidate-card {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .connection-candidate-identity strong {
+    font-size: 22px;
+  }
+
+  .connection-candidate-stats,
+  .connection-candidate-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .connection-candidate-stat strong {
+    font-size: 22px;
   }
 
   .participants-context-bar-head {
