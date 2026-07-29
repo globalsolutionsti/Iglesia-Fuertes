@@ -17652,7 +17652,9 @@ async function handleClick(event) {
         delete state.sessionsBySeason[button.dataset.seasonId];
         await refreshSeasons();
         await ensureSessionsForSeason(button.dataset.seasonId);
-        await loadActiveSession();
+        await loadActiveSession({
+          force: true
+        });
         invalidateDashboardSeasonMatrix_();
       }, "Actualizando sesion...");
 
@@ -17869,7 +17871,9 @@ async function handleClick(event) {
 
     if (action === "load-attendance") {
       if (state.filters.attendance.scope !== "selected") {
-        await loadActiveSession();
+        await loadActiveSession({
+          force: true
+        });
       }
       await loadAttendanceData({
         force: true
@@ -18005,7 +18009,9 @@ async function handleClick(event) {
 
       if (nextMode === "manual") {
         state.currentView = "attendance";
-        await loadActiveSession();
+        await loadActiveSession({
+          force: true
+        });
         await loadAttendanceData();
       } else {
         state.currentView = "attendance";
@@ -18086,7 +18092,9 @@ async function handleClick(event) {
 
     if (action === "refresh-active-session") {
       await withLoading(async () => {
-        await loadActiveSession();
+        await loadActiveSession({
+          force: true
+        });
         await loadQrSummary({
           force: true
         });
@@ -18506,7 +18514,9 @@ async function handleSubmit(event) {
         await refreshSeasons();
         invalidateDashboardSeasonMatrix_();
         await ensureSessionsForSeason(payload.seasonId);
-        await loadActiveSession();
+        await loadActiveSession({
+          force: true
+        });
         await syncAllFilters();
       }, "Agregando sesion...");
 
@@ -19533,7 +19543,11 @@ async function loadPeopleDirectory(options = {}) {
   return runSharedLoad_("peopleDirectory", task);
 }
 
-async function loadActiveSession() {
+async function loadActiveSession(options = {}) {
+  if (!options.force && state.loaded.activeSession) {
+    return state.activeSession;
+  }
+
   return runSharedLoad_("activeSession", async () => {
     state.activeSession = await apiGet("sessions.active");
     state.loaded.activeSession = true;
@@ -20694,25 +20708,64 @@ async function ensureCatalogsViewData_() {
 }
 
 async function ensureParticipantsViewData_(options = {}) {
-  await Promise.all([
-    state.loaded.people ? Promise.resolve() : loadPeople(),
-    loadWelcomePeople_({
+  const leaderScoped = isLeaderScopedUser_();
+
+  if (!leaderScoped) {
+    await Promise.all([
+      state.loaded.people ? Promise.resolve() : loadPeople(),
+      loadWelcomePeople_({
+        showLoading: false
+      })
+    ]);
+
+    await loadParticipantsData(options);
+    void loadConnectionEncounterCandidates_({
+      force: options.force,
       showLoading: false
     })
-  ]);
+      .then(() => {
+        if (state.currentView === "participants") {
+          renderApp();
+        }
+      })
+      .catch((error) => {
+        console.warn("No se pudo cargar la Ruta a Encuentro del grupo.", error);
+      });
+    return;
+  }
 
-  await loadParticipantsData(options);
-  void loadConnectionEncounterCandidates_({
-    force: options.force,
-    showLoading: false
-  })
+  await loadParticipantsData({
+    ...options,
+    skipSeasonAssignments: true
+  });
+
+  void Promise.allSettled([
+    state.loaded.people
+      ? Promise.resolve()
+      : (pendingResourceLoads.people || loadPeople()),
+    state.loaded.welcome
+      ? Promise.resolve()
+      : (pendingResourceLoads.welcome || loadWelcomePeople_({
+        showLoading: false
+      })),
+    state.cacheKeys.participantSeasonAssignments === String(state.filters.participants.seasonId || "")
+      ? Promise.resolve()
+      : loadParticipantSeasonAssignments_({
+        seasonId: state.filters.participants.seasonId,
+        showLoading: false
+      }),
+    loadConnectionEncounterCandidates_({
+      force: options.force,
+      showLoading: false
+    })
+  ])
     .then(() => {
       if (state.currentView === "participants") {
         renderApp();
       }
     })
     .catch((error) => {
-      console.warn("No se pudo cargar la Ruta a Encuentro del grupo.", error);
+      console.warn("No se pudo completar la carga diferida del grupo del líder.", error);
     });
 }
 
@@ -21287,11 +21340,13 @@ async function loadParticipantsData(options = {}) {
       })
     ]);
 
-    await loadParticipantSeasonAssignments_({
-      force: options.force,
-      seasonId: filter.seasonId,
-      showLoading: false
-    });
+    if (!options.skipSeasonAssignments) {
+      await loadParticipantSeasonAssignments_({
+        force: options.force,
+        seasonId: filter.seasonId,
+        showLoading: false
+      });
+    }
 
     state.participants = participants;
     state.participantContext = context;
@@ -24332,7 +24387,7 @@ async function syncAttendanceFilterState_() {
       selectedGroups = selectedGroups.filter((item) => scopedGroupIds.has(String(item?.groupId || "").trim()));
     }
     if (!selectedGroups.some((item) => String(item.groupId) === String(filter.groupId))) {
-      filter.groupId = "";
+      filter.groupId = selectedGroups.length === 1 ? String(selectedGroups[0].groupId) : "";
     }
 
     return;
@@ -24360,7 +24415,7 @@ async function syncAttendanceFilterState_() {
   }
 
   if (!groups.some((item) => String(item.groupId) === String(filter.groupId))) {
-    filter.groupId = "";
+    filter.groupId = groups.length === 1 ? String(groups[0].groupId) : "";
   }
 }
 
