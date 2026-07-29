@@ -186,6 +186,7 @@ const state = {
   user: initialStoredUser,
   apiUrl: getStoredApiUrl(),
   globalApiUrl: APP_CONFIG.defaultApiUrl,
+  globalWebUrl: "",
   currentView: initialStoredUser
     ? (initialStoredUser.sessionType === "student" ? "student-portal" : "dashboard")
     : "login",
@@ -209,6 +210,7 @@ const state = {
   formationOfferings: [],
   formationEnrollments: [],
   formationAttendanceContext: null,
+  connectionEncounterCandidates: [],
   studentPortal: null,
   studentPortalByPerson: {},
   telegramConfig: null,
@@ -234,7 +236,8 @@ const state = {
     formationCandidates: "",
     formationOfferings: "",
     formationEnrollments: "",
-    formationAttendanceContext: ""
+    formationAttendanceContext: "",
+    connectionEncounterCandidates: ""
   },
   loaded: {
     bootstrap: false,
@@ -254,6 +257,7 @@ const state = {
     formationOfferings: false,
     formationEnrollments: false,
     formationAttendanceContext: false,
+    connectionEncounterCandidates: false,
     studentPortal: false
   },
   catalogs: {
@@ -434,6 +438,7 @@ const pendingResourceLoads = {
   formationEnrollments: null,
   formationAttendanceContext: null,
   formationProfile: null,
+  connectionEncounterCandidates: null,
   studentPortal: null
 };
 
@@ -482,7 +487,9 @@ async function init() {
       void bootstrapStudentPortal_().catch(handleError);
     } else {
       bootstrapApplicationInBackground_({
-        message: "Preparando Dashboard Iglesia..."
+        message: state.currentView === "dashboard"
+          ? "Preparando Dashboard Iglesia..."
+          : "Preparando tu grupo de conexión..."
       });
     }
   }
@@ -503,6 +510,7 @@ async function resolveApiUrlConfiguration_() {
     const resolvedGlobalUrl = configuredGlobalUrl || APP_CONFIG.defaultApiUrl;
 
     state.globalApiUrl = resolvedGlobalUrl;
+    state.globalWebUrl = String(config?.webUrl || "").trim();
     setRuntimeApiUrl(resolvedGlobalUrl);
 
     if (!localOverrideActive) {
@@ -510,6 +518,7 @@ async function resolveApiUrlConfiguration_() {
     }
   } catch (error) {
     state.globalApiUrl = APP_CONFIG.defaultApiUrl;
+    state.globalWebUrl = "";
     setRuntimeApiUrl(APP_CONFIG.defaultApiUrl);
 
     if (!localOverrideActive) {
@@ -599,6 +608,75 @@ function getUserScopedDashboardGroups_() {
   return (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : []).filter((group) => {
     return [group?.leader1Name, group?.leader2Name].some((leaderName) => normalizeText(leaderName || "") === userName);
   });
+}
+
+function isLeaderScopedUser_() {
+  return ["lider", "coordinador"].includes(getNormalizedUserRole_());
+}
+
+function getUserScopedConnectionGroups_() {
+  if (!isLeaderScopedUser_()) {
+    return [];
+  }
+
+  if (Array.isArray(state.user?.scopedGroups) && state.user.scopedGroups.length) {
+    const allowedIds = new Set(
+      state.user.scopedGroups
+        .map((group) => String(group?.id || group?.groupId || "").trim())
+        .filter(Boolean)
+    );
+
+    return (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : []).filter((group) => {
+      return allowedIds.has(String(group?.id || "").trim());
+    });
+  }
+
+  return getUserScopedDashboardGroups_();
+}
+
+function isSeasonDemo_(season) {
+  const name = normalizeText(season?.name || "");
+  return name.includes("demo") || name.includes("demostracion");
+}
+
+function isSeasonOperational_(season) {
+  const status = normalizeText(season?.status || "");
+  return status === "activa" || isSeasonDemo_(season);
+}
+
+function getOperationalSeasonList_() {
+  const seasons = Array.isArray(state.seasons) ? state.seasons : [];
+  const operational = seasons.filter((season) => isSeasonOperational_(season));
+  return operational.length ? operational : seasons;
+}
+
+function ensureValidSeasonIdFromList_(currentSeasonId, seasons) {
+  const availableSeasons = Array.isArray(seasons) ? seasons : [];
+
+  if (!availableSeasons.length) {
+    return "";
+  }
+
+  const currentId = String(currentSeasonId || "").trim();
+  if (availableSeasons.some((season) => String(season?.id || "") === currentId)) {
+    return currentId;
+  }
+
+  return String(availableSeasons[availableSeasons.length - 1]?.id || availableSeasons[0]?.id || "");
+}
+
+function getEncounterCandidateByPersonId_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return null;
+  }
+
+  return (
+    state.connectionEncounterCandidates.find((item) => String(item?.personId || "") === cleanPersonId)
+    || state.formationCandidates.find((item) => String(item?.personId || "") === cleanPersonId)
+    || null
+  );
 }
 
 function getDashboardSelectableGroups_(preferredGroups) {
@@ -8659,7 +8737,7 @@ function renderAdminSettingsView_() {
           <div class="panel-head">
             <div>
               <h2>URL de la API</h2>
-              <p>Actualiza la direccion base del Apps Script y valida la conexion.</p>
+              <p>Actualiza la direccion base del Apps Script, el link global del sistema y valida la conexion.</p>
             </div>
           </div>
 
@@ -8678,6 +8756,12 @@ function renderAdminSettingsView_() {
             <button class="btn btn-primary" data-action="save-api-url">Guardar solo en este dispositivo</button>
             <button class="btn btn-secondary" data-action="use-global-api-url">Usar URL global</button>
             <button class="btn btn-secondary" data-action="test-api-connection">Probar conexion</button>
+          </div>
+
+          <div class="field" style="margin-top: 18px;">
+            <label for="system-web-url-input">Link global del sistema</label>
+            <input id="system-web-url-input" value="${escapeHtml(state.globalWebUrl || "")}" placeholder="https://tusitio.com/iglesia-fuertes-v2/">
+            <span class="field-help">Este enlace es el que viajará en Telegram cuando el sistema envíe usuario y contraseña a cada líder.</span>
           </div>
 
           ${!usersSupport.available ? `
@@ -8939,7 +9023,14 @@ function renderAdminUsersView_() {
                     <td>${escapeHtml(user.role || "SIN ROL")}</td>
                     <td>${renderPill(user.status || "ACTIVO")}</td>
                     <td>${escapeHtml(String(user.permissions?.length || 0))}</td>
-                    <td><button class="btn btn-secondary" data-action="edit-admin-user" data-user-email="${escapeHtml(user.email)}">Editar</button></td>
+                    <td>
+                      <div class="inline-actions">
+                        <button class="btn btn-secondary" data-action="edit-admin-user" data-user-email="${escapeHtml(user.email)}">Editar</button>
+                        ${user.leaderAuto ? `
+                          <button class="btn btn-ghost" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(user.email)}">Enviar acceso</button>
+                        ` : ``}
+                      </div>
+                    </td>
                   </tr>
                 `).join("") : `
                   <tr>
@@ -13562,7 +13653,18 @@ function renderSeasonsView() {
                   <td>${escapeHtml(String(season.sessionsCount || 0))}</td>
                   <td>${renderPill(season.status)}</td>
                   <td>
-                    <button class="btn btn-secondary" data-action="select-season" data-season-id="${escapeHtml(season.id)}">Ver sesiones</button>
+                    <div class="inline-actions">
+                      <button class="btn btn-secondary" data-action="select-season" data-season-id="${escapeHtml(season.id)}">Ver sesiones</button>
+                      ${isSeasonOperational_(season) ? `
+                        ${isSeasonDemo_(season) ? `
+                          <button class="btn btn-ghost" disabled>Demo protegida</button>
+                        ` : `
+                          <button class="btn btn-ghost" data-action="toggle-season-status" data-season-id="${escapeHtml(season.id)}" data-status="INACTIVA">Desactivar</button>
+                        `}
+                      ` : `
+                        <button class="btn btn-primary" data-action="toggle-season-status" data-season-id="${escapeHtml(season.id)}" data-status="ACTIVA">Activar</button>
+                      `}
+                    </div>
                   </td>
                 </tr>
               `).join("") : `
@@ -13672,7 +13774,16 @@ function renderSeasonsView() {
 function renderParticipantsView() {
   const filter = state.filters.participants;
   const canDeleteScrap = canUseScrapDelete_();
-  const groups = getSessionGroups(filter.seasonId, filter.sessionId);
+  const scopedConnectionGroups = getUserScopedConnectionGroups_();
+  const scopedConnectionGroupIds = new Set(
+    scopedConnectionGroups
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+  const operationalSeasons = getOperationalSeasonList_();
+  const groups = getSessionGroups(filter.seasonId, filter.sessionId).filter((group) => {
+    return !scopedConnectionGroupIds.size || scopedConnectionGroupIds.has(String(group?.groupId || "").trim());
+  });
   const context = state.participantContext;
   const sessions = getSessions(filter.seasonId);
   const selectedSession = sessions.find((item) => item.id === filter.sessionId) || null;
@@ -13698,13 +13809,19 @@ function renderParticipantsView() {
     search: "",
     groupId: ""
   });
-  const visiblePendingProspects = totalPendingProspects.slice().sort((left, right) => {
-    return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
-      - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
-  });
+  const visiblePendingProspects = totalPendingProspects
+    .filter((person) => {
+      return !scopedConnectionGroupIds.size || scopedConnectionGroupIds.has(String(person?.suggestedGroupId || "").trim());
+    })
+    .slice()
+    .sort((left, right) => {
+      return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
+        - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
+    });
   const hiddenBulkCount = Math.max(bulkMatches.length - bulkResults.length, 0);
   const serverCount = state.participants.filter((participant) => normalizeText(participant.type) === "servidor").length;
   const moveGroups = groups;
+  const connectionCandidates = Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : [];
   const canBulkAssign = Boolean(filter.seasonId && filter.sessionId && filter.groupId && sessions.length && selectedPeople.length && !selectedBlockedCount);
   const selectedGroupName = context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Sin grupo");
   const bulkAssignLabel = selectedPeople.length
@@ -13858,7 +13975,7 @@ function renderParticipantsView() {
                     data-person-id="${escapeHtml(person.id || "")}"
                   >
                     ${renderOptions(
-                      state.seasons.map((season) => ({
+                      operationalSeasons.map((season) => ({
                         value: season.id,
                         label: `${season.name} (${season.id})`
                       })),
@@ -13875,7 +13992,7 @@ function renderParticipantsView() {
                     data-person-id="${escapeHtml(person.id || "")}"
                   >
                     ${renderOptions(
-                      state.catalogs.groups.map((group) => ({
+                      (scopedConnectionGroups.length ? scopedConnectionGroups : state.catalogs.groups).map((group) => ({
                         value: String(group.id),
                         label: `${group.name} (${group.id})`
                       })),
@@ -13949,7 +14066,9 @@ function renderParticipantsView() {
         </div>
 
         <div class="field-grid participants-context-grid">
-          ${renderSeasonSelect("participants-season", filter.seasonId)}
+          ${renderSeasonSelect("participants-season", filter.seasonId, {
+            seasons: operationalSeasons
+          })}
           ${renderSessionSelect("participants-session", filter.seasonId, filter.sessionId)}
           ${renderGroupSelect("participants-group", groups, filter.groupId)}
         </div>
@@ -13958,6 +14077,37 @@ function renderParticipantsView() {
           <span class="context-item"><strong>Operando en:</strong> ${context ? escapeHtml(`${context.season.name} / ${context.session.name} / ${context.group.name}`) : "Selecciona temporada, sesión y grupo"}</span>
           <span class="context-item"><strong>Participantes listados:</strong> ${escapeHtml(String(state.participants.length))}</span>
           <span class="context-item"><strong>Grupos en esta sesión:</strong> ${escapeHtml(String(groups.length))}</span>
+        </div>
+      </article>
+
+      <article class="panel-card module-section-anchor" id="participants-encounter">
+        <div class="panel-head">
+          <div>
+            <h2>Ruta a Encuentro del grupo</h2>
+            <p>Aquí ves únicamente a las personas de este grupo que ya cumplieron la regla de 3 asistencias consecutivas y están listas para invitación.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(connectionCandidates.length))} candidatos</span>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-secondary" data-action="refresh-connection-encounter-candidates" ${filter.seasonId && filter.groupId ? "" : "disabled"}>Actualizar candidatos</button>
+          <button class="btn btn-ghost" data-action="export-connection-encounter-excel" ${connectionCandidates.length ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-connection-encounter-pdf" ${connectionCandidates.length ? "" : "disabled"}>PDF</button>
+          <button class="btn btn-ghost" data-action="share-connection-encounter-whatsapp" ${connectionCandidates.length ? "" : "disabled"}>WhatsApp pastor</button>
+        </div>
+
+        <div class="context-strip participants-context-strip">
+          <span class="context-item"><strong>Telegram OK:</strong> ${escapeHtml(String(connectionCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length))}</span>
+          <span class="context-item"><strong>Telegram pendiente:</strong> ${escapeHtml(String(connectionCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") !== "enviado").length))}</span>
+          <span class="context-item"><strong>Grupo:</strong> ${escapeHtml(selectedGroupName)}</span>
+        </div>
+
+        <div class="connection-candidate-list">
+          ${connectionCandidates.length ? connectionCandidates.map((candidate) => renderConnectionEncounterCandidateRow_(candidate)).join("") : `
+            <div class="empty-state">
+              Todavía no hay personas de este grupo con 3 asistencias consecutivas dentro de la temporada seleccionada.
+            </div>
+          `}
         </div>
       </article>
 
@@ -14305,11 +14455,24 @@ function renderAttendanceView() {
   const workingSession = getAttendanceWorkingSession_();
   const workingSessionSource = filter.scope === "selected" ? "manual" : "today";
   const workingSeasonName = workingSession ? resolveSeasonName_(workingSession.seasonId) : "";
-  const groups = workingSession ? getSessionGroups(workingSession.seasonId, workingSession.id) : [];
+  const scopedConnectionGroupIds = new Set(
+    getUserScopedConnectionGroups_()
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+  const operationalSeasons = getOperationalSeasonList_();
+  const groups = workingSession
+    ? getSessionGroups(workingSession.seasonId, workingSession.id).filter((group) => {
+      return !scopedConnectionGroupIds.size || scopedConnectionGroupIds.has(String(group?.groupId || "").trim());
+    })
+    : [];
   const context = state.attendanceContext;
   const summary = buildAttendanceSummary();
   const filteredParticipants = getFilteredAttendanceParticipants_();
-  const pickerSeasonId = filter.pickerSeasonId || filter.seasonId || activeSession?.seasonId || getLatestSeason()?.id || "";
+  const pickerSeasonId = ensureValidSeasonIdFromList_(
+    filter.pickerSeasonId || filter.seasonId || activeSession?.seasonId || "",
+    operationalSeasons
+  ) || ensureValidSeasonIdFromList_("", operationalSeasons);
   const pickerSessions = getSessions(pickerSeasonId);
   const pickerSessionId = filter.pickerSessionId
     || ((filter.scope === "selected" && String(filter.seasonId) === String(pickerSeasonId)) ? filter.sessionId : "")
@@ -14416,7 +14579,9 @@ function renderAttendanceView() {
             </div>
 
             <div class="field-grid two attendance-session-picker-grid">
-              ${renderSeasonSelect("attendance-season", pickerSeasonId)}
+              ${renderSeasonSelect("attendance-season", pickerSeasonId, {
+                seasons: operationalSeasons
+              })}
               ${renderSessionSelect("attendance-session", pickerSeasonId, pickerSessionId)}
             </div>
 
@@ -15220,13 +15385,16 @@ function renderQuickLink(view, title, copy) {
   `;
 }
 
-function renderSeasonSelect(id, selectedValue) {
+function renderSeasonSelect(id, selectedValue, options = {}) {
+  const seasonOptions = Array.isArray(options.seasons) ? options.seasons : state.seasons;
+  const label = options.label || "Temporada";
+
   return `
     <div class="field">
-      <label for="${id}">Temporada</label>
+      <label for="${id}">${escapeHtml(label)}</label>
       <select id="${id}">
         ${renderOptions(
-          state.seasons.map((season) => ({
+          seasonOptions.map((season) => ({
             value: season.id,
             label: `${season.name} (${season.id})`
           })),
@@ -15441,6 +15609,330 @@ function renderGroupSelect(id, groups, selectedValue) {
         )}
       </select>
     </div>
+  `;
+}
+
+function getConnectionEncounterTelegramUi_(candidate) {
+  const status = normalizeText(candidate?.leaderTelegramStatus || "");
+  const detail = String(candidate?.leaderTelegramDetail || "").trim();
+
+  if (status === "enviado") {
+    return {
+      tone: "success",
+      label: "Telegram entregado",
+      detail: detail || "El líder ya recibió el aviso automático."
+    };
+  }
+
+  if (status === "error" || status === "sinchat" || status === "sinconfigurar" || status === "deshabilitado") {
+    return {
+      tone: "danger",
+      label: "Telegram con pendiente",
+      detail: detail || "No se pudo entregar el aviso automático al líder."
+    };
+  }
+
+  return {
+    tone: "warning",
+    label: "Telegram pendiente",
+    detail: detail || "Todavía no hay confirmación del aviso automático."
+  };
+}
+
+function buildConnectionEncounterCandidatesReportModel_() {
+  const candidates = Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : [];
+  const seasonId = String(state.filters.participants.seasonId || "").trim();
+  const groupId = String(state.filters.participants.groupId || "").trim();
+
+  if (!seasonId || !groupId || !candidates.length) {
+    return null;
+  }
+
+  const sentCount = candidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+  const pendingCount = Math.max(candidates.length - sentCount, 0);
+
+  return {
+    seasonId,
+    seasonName: resolveSeasonName_(seasonId) || seasonId,
+    groupId,
+    groupName: resolveGroupName_(groupId) || groupId,
+    generatedAt: new Date(),
+    total: candidates.length,
+    sentCount,
+    pendingCount,
+    candidates
+  };
+}
+
+function escapeCsvValue_(value) {
+  const raw = String(value ?? "");
+  return `"${raw.replace(/"/g, "\"\"")}"`;
+}
+
+function buildConnectionEncounterCandidatesCsv_(report) {
+  const rows = [
+    ["Temporada", "Grupo", "Congregante", "Número", "QR ID", "Teléfono", "Asistencias", "Consecutivas", "Telegram", "Detalle Telegram", "Estado", "Líder"].join(",")
+  ];
+
+  (report?.candidates || []).forEach((candidate) => {
+    const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+    rows.push([
+      escapeCsvValue_(report?.seasonName || ""),
+      escapeCsvValue_(report?.groupName || ""),
+      escapeCsvValue_(candidate?.personName || ""),
+      escapeCsvValue_(candidate?.personNumber || ""),
+      escapeCsvValue_(candidate?.personId || ""),
+      escapeCsvValue_(candidate?.personPhone || ""),
+      escapeCsvValue_(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0}`),
+      escapeCsvValue_(String(candidate?.consecutiveAttendances || 0)),
+      escapeCsvValue_(telegramUi.label),
+      escapeCsvValue_(telegramUi.detail),
+      escapeCsvValue_(candidate?.formationStatus || ""),
+      escapeCsvValue_(candidate?.leaderName || "")
+    ].join(","));
+  });
+
+  return rows.join("\n");
+}
+
+function buildConnectionEncounterCandidatesExcelHtml_(report) {
+  const logoUrl = getReportLogoAssetUrl_();
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Ruta a Encuentro - ${escapeHtml(report?.groupName || "Grupo")}</title>
+      <style>
+        body { font-family: Manrope, Arial, sans-serif; padding: 24px; color: #111; }
+        .head { display: grid; gap: 12px; padding: 24px; border-radius: 24px; background: #111; color: #fff; }
+        .head img { width: 180px; filter: brightness(0) invert(1); }
+        .meta { display: flex; flex-wrap: wrap; gap: 10px; }
+        .meta span { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.1); font-size: 12px; }
+        .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+        .card { border: 1px solid #ddd; border-radius: 18px; padding: 16px; }
+        .card strong { font-size: 28px; display: block; margin-top: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; vertical-align: top; }
+        th { background: #111; color: #fff; }
+      </style>
+    </head>
+    <body>
+      <section class="head">
+        <img src="${escapeHtml(logoUrl)}" alt="Fuertes">
+        <div>
+          <h1>Ruta a Encuentro por grupo</h1>
+          <p>${escapeHtml(report?.groupName || "Grupo")} · ${escapeHtml(report?.seasonName || "Temporada")}</p>
+        </div>
+        <div class="meta">
+          <span>Total candidatos: ${escapeHtml(String(report?.total || 0))}</span>
+          <span>Telegram entregado: ${escapeHtml(String(report?.sentCount || 0))}</span>
+          <span>Telegram pendiente: ${escapeHtml(String(report?.pendingCount || 0))}</span>
+          <span>Generado: ${escapeHtml(formatDateTime_(report?.generatedAt || new Date()))}</span>
+        </div>
+      </section>
+      <section class="grid">
+        <div class="card"><span>Total en ruta</span><strong>${escapeHtml(String(report?.total || 0))}</strong></div>
+        <div class="card"><span>Telegram OK</span><strong>${escapeHtml(String(report?.sentCount || 0))}</strong></div>
+        <div class="card"><span>Telegram pendiente</span><strong>${escapeHtml(String(report?.pendingCount || 0))}</strong></div>
+      </section>
+      <table>
+        <thead>
+          <tr>
+            <th>Congregante</th>
+            <th>Asistencia</th>
+            <th>Telegram</th>
+            <th>Estado</th>
+            <th>Líder</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(report?.candidates || []).map((candidate) => {
+            const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+            return `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(candidate?.personName || "")}</strong><br>
+                  ${escapeHtml(candidate?.personNumber || "")} · QR ${escapeHtml(candidate?.personId || "")}<br>
+                  ${escapeHtml(candidate?.personPhone || "Sin teléfono")}
+                </td>
+                <td>
+                  ${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`)}<br>
+                  ${escapeHtml(`${candidate?.consecutiveAttendances || 0} consecutivas`)}
+                </td>
+                <td>
+                  <strong>${escapeHtml(telegramUi.label)}</strong><br>
+                  ${escapeHtml(telegramUi.detail)}
+                </td>
+                <td>${escapeHtml(candidate?.formationStatus || "")}</td>
+                <td>${escapeHtml(candidate?.leaderName || "")}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </body>
+    </html>
+  `;
+}
+
+function buildConnectionEncounterCandidatesWhatsappText_(report) {
+  return [
+    "Ruta a Encuentro - Grupo de Conexión",
+    `Temporada: ${report?.seasonName || "Sin temporada"}`,
+    `Grupo: ${report?.groupName || "Sin grupo"}`,
+    `Total candidatos: ${report?.total || 0}`,
+    `Telegram entregado: ${report?.sentCount || 0}`,
+    `Telegram pendiente: ${report?.pendingCount || 0}`,
+    "",
+    ...(report?.candidates || []).map((candidate) => {
+      const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+      return `• ${candidate?.personName || "Congregante"} | ${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} | ${candidate?.consecutiveAttendances || 0} consecutivas | ${telegramUi.label}`;
+    }),
+    "",
+    `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
+  ].join("\n");
+}
+
+async function downloadConnectionEncounterCandidatesPdf_(report) {
+  const JsPdf = getDashboardPdfConstructor_();
+
+  if (!JsPdf) {
+    throw new Error("JSPDF_UNAVAILABLE");
+  }
+
+  const doc = new JsPdf({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+    compress: true
+  });
+
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+  }
+
+  const logoDataUrl = await loadLightAssetAsDataUrl_(getReportLogoAssetUrl_()) || await loadAssetAsDataUrl_(getReportLogoAssetUrl_());
+
+  doc.setFillColor(17, 17, 17);
+  doc.roundedRect(28, 24, 539, 112, 22, 22, "F");
+
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", 44, 40, 118, 38, undefined, "FAST");
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("Ruta a Encuentro por grupo", 180, 62);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`${report?.groupName || "Grupo"} · ${report?.seasonName || "Temporada"}`, 180, 82);
+  doc.text(`Generado: ${formatDateTime_(report?.generatedAt || new Date())}`, 180, 98);
+
+  doc.setTextColor(17, 17, 17);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(`Total candidatos: ${report?.total || 0}`, 40, 166);
+  doc.text(`Telegram OK: ${report?.sentCount || 0}`, 210, 166);
+  doc.text(`Telegram pendiente: ${report?.pendingCount || 0}`, 360, 166);
+
+  doc.autoTable({
+    startY: 186,
+    head: [[
+      "Congregante",
+      "Asistencia",
+      "Telegram",
+      "Estado",
+      "Líder"
+    ]],
+    body: (report?.candidates || []).map((candidate) => {
+      const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+      return [
+        `${candidate?.personName || ""}\n${candidate?.personNumber || ""} · QR ${candidate?.personId || ""}\n${candidate?.personPhone || "Sin teléfono"}`,
+        `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0}\n${candidate?.consecutiveAttendances || 0} consecutivas`,
+        `${telegramUi.label}\n${telegramUi.detail}`,
+        candidate?.formationStatus || "",
+        `${candidate?.leaderName || ""}${candidate?.leaderPhone ? `\n${candidate.leaderPhone}` : ""}`
+      ];
+    }),
+    theme: "grid",
+    margin: {
+      left: 28,
+      right: 28
+    },
+    styles: {
+      font: "helvetica",
+      fontSize: 8.3,
+      cellPadding: 6,
+      lineColor: [224, 224, 224],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      textColor: [33, 33, 33],
+      valign: "middle"
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255],
+      fontStyle: "bold"
+    },
+    alternateRowStyles: {
+      fillColor: [248, 248, 248]
+    }
+  });
+
+  const fileName = buildDashboardBinaryExportFileName_(
+    "RUTA_ENCUENTRO",
+    `${report?.groupName || "grupo"}_${report?.seasonName || "temporada"}`,
+    "pdf"
+  );
+  downloadBlob_(doc.output("blob"), fileName);
+}
+
+function renderConnectionEncounterCandidateRow_(candidate) {
+  const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+  const inviteDisabled = candidate?.personPhone ? "" : "disabled";
+  const telegramClassName = `connection-candidate-card-${telegramUi.tone}`;
+
+  return `
+    <article class="connection-candidate-card ${telegramClassName}">
+      <div class="connection-candidate-main">
+        <div class="connection-candidate-identity">
+          <span class="status-chip neutral">Congregante</span>
+          <strong>${escapeHtml(candidate?.personName || "Sin nombre")}</strong>
+          <span>${escapeHtml(candidate?.personNumber || "-")} · QR ${escapeHtml(candidate?.personId || "-")} · ${escapeHtml(candidate?.personPhone || "Sin teléfono")}</span>
+          <div class="connection-candidate-chips">
+            <span class="formation-ledger-route-chip">${escapeHtml(resolveGroupName_(candidate?.groupId) || candidate?.groupName || "Sin grupo")}</span>
+            <span class="formation-ledger-route-chip">${escapeHtml(resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada")}</span>
+          </div>
+        </div>
+        <div class="connection-candidate-stats">
+          <div class="connection-candidate-stat">
+            <label>Asistencia</label>
+            <strong>${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0}`)}</strong>
+            <span>sesiones capturadas</span>
+          </div>
+          <div class="connection-candidate-stat">
+            <label>Regla cumplida</label>
+            <strong>${escapeHtml(String(candidate?.consecutiveAttendances || 0))}</strong>
+            <span>consecutivas</span>
+          </div>
+        </div>
+      </div>
+      <div class="connection-candidate-followup">
+        <div class="connection-candidate-telegram">
+          <span class="status-chip ${telegramUi.tone}">${escapeHtml(telegramUi.label)}</span>
+          <strong>${escapeHtml(candidate?.leaderName || "Lider por definir")}</strong>
+          <span>${escapeHtml(telegramUi.detail)}</span>
+        </div>
+        <div class="connection-candidate-actions">
+          <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(candidate?.personId || "")}">Ver perfil</button>
+          <button class="btn btn-secondary" data-action="formation-send-encounter-invite" data-person-id="${escapeHtml(candidate?.personId || "")}" ${inviteDisabled}>Enviar invitación</button>
+          <button class="btn btn-primary" data-action="formation-register-encounter" data-person-id="${escapeHtml(candidate?.personId || "")}">Inscribir a Formación</button>
+        </div>
+      </div>
+    </article>
   `;
 }
 
@@ -15738,6 +16230,7 @@ async function handleClick(event) {
 
     if (action === "save-global-api-url") {
       const value = document.getElementById("api-url-input")?.value?.trim();
+      const webUrl = document.getElementById("system-web-url-input")?.value?.trim();
       ensureApiUrl(value);
 
       await withLoading(async () => {
@@ -15746,12 +16239,14 @@ async function handleClick(event) {
         });
 
         const config = await apiPost("app.config.save", {
-          apiUrl: value
+          apiUrl: value,
+          webUrl
         }, {
           apiUrl: state.globalApiUrl || APP_CONFIG.defaultApiUrl
         });
 
         state.globalApiUrl = config?.apiUrl || value;
+        state.globalWebUrl = String(config?.webUrl || webUrl || "").trim();
         state.apiUrl = state.globalApiUrl;
         clearStoredApiUrl();
         setRuntimeApiUrl(state.globalApiUrl);
@@ -16725,6 +17220,26 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "send-leader-access-telegram") {
+      const email = String(button.dataset.userEmail || "").trim();
+
+      if (!email) {
+        showToast("Usuario no disponible", "No fue posible identificar la cuenta del líder para enviar su acceso.", "warning");
+        return;
+      }
+
+      const result = await withLoading(() => apiPost("users.leaderAccess.send", {
+        email
+      }), "Enviando acceso del líder por Telegram...");
+
+      showToast(
+        "Acceso enviado",
+        `Se preparó el acceso de ${result?.name || email} y se envió a ${result?.sentCount || 0} líder(es) vinculados.`,
+        "success"
+      );
+      return;
+    }
+
     if (action === "clear-admin-user-form") {
       state.ui.editingUserEmail = "";
       renderApp();
@@ -16824,6 +17339,39 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "toggle-season-status") {
+      const seasonId = String(button.dataset.seasonId || "").trim();
+      const status = String(button.dataset.status || "").trim();
+
+      if (!seasonId || !status) {
+        showToast("Temporada no disponible", "No fue posible identificar la temporada o el nuevo estado.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        await apiPost("seasons.setStatus", {
+          seasonId,
+          status
+        });
+        await refreshSeasons({
+          force: true
+        });
+        syncBootstrapFilters_();
+        await syncAllFilters();
+        invalidateDashboardSeasonMatrix_();
+      }, status === "ACTIVA" ? "Activando temporada..." : "Desactivando temporada...");
+
+      showToast(
+        "Temporada actualizada",
+        status === "ACTIVA"
+          ? "La temporada quedó activa para la operación del sistema."
+          : "La temporada quedó inactiva y ya no cargará en la operación diaria.",
+        "success"
+      );
+      renderApp();
+      return;
+    }
+
     if (action === "toggle-session-status") {
       await withLoading(async () => {
         await apiPost("sessions.setStatus", {
@@ -16844,7 +17392,68 @@ async function handleClick(event) {
 
     if (action === "load-participants") {
       await loadParticipantsData();
+      await loadConnectionEncounterCandidates_({
+        force: true,
+        showLoading: false
+      });
       renderApp();
+      return;
+    }
+
+    if (action === "refresh-connection-encounter-candidates") {
+      await loadConnectionEncounterCandidates_({
+        force: true,
+        syncCandidates: true
+      });
+      renderApp();
+      showToast("Listado actualizado", "La ruta a Encuentro del grupo quedó actualizada.", "success");
+      return;
+    }
+
+    if (action === "export-connection-encounter-excel") {
+      const report = buildConnectionEncounterCandidatesReportModel_();
+
+      if (!report) {
+        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para exportar.", "warning");
+        return;
+      }
+
+      downloadExcelHtmlFile_(
+        buildConnectionEncounterCandidatesExcelHtml_(report),
+        buildDashboardBinaryExportFileName_("RUTA_ENCUENTRO", `${report.groupName}_${report.seasonName}`, "xls")
+      );
+      showToast("Excel listo", "Se descargó el listado operativo de Ruta a Encuentro.", "success");
+      return;
+    }
+
+    if (action === "export-connection-encounter-pdf") {
+      const report = buildConnectionEncounterCandidatesReportModel_();
+
+      if (!report) {
+        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para exportar.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        await downloadConnectionEncounterCandidatesPdf_(report);
+      }, "Descargando reporte PDF...");
+      showToast("PDF listo", "Se descargó el reporte PDF de Ruta a Encuentro.", "success");
+      return;
+    }
+
+    if (action === "share-connection-encounter-whatsapp") {
+      const report = buildConnectionEncounterCandidatesReportModel_();
+
+      if (!report) {
+        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para compartir.", "warning");
+        return;
+      }
+
+      window.open(
+        buildWhatsappTextShareUrl_(buildConnectionEncounterCandidatesWhatsappText_(report)),
+        "_blank",
+        "noopener,noreferrer"
+      );
       return;
     }
 
@@ -17296,21 +17905,21 @@ async function handleClick(event) {
     }
 
     if (action === "formation-send-encounter-invite") {
-      const candidate = state.formationCandidates.find((item) => String(item.personId) === String(button.dataset.personId || ""));
+      const candidate = getEncounterCandidateByPersonId_(button.dataset.personId || "");
       await sendFormationEncounterInvite_(candidate || null);
       scrollToSection_("formation-profile");
       return;
     }
 
     if (action === "formation-notify-leader") {
-      const candidate = state.formationCandidates.find((item) => String(item.personId) === String(button.dataset.personId || ""));
+      const candidate = getEncounterCandidateByPersonId_(button.dataset.personId || "");
       await notifyFormationLeaderTelegram_(candidate || null);
       scrollToSection_("formation-profile");
       return;
     }
 
     if (action === "formation-register-encounter") {
-      const candidate = state.formationCandidates.find((item) => String(item.personId) === String(button.dataset.personId || ""));
+      const candidate = getEncounterCandidateByPersonId_(button.dataset.personId || "");
       await registerFormationEncounter_(candidate || null);
       scrollToSection_("formation-operations-workspace");
       return;
@@ -17575,13 +18184,21 @@ async function handleSubmit(event) {
 
       state.user = data.user;
       setStoredUser(data.user);
-      state.currentView = "dashboard";
+      state.currentView = canAccessView_("dashboard")
+        ? "dashboard"
+        : getFirstAccessibleView_(ACCESSIBLE_VIEWS);
       state.ui.mobileNavOpen = false;
-      setDashboardHydrationState_(true, "Preparando Dashboard Iglesia...");
+      if (state.currentView === "dashboard") {
+        setDashboardHydrationState_(true, "Preparando Dashboard Iglesia...");
+      } else {
+        setDashboardHydrationState_(false, "");
+      }
       renderApp();
       showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
       bootstrapApplicationInBackground_({
-        message: "Preparando Dashboard Iglesia..."
+        message: state.currentView === "dashboard"
+          ? "Preparando Dashboard Iglesia..."
+          : "Preparando tu grupo de conexión..."
       });
       scrollViewportToTop_();
 
@@ -17942,11 +18559,22 @@ async function handleChange(event) {
       state.filters.participants.sessionId = "";
       state.filters.participants.groupId = "";
       resetParticipantInteractionState_();
+      state.connectionEncounterCandidates = [];
+      state.loaded.connectionEncounterCandidates = false;
+      state.cacheKeys.connectionEncounterCandidates = "";
       await syncFilterState("participants");
       await loadParticipantsData({
         force: true,
         showLoading: false
       });
+      void loadConnectionEncounterCandidates_({
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.currentView === "participants") {
+          renderApp();
+        }
+      }).catch(() => {});
       renderApp();
       return;
     }
@@ -17954,11 +18582,22 @@ async function handleChange(event) {
     if (target.id === "participants-session") {
       state.filters.participants.sessionId = target.value;
       state.filters.participants.moveTargets = {};
+      state.connectionEncounterCandidates = [];
+      state.loaded.connectionEncounterCandidates = false;
+      state.cacheKeys.connectionEncounterCandidates = "";
       await syncFilterState("participants");
       await loadParticipantsData({
         force: true,
         showLoading: false
       });
+      void loadConnectionEncounterCandidates_({
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.currentView === "participants") {
+          renderApp();
+        }
+      }).catch(() => {});
       renderApp();
       return;
     }
@@ -17966,10 +18605,21 @@ async function handleChange(event) {
     if (target.id === "participants-group") {
       state.filters.participants.groupId = target.value;
       state.filters.participants.moveTargets = {};
+      state.connectionEncounterCandidates = [];
+      state.loaded.connectionEncounterCandidates = false;
+      state.cacheKeys.connectionEncounterCandidates = "";
       await loadParticipantsData({
         force: true,
         showLoading: false
       });
+      void loadConnectionEncounterCandidates_({
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.currentView === "participants") {
+          renderApp();
+        }
+      }).catch(() => {});
       renderApp();
       return;
     }
@@ -18511,7 +19161,7 @@ function syncBootstrapFilters_() {
     state.filters.dashboard.groupId = "";
   }
   state.filters.seasons.seasonId = ensureValidSeasonId(state.filters.seasons.seasonId);
-  state.filters.formation.seasonId = ensureValidSeasonId(state.filters.formation.seasonId);
+  state.filters.formation.seasonId = ensureValidSeasonIdFromList_(state.filters.formation.seasonId, getOperationalSeasonList_());
 }
 
 async function loadCatalogs(options = {}) {
@@ -18558,12 +19208,18 @@ async function loadMinistriesCatalog_(options = {}) {
   return runSharedLoad_("ministries", task);
 }
 
-async function refreshSeasons() {
-  return runSharedLoad_("seasons", async () => {
+async function refreshSeasons(options = {}) {
+  const task = async () => {
     state.seasons = await apiGet("seasons.list");
     state.loaded.seasons = true;
     return state.seasons;
-  });
+  };
+
+  if (options.force) {
+    return task();
+  }
+
+  return runSharedLoad_("seasons", task);
 }
 
 async function loadPeople(options = {}) {
@@ -18615,7 +19271,7 @@ async function loadActiveSession() {
 }
 
 async function loadAdminUsers_(options = {}) {
-  return runSharedLoad_("users", async () => {
+  const task = async () => {
     try {
       state.adminUsers = await apiGet("users.list");
       state.adminUsersSupport = {
@@ -18642,7 +19298,13 @@ async function loadAdminUsers_(options = {}) {
 
       throw buildBackendRouteMissingError_("users.list", "la ruta users.list");
     }
-  });
+  };
+
+  if (options.force) {
+    return task();
+  }
+
+  return runSharedLoad_("users", task);
 }
 
 async function loadTelegramConfig_(options = {}) {
@@ -19769,6 +20431,18 @@ async function ensureParticipantsViewData_(options = {}) {
   ]);
 
   await loadParticipantsData(options);
+  void loadConnectionEncounterCandidates_({
+    force: options.force,
+    showLoading: false
+  })
+    .then(() => {
+      if (state.currentView === "participants") {
+        renderApp();
+      }
+    })
+    .catch((error) => {
+      console.warn("No se pudo cargar la Ruta a Encuentro del grupo.", error);
+    });
 }
 
 async function ensureDashboardViewData_(options = {}) {
@@ -20229,14 +20903,29 @@ async function syncFilterState(viewName) {
     return;
   }
 
-  filter.seasonId = ensureValidSeasonId(filter.seasonId);
+  const availableSeasons = viewName === "participants"
+    ? getOperationalSeasonList_()
+    : state.seasons;
+  filter.seasonId = ensureValidSeasonIdFromList_(filter.seasonId, availableSeasons);
 
   const sessions = await ensureSessionsForSeason(filter.seasonId);
   if (!sessions.some((item) => item.id === filter.sessionId)) {
     filter.sessionId = sessions[0] ? sessions[0].id : "";
   }
 
-  const groups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+  let groups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+  if (viewName === "participants") {
+    const scopedIds = new Set(
+      getUserScopedConnectionGroups_()
+        .map((group) => String(group?.id || "").trim())
+        .filter(Boolean)
+    );
+
+    if (scopedIds.size) {
+      groups = groups.filter((item) => scopedIds.has(String(item?.groupId || "").trim()));
+    }
+  }
+
   if (!groups.some((item) => String(item.groupId) === String(filter.groupId))) {
     filter.groupId = groups[0] ? String(groups[0].groupId) : "";
   }
@@ -20344,6 +21033,64 @@ async function loadParticipantsData(options = {}) {
   }
 
   await withLoading(task, "Cargando participantes...");
+}
+
+async function loadConnectionEncounterCandidates_(options = {}) {
+  await syncFilterState("participants");
+
+  const seasonId = String(options.seasonId || state.filters.participants.seasonId || "").trim();
+  const groupId = String(options.groupId || state.filters.participants.groupId || "").trim();
+  const requestKey = `${seasonId}::${groupId}`;
+  const shouldSync = Boolean(options.syncCandidates);
+
+  if (!seasonId || !groupId) {
+    state.connectionEncounterCandidates = [];
+    state.loaded.connectionEncounterCandidates = false;
+    state.cacheKeys.connectionEncounterCandidates = "";
+    return [];
+  }
+
+  if (
+    !options.force &&
+    !shouldSync &&
+    state.loaded.connectionEncounterCandidates &&
+    state.cacheKeys.connectionEncounterCandidates === requestKey
+  ) {
+    return state.connectionEncounterCandidates;
+  }
+
+  const task = () => runSharedLoad_(
+    `connectionEncounterCandidates::${requestKey}::${shouldSync ? "sync" : "list"}`,
+    async () => {
+      let candidates = null;
+
+      if (shouldSync) {
+        const syncResponse = await apiPost("formation.candidates.sync", {
+          seasonId,
+          groupId
+        });
+        candidates = Array.isArray(syncResponse?.candidates) ? syncResponse.candidates : null;
+      }
+
+      if (!candidates) {
+        candidates = await apiGet("formation.candidates.list", {
+          seasonId,
+          groupId
+        });
+      }
+
+      state.connectionEncounterCandidates = Array.isArray(candidates) ? candidates : [];
+      state.loaded.connectionEncounterCandidates = true;
+      state.cacheKeys.connectionEncounterCandidates = requestKey;
+      return state.connectionEncounterCandidates;
+    }
+  );
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, shouldSync ? "Actualizando candidatos a Encuentro..." : "Cargando ruta a Encuentro del grupo...");
 }
 
 async function saveAssistant(rawPayload) {
@@ -21379,6 +22126,12 @@ async function saveCatalogGroupForm_(form) {
     await loadGroupsCatalog_({
       force: true
     });
+    if (state.loaded.users || state.adminUsers.length) {
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+    }
   }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
 
   state.ui.editingGroupId = String(savedGroup?.id || payload.id || "");
@@ -22044,6 +22797,10 @@ async function sendFormationEncounterInvite_(candidate) {
   }
 
   clearStudentPortalByPersonCache_(candidate.personId);
+  await loadConnectionEncounterCandidates_({
+    force: true,
+    showLoading: false
+  });
 
   renderApp();
 
@@ -23221,10 +23978,19 @@ async function loadAttendanceData(options = {}) {
 async function syncAttendanceFilterState_() {
   const filter = state.filters.attendance;
   const activeSession = getActiveAttendanceSession_();
-  let pickerSeasonId = ensureValidSeasonId(filter.pickerSeasonId || filter.seasonId || activeSession?.seasonId || "");
+  const operationalSeasons = getOperationalSeasonList_();
+  const scopedGroupIds = new Set(
+    getUserScopedConnectionGroups_()
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+  let pickerSeasonId = ensureValidSeasonIdFromList_(
+    filter.pickerSeasonId || filter.seasonId || activeSession?.seasonId || "",
+    operationalSeasons
+  );
 
   if (!pickerSeasonId && state.seasons.length) {
-    pickerSeasonId = getLatestSeason()?.id || "";
+    pickerSeasonId = ensureValidSeasonIdFromList_("", operationalSeasons);
   }
 
   filter.pickerSeasonId = pickerSeasonId;
@@ -23249,7 +24015,7 @@ async function syncAttendanceFilterState_() {
   }
 
   if (filter.scope === "selected") {
-    filter.seasonId = ensureValidSeasonId(filter.seasonId);
+    filter.seasonId = ensureValidSeasonIdFromList_(filter.seasonId, operationalSeasons);
 
     if (!filter.seasonId) {
       filter.sessionId = "";
@@ -23266,7 +24032,10 @@ async function syncAttendanceFilterState_() {
       return;
     }
 
-    const selectedGroups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+    let selectedGroups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+    if (scopedGroupIds.size) {
+      selectedGroups = selectedGroups.filter((item) => scopedGroupIds.has(String(item?.groupId || "").trim()));
+    }
     if (!selectedGroups.some((item) => String(item.groupId) === String(filter.groupId))) {
       filter.groupId = "";
     }
@@ -23286,7 +24055,10 @@ async function syncAttendanceFilterState_() {
   filter.sessionId = activeSession.id;
 
   await ensureSessionsForSeason(filter.seasonId);
-  const groups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+  let groups = await ensureSessionGroupsFor(filter.seasonId, filter.sessionId);
+  if (scopedGroupIds.size) {
+    groups = groups.filter((item) => scopedGroupIds.has(String(item?.groupId || "").trim()));
+  }
 
   if (sessionChanged) {
     filter.groupId = "";
@@ -27451,6 +28223,11 @@ async function notifyFormationLeaderTelegram_(candidate) {
     cacheFormationProfile_(state.formationProfile, candidate.personId, candidate.seasonId);
   }
 
+  await loadConnectionEncounterCandidates_({
+    force: true,
+    showLoading: false
+  });
+
   renderApp();
 
   if (String(response?.notification?.status || "").toUpperCase() === "ENVIADO") {
@@ -27488,8 +28265,10 @@ function resetRuntimeState() {
   pendingResourceLoads.formationOfferings = null;
   pendingResourceLoads.formationEnrollments = null;
   pendingResourceLoads.formationAttendanceContext = null;
+  pendingResourceLoads.connectionEncounterCandidates = null;
   pendingResourceLoads.studentPortal = null;
   state.connectionStatus = null;
+  state.globalWebUrl = "";
   state.metrics = {
     peopleCount: null,
     directoryCount: null
@@ -27517,6 +28296,7 @@ function resetRuntimeState() {
   state.formationOfferings = [];
   state.formationEnrollments = [];
   state.formationAttendanceContext = null;
+  state.connectionEncounterCandidates = [];
   state.studentPortal = null;
   state.studentPortalByPerson = {};
   state.telegramConfig = null;
@@ -27542,7 +28322,8 @@ function resetRuntimeState() {
     formationCandidates: "",
     formationOfferings: "",
     formationEnrollments: "",
-    formationAttendanceContext: ""
+    formationAttendanceContext: "",
+    connectionEncounterCandidates: ""
   };
   state.loaded = {
     bootstrap: false,
@@ -27562,6 +28343,7 @@ function resetRuntimeState() {
     formationOfferings: false,
     formationEnrollments: false,
     formationAttendanceContext: false,
+    connectionEncounterCandidates: false,
     studentPortal: false
   };
   state.catalogs = {
