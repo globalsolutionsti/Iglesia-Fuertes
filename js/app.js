@@ -8880,12 +8880,101 @@ function renderAdminSettingsView_() {
   `;
 }
 
+function slugifyLeaderAccountValue_(value) {
+  return normalizeText(String(value || "").trim())
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+}
+
+function buildLeaderAutoEmailPreview_(name, phone) {
+  const slug = slugifyLeaderAccountValue_(name);
+  const phoneDigits = normalizeWhatsappPhone_(phone || "");
+  const suffix = phoneDigits ? `.${phoneDigits.slice(-4)}` : "";
+
+  if (!slug) {
+    return "";
+  }
+
+  return `lider.${slug}${suffix}@iglesiafuertes.local`;
+}
+
+function buildLeaderAutoAccountRows_() {
+  const groups = Array.isArray(state.catalogs.groups) ? state.catalogs.groups : [];
+  const users = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+  const byEmail = new Map(users.map((user) => [String(user.email || "").toLowerCase(), user]));
+  const buckets = new Map();
+
+  groups.forEach((group) => {
+    [
+      {
+        slot: "1",
+        name: String(group?.leader1Name || "").trim(),
+        phone: String(group?.leader1Phone || "").trim(),
+        telegramLinked: Boolean(group?.leader1TelegramLinked)
+      },
+      {
+        slot: "2",
+        name: String(group?.leader2Name || "").trim(),
+        phone: String(group?.leader2Phone || "").trim(),
+        telegramLinked: Boolean(group?.leader2TelegramLinked)
+      }
+    ].forEach((leader) => {
+      const email = buildLeaderAutoEmailPreview_(leader.name, leader.phone);
+      const key = String(email || "").toLowerCase();
+
+      if (!leader.name || !key) {
+        return;
+      }
+
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          email,
+          name: leader.name,
+          phones: [],
+          groups: [],
+          telegramLinked: false
+        });
+      }
+
+      const bucket = buckets.get(key);
+      const normalizedPhone = normalizeWhatsappPhone_(leader.phone || "");
+
+      if (normalizedPhone && !bucket.phones.includes(normalizedPhone)) {
+        bucket.phones.push(normalizedPhone);
+      }
+
+      if (!bucket.groups.some((item) => String(item.id) === String(group?.id))) {
+        bucket.groups.push({
+          id: String(group?.id || ""),
+          name: String(group?.name || ""),
+          slot: leader.slot
+        });
+      }
+
+      bucket.telegramLinked = bucket.telegramLinked || leader.telegramLinked;
+    });
+  });
+
+  return Array.from(buckets.values())
+    .map((row) => {
+      const matchedUser = byEmail.get(String(row.email || "").toLowerCase()) || null;
+      return {
+        ...row,
+        user: matchedUser,
+        synced: Boolean(matchedUser),
+        status: matchedUser?.status || (row.telegramLinked ? "LISTO" : "PENDIENTE")
+      };
+    })
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es"));
+}
+
 function renderAdminUsersView_() {
   const editingUser = state.adminUsers.find((user) => String(user.email) === String(state.ui.editingUserEmail || "")) || null;
   const users = getFilteredAdminUsers_();
   const selectedPermissions = editingUser?.permissions?.length ? editingUser.permissions : ACCESSIBLE_VIEWS.slice();
   const usersSupport = state.adminUsersSupport;
   const usersAdminAvailable = usersSupport.available;
+  const leaderAccounts = buildLeaderAutoAccountRows_();
 
   return `
     <section class="view-grid">
@@ -8907,6 +8996,46 @@ function renderAdminUsersView_() {
           { label: "Configuracion", variant: "secondary", view: "admin-settings" }
         ]
       })}
+
+      <article class="panel-card">
+        <div class="panel-head">
+          <div>
+            <h2>Cuentas automáticas de líderes</h2>
+            <p>Estas cuentas nacen al guardar líderes en el catálogo de grupos. Aquí puedes validarlas y enviar su acceso sin buscarlas dentro del listado general.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(leaderAccounts.length))} líderes</span>
+        </div>
+
+        ${leaderAccounts.length ? `
+          <div class="leader-auto-grid">
+            ${leaderAccounts.map((leader) => `
+              <article class="leader-auto-card">
+                <div class="leader-auto-card-head">
+                  <div>
+                    <span class="status-chip ${leader.synced ? "success" : "warning"}">${leader.synced ? "Cuenta creada" : "Lista para crear"}</span>
+                    <h3>${escapeHtml(leader.name || "Líder sin nombre")}</h3>
+                    <p>${escapeHtml(leader.email)}</p>
+                  </div>
+                  ${renderPill(leader.status || "PENDIENTE")}
+                </div>
+                <div class="leader-auto-meta">
+                  <span><strong>Grupo(s):</strong> ${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
+                  <span><strong>Teléfono(s):</strong> ${escapeHtml(leader.phones.join(" / ") || "Sin teléfono")}</span>
+                </div>
+                <div class="inline-actions leader-auto-actions">
+                  <button class="btn btn-secondary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}">Enviar Telegram</button>
+                  <button class="btn btn-ghost" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>Preparar WhatsApp</button>
+                  ${leader.user ? `
+                    <button class="btn btn-ghost" data-action="edit-admin-user" data-user-email="${escapeHtml(leader.user.email)}">Ver cuenta</button>
+                  ` : ``}
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        ` : `
+          <div class="empty-state">Todavía no hay líderes capturados en el catálogo. Guarda líder 1 y/o líder 2 en un grupo para generar la cuenta automática.</div>
+        `}
+      </article>
 
       <div class="view-grid columns-2">
         <article class="panel-card">
@@ -9027,7 +9156,7 @@ function renderAdminUsersView_() {
                       <div class="inline-actions">
                         <button class="btn btn-secondary" data-action="edit-admin-user" data-user-email="${escapeHtml(user.email)}">Editar</button>
                         ${user.leaderAuto ? `
-                          <button class="btn btn-ghost" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(user.email)}">Enviar acceso</button>
+                          <button class="btn btn-ghost" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(user.email)}">Enviar Telegram</button>
                         ` : ``}
                       </div>
                     </td>
@@ -17232,10 +17361,62 @@ async function handleClick(event) {
         email
       }), "Enviando acceso del líder por Telegram...");
 
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+      renderApp();
+
       showToast(
         "Acceso enviado",
         `Se preparó el acceso de ${result?.name || email} y se envió a ${result?.sentCount || 0} líder(es) vinculados.`,
         "success"
+      );
+      return;
+    }
+
+    if (action === "send-leader-access-whatsapp") {
+      const email = String(button.dataset.userEmail || "").trim();
+
+      if (!email) {
+        showToast("Usuario no disponible", "No fue posible identificar la cuenta del líder para preparar su acceso.", "warning");
+        return;
+      }
+
+      const result = await withLoading(async () => {
+        try {
+          return await apiPost("users.leaderAccess.prepare", {
+            email
+          });
+        } catch (error) {
+          if (isUnknownActionError_(error, "users.leaderAccess.prepare")) {
+            throw buildBackendRouteMissingError_("users.leaderAccess.prepare", "la ruta users.leaderAccess.prepare");
+          }
+
+          throw error;
+        }
+      }, "Preparando acceso del líder por WhatsApp...");
+
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+      renderApp();
+
+      if (result?.whatsappUrl) {
+        window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
+        showToast(
+          "WhatsApp listo",
+          `Se preparó el acceso de ${result?.name || email} y se abrió el mensaje para compartirlo.`,
+          "success"
+        );
+        return;
+      }
+
+      showToast(
+        "Acceso preparado",
+        "La cuenta quedó lista, pero ese líder todavía no tiene teléfono capturado en el catálogo.",
+        "warning"
       );
       return;
     }
@@ -20486,6 +20667,7 @@ async function ensureAdminViewData_() {
   });
   await loadTelegramConfig_();
   await loadAdminUsers_({
+    force: true,
     silentUnsupported: true
   });
 }
@@ -22126,16 +22308,14 @@ async function saveCatalogGroupForm_(form) {
     await loadGroupsCatalog_({
       force: true
     });
-    if (state.loaded.users || state.adminUsers.length) {
-      await loadAdminUsers_({
-        force: true,
-        silentUnsupported: true
-      });
-    }
+    await loadAdminUsers_({
+      force: true,
+      silentUnsupported: true
+    });
   }, payload.id ? "Actualizando grupo..." : "Creando grupo...");
 
   state.ui.editingGroupId = String(savedGroup?.id || payload.id || "");
-  showToast("Catalogo actualizado", "El grupo quedo guardado correctamente.", "success");
+  showToast("Catalogo actualizado", "El grupo quedó guardado y las cuentas automáticas de sus líderes ya quedaron sincronizadas.", "success");
   renderApp();
 }
 
