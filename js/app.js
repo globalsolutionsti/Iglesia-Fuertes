@@ -17000,7 +17000,6 @@ function renderPersonImportOperationPill_(value) {
 }
 
 function renderCredentialCard_(person) {
-  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
   const visibleId = person.id || "SIN QR ID";
   const visibleName = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
   const qrValue = buildCredentialQrValue_(person);
@@ -17009,7 +17008,6 @@ function renderCredentialCard_(person) {
     <article class="credential-card">
       <div class="credential-card-head">
         <img src="assets/logo-fuertes.png" alt="Iglesia Fuertes">
-        <span class="credential-card-caption">Credencial Digital</span>
       </div>
 
       <div class="credential-qr-shell">
@@ -17023,7 +17021,6 @@ function renderCredentialCard_(person) {
 
       <div class="credential-identity">
         <strong>${escapeHtml(visibleName)}</strong>
-        <span class="credential-group-copy">${escapeHtml(`Grupo de conexion: ${groupName}`)}</span>
       </div>
 
       <div class="credential-id-block">
@@ -28519,7 +28516,6 @@ async function buildCredentialPngBlob_(person, options = {}) {
   const assets = await getCredentialRenderAssets_();
   const qrImage = await loadImageElement_(buildCredentialQrDataUrl_(person, 620));
   const name = (person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
-  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
   const qrId = person.id || "SIN QR ID";
   const cardX = 52;
   const cardY = 52;
@@ -28528,7 +28524,7 @@ async function buildCredentialPngBlob_(person, options = {}) {
   const qrShellSize = 652;
   const qrSize = 560;
   const qrShellX = (width - qrShellSize) / 2;
-  const qrShellY = 308;
+  const qrShellY = 246;
   const qrX = qrShellX + ((qrShellSize - qrSize) / 2);
   const qrY = qrShellY + ((qrShellSize - qrSize) / 2);
 
@@ -28562,13 +28558,7 @@ async function buildCredentialPngBlob_(person, options = {}) {
   const logoRenderHeight = assets.logo.naturalHeight * logoScale;
   const logoX = (width - logoRenderWidth) / 2;
 
-  context.drawImage(assets.logo, logoX, 118, logoRenderWidth, logoRenderHeight);
-
-  context.fillStyle = "#5f5f5f";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.font = "500 42px Manrope, Arial, sans-serif";
-  context.fillText("Credencial Digital", width / 2, 264);
+  context.drawImage(assets.logo, logoX, 86, logoRenderWidth, logoRenderHeight);
 
   context.fillStyle = "#ffffff";
   context.strokeStyle = "#e7e7e7";
@@ -28585,44 +28575,31 @@ async function buildCredentialPngBlob_(person, options = {}) {
     fontWeight: 800
   });
   const nameLineHeight = Math.round(nameBlock.fontSize * 1.02);
-  let cursorY = 1046;
+  let cursorY = 1006;
 
   context.fillStyle = "#1a1a1a";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
   context.font = `800 ${nameBlock.fontSize}px Manrope, Arial, sans-serif`;
   nameBlock.lines.forEach((line) => {
     context.fillText(line, width / 2, cursorY);
     cursorY += nameLineHeight;
   });
 
-  const groupBlock = fitCanvasTextBlock_(context, `Grupo de conexion: ${groupName}`, 760, {
-    maxLines: 2,
-    maxFontSize: 30,
-    minFontSize: 22,
-    fontWeight: 700
-  });
-  const groupLineHeight = Math.round(groupBlock.fontSize * 1.2);
-  cursorY += 54;
-  context.fillStyle = "#666666";
-  context.font = `700 ${groupBlock.fontSize}px Manrope, Arial, sans-serif`;
-  groupBlock.lines.forEach((line) => {
-    context.fillText(line, width / 2, cursorY);
-    cursorY += groupLineHeight;
-  });
-
   context.strokeStyle = "#ededed";
   context.lineWidth = 2;
   context.beginPath();
-  context.moveTo(180, 1410);
-  context.lineTo(width - 180, 1410);
+  context.moveTo(180, 1346);
+  context.lineTo(width - 180, 1346);
   context.stroke();
 
   context.fillStyle = "#7d7d7d";
   context.font = "800 20px Manrope, Arial, sans-serif";
-  context.fillText("QR ID", width / 2, 1474);
+  context.fillText("QR ID", width / 2, 1404);
 
   context.fillStyle = "#1a1a1a";
   context.font = "700 42px Manrope, Arial, sans-serif";
-  context.fillText(qrId, width / 2, 1538);
+  context.fillText(qrId, width / 2, 1470);
 
   return canvasToBlob_(canvas, "image/png");
 }
@@ -28879,7 +28856,6 @@ function printCredentialCards_(people, title) {
 
   const logoUrl = getCredentialLogoAssetUrl_();
   const cardsHtml = rows.map((person) => {
-    const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
     const qrDataUrl = buildCredentialQrDataUrl_(person, 320);
     const name = person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre";
     const id = person.id || person.numero || "SIN ID";
@@ -28888,13 +28864,12 @@ function printCredentialCards_(people, title) {
       <article class="print-credential-card">
         <div class="print-credential-head">
           <img src="${logoUrl}" alt="Iglesia Fuertes">
-          <span class="print-credential-caption">Credencial Digital</span>
         </div>
         <div class="print-credential-body">
           <img class="print-credential-qr" src="${qrDataUrl}" alt="QR ${escapeHtml(id)}">
           <div class="print-credential-copy">
             <strong>${escapeHtml(name)}</strong>
-            <span class="print-credential-group">${escapeHtml(`Grupo de conexion: ${groupName}`)}</span>
+            <span class="print-credential-id-label">QR ID</span>
             <span class="print-credential-id">${escapeHtml(id)}</span>
           </div>
         </div>
@@ -28959,23 +28934,18 @@ function printCredentialCards_(people, title) {
         .print-credential-head {
           display: grid;
           justify-items: center;
-          gap: 12px;
+          gap: 0;
         }
         .print-credential-head img {
           width: 290px;
           max-width: 100%;
           display: block;
         }
-        .print-credential-caption {
-          font-size: 22px;
-          color: #2e2e2e;
-          font-weight: 500;
-        }
         .print-credential-body {
           display: grid;
           justify-items: center;
-          gap: 22px;
-          margin-top: 22px;
+          gap: 18px;
+          margin-top: 14px;
         }
         .print-credential-qr {
           width: 320px;
@@ -28998,18 +28968,15 @@ function printCredentialCards_(people, title) {
           text-transform: uppercase;
           max-width: 10ch;
         }
-        .print-credential-role {
-          font-size: 24px;
+        .print-credential-id-label {
+          margin-top: 4px;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #1d1d1d;
-        }
-        .print-credential-group {
-          font-size: 16px;
-          color: #555555;
+          color: #7a7a7a;
         }
         .print-credential-id {
-          margin-top: 8px;
           font-size: 22px;
           letter-spacing: 0.08em;
           color: #202020;
