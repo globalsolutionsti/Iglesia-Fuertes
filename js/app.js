@@ -12110,6 +12110,45 @@ function buildWhatsappTextShareUrl_(message, phone = "") {
   return `https://api.whatsapp.com/send?text=${encodedMessage}`;
 }
 
+function isLikelyMobileDevice_() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(String(navigator.userAgent || ""));
+}
+
+function buildWhatsappDirectChatUrl_(phone, message = "") {
+  const cleanPhone = normalizeWhatsappPhone_(phone);
+  const encodedMessage = encodeURIComponent(String(message || "").trim());
+
+  if (!cleanPhone) {
+    return "";
+  }
+
+  if (isLikelyMobileDevice_()) {
+    return `whatsapp://send?phone=${cleanPhone}${encodedMessage ? `&text=${encodedMessage}` : ""}`;
+  }
+
+  return `https://wa.me/${cleanPhone}${encodedMessage ? `?text=${encodedMessage}` : ""}`;
+}
+
+function openWhatsappDirectChat_(phone, message = "") {
+  const directUrl = buildWhatsappDirectChatUrl_(phone, message);
+
+  if (!directUrl) {
+    return false;
+  }
+
+  if (isLikelyMobileDevice_()) {
+    window.location.href = directUrl;
+    return true;
+  }
+
+  window.open(directUrl, "_blank", "noopener,noreferrer");
+  return true;
+}
+
 function formatDashboardAttendanceStatusText_(status) {
   const normalizedStatus = String(status || "").toUpperCase();
 
@@ -28366,41 +28405,27 @@ async function shareCredentialPng_(person) {
 
 async function prepareCredentialWhatsappChat_(person) {
   const phone = normalizeWhatsappPhone_(person?.telefono);
-  const whatsappUrl = buildWhatsappShareUrl_(person);
   const fileName = `${buildCredentialFileName_(person)}.png`;
-  const preparedWindow = typeof window !== "undefined" ? window.open("", "_blank", "noopener,noreferrer") : null;
+  const shareMessage = buildCredentialShareText_(person);
 
-  if (!phone || !whatsappUrl) {
-    if (preparedWindow) {
-      preparedWindow.close();
-    }
+  if (!phone) {
     showToast("Sin teléfono", "El congregante no tiene un número válido para abrir su chat de WhatsApp.", "warning");
     return;
   }
 
-  try {
-    await withLoading(async () => {
-      const blob = await buildCredentialPngBlob_(person);
-      downloadBlob_(blob, fileName);
-    }, "Preparando QR y WhatsApp...");
+  await withLoading(async () => {
+    const blob = await buildCredentialPngBlob_(person);
+    downloadBlob_(blob, fileName);
+  }, "Preparando QR y WhatsApp...");
 
-    if (preparedWindow) {
-      preparedWindow.location = whatsappUrl;
-    } else {
-      window.open(whatsappUrl, "_blank", "noopener,noreferrer");
-    }
-
-    showToast(
-      "WhatsApp listo",
-      "Se preparó el QR y se abrió el chat correcto del congregante. Adjunta el PNG recién generado para enviarlo sin confusiones.",
-      "success"
-    );
-  } catch (error) {
-    if (preparedWindow) {
-      preparedWindow.close();
-    }
-    throw error;
-  }
+  openWhatsappDirectChat_(phone, shareMessage);
+  showToast(
+    isLikelyMobileDevice_() ? "WhatsApp del celular listo" : "WhatsApp listo",
+    isLikelyMobileDevice_()
+      ? "Se descargó el QR y se abrió el WhatsApp de tu celular en el chat correcto del congregante."
+      : "Se descargó el QR y se abrió el chat correcto del congregante en WhatsApp.",
+    "success"
+  );
 }
 
 async function downloadCredentialBatchZip_(people, title) {
