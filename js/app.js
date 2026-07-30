@@ -1005,6 +1005,19 @@ function getFormationSortedLevels_() {
 function getFormationPastoralCatalogBlueprint_() {
   return [
     {
+      code: "2",
+      parentCode: "",
+      name: "Ahora Que 1 y Ahora Que 2",
+      order: 200,
+      stageType: "NIVEL",
+      totalSessionsDefault: 2,
+      calendarMode: "MANUAL_MULTI",
+      attendanceMinimum: 100,
+      maxAbsences: 0,
+      requiresExam: false,
+      rule: "Debe completar Ahora Que 1 y Ahora Que 2 antes de pasar a Encuentro."
+    },
+    {
       code: "3",
       parentCode: "",
       name: "Encuentro",
@@ -6796,6 +6809,43 @@ function renderFormationCasesWorkspace_(context) {
   `;
 }
 
+function getFormationProcessTopNodes_() {
+  return getFormationPastoralCatalogNodes_()
+    .filter((node) => String(node.parentCode || "") === "")
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+}
+
+function getFormationRequiredStructureStarterNodes_() {
+  return getFormationProcessTopNodes_()
+    .filter((node) => String(node.stageType || "").toUpperCase() !== "BLOQUE")
+    .slice(0, 3);
+}
+
+function getFormationProcessStepIndex_(node) {
+  const cleanCode = String(node?.code || "").trim();
+
+  if (!cleanCode) {
+    return 0;
+  }
+
+  return getFormationProcessTopNodes_().findIndex((item) => String(item.code || "") === cleanCode) + 1;
+}
+
+function getFormationNodeHeading_(node) {
+  const stageType = String(node?.stageType || "").toUpperCase();
+  const stepIndex = getFormationProcessStepIndex_(node);
+
+  if (stageType === "SUBNIVEL") {
+    return `Subnivel ${node.code} · ${node.name}`;
+  }
+
+  if (stepIndex > 0) {
+    return `Paso ${stepIndex} · ${node.name}`;
+  }
+
+  return `Nivel ${node.code} · ${node.name}`;
+}
+
 function renderFormationPastoralTree_(nodes, options = {}) {
   const {
     processId = "",
@@ -6840,7 +6890,7 @@ function renderFormationPastoralTree_(nodes, options = {}) {
           <div class="result-card">
             <div class="result-row" style="align-items:flex-start; gap:16px;">
               <div class="result-copy-stack">
-                <strong>${escapeHtml(offering?.name || `Nivel ${node.code} - ${node.name}`)}</strong>
+                <strong>${escapeHtml(offering?.name || getFormationNodeHeading_(node))}</strong>
                 <span>${escapeHtml(node.description || node.rule || "Sin descripción pastoral")}</span>
               </div>
               <span class="status-chip ${statusKind}">${escapeHtml(statusLabel)}</span>
@@ -6946,7 +6996,7 @@ function renderFormationStructurePlannerNode_(node, processId, depth = 0) {
     <div class="result-card" ${depth ? `style="margin-left:${Math.min(depth * 18, 42)}px;"` : ""}>
       <div class="result-row" style="align-items:flex-start; gap:16px;">
         <div class="result-copy-stack">
-          <strong>${escapeHtml(`Nivel ${node.code} - ${node.name}`)}</strong>
+          <strong>${escapeHtml(getFormationNodeHeading_(node))}</strong>
           <span>${escapeHtml(node.rule || "Sin regla pastoral")}</span>
         </div>
         <span class="status-chip ${statusKind}">${escapeHtml(statusLabel)}</span>
@@ -7012,7 +7062,7 @@ function renderFormationLevelsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Catálogos del Proceso de Formación</h2>
-          <p>Primero defines el Proceso de Formación, luego sincronizas la ruta pastoral desde Nivel 3 y al final programas fechas, sesiones y reglas dentro del proceso real.</p>
+          <p>Primero defines el Proceso de Formación, luego sincronizas la ruta pastoral comenzando con Ahora Que 1 y Ahora Que 2 y al final programas fechas, sesiones y reglas dentro del proceso real.</p>
         </div>
         <span class="status-chip neutral">Proceso → Ruta pastoral → Estructura → Discipulado</span>
       </div>
@@ -7031,7 +7081,7 @@ function renderFormationLevelsWorkspace_(context) {
         <article class="stat-card">
           <span class="status-chip success">Programados</span>
           <strong>${escapeHtml(String(catalogSummary.offerings))}</strong>
-          <span>Niveles ya aterrizados dentro del proceso activo.</span>
+          <span>Pasos ya aterrizados dentro del Proceso de Formación activo.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip dark">Sesiones</span>
@@ -7041,9 +7091,9 @@ function renderFormationLevelsWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Nivel 1:</strong> Grupos de Conexión</span>
-        <span class="context-item"><strong>Nivel 2:</strong> Ahora Qué</span>
-        <span class="context-item"><strong>Desde aquí inicia:</strong> Nivel 3 Encuentro y la ruta formativa completa</span>
+        <span class="context-item"><strong>Puerta de entrada:</strong> Grupos de Conexión</span>
+        <span class="context-item"><strong>Paso 1 del proceso:</strong> Ahora Que 1 y Ahora Que 2</span>
+        <span class="context-item"><strong>Paso 2:</strong> Encuentro y a partir de ahí la ruta formativa completa</span>
         <span class="context-item"><strong>Meta:</strong> dejar lista la estructura para inscripción, asistencia y portal del asistente</span>
       </div>
     </article>
@@ -7052,7 +7102,7 @@ function renderFormationLevelsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>${editingProcess ? "Editar Proceso de Formación" : "Crear Proceso de Formación"}</h2>
-          <p>Este proceso agrupa una generación completa. Aquí solo defines el contenedor principal y después programas la ruta dentro de él.</p>
+          <p>Este proceso agrupa una generación completa. Aquí defines el contenedor principal y en cuanto lo guardas continúas con los pasos operativos del proceso.</p>
         </div>
         <span class="pill ${state.ui.formationProcessSaving ? "warning" : "dark"}">
           ${state.ui.formationProcessSaving
@@ -7069,7 +7119,7 @@ function renderFormationLevelsWorkspace_(context) {
             <input id="formation-process-name" name="name" value="${escapeHtml(editingProcess?.name || "")}" placeholder="Proceso de Formación 1" required>
           </div>
           <div class="field">
-            <label for="formation-process-start-date">Fecha de referencia</label>
+            <label for="formation-process-start-date">Fecha de inicio del Proceso de Formación</label>
             <input id="formation-process-start-date" name="startDate" type="date" value="${escapeHtml(formatDateForInput_(editingProcess?.startDate || new Date()) || "")}" required>
           </div>
           <div class="field">
@@ -7100,36 +7150,6 @@ function renderFormationLevelsWorkspace_(context) {
       </form>
     </article>
 
-    <article class="detail-card">
-      <div class="panel-head">
-        <div>
-          <h2>Procesos registrados</h2>
-          <p>Selecciona el proceso sobre el cual vas a programar Niveles 3 al 11.</p>
-        </div>
-        <span class="pill neutral">${escapeHtml(selectedProcess?.name || "Sin proceso activo")}</span>
-      </div>
-
-      <div class="results-list">
-        ${processRows.length ? processRows.map((process) => `
-          <div class="result-card ${String(selectedProcess?.id || "") === String(process.id || "") ? "is-selected" : ""}">
-            <div class="result-row">
-              <div class="result-copy-stack">
-                <strong>${escapeHtml(process.name || "Proceso de Formación")}</strong>
-                <span>${escapeHtml(process.id || "-")} | Inicio ${escapeHtml(formatDate(process.startDate) || "Sin fecha")}</span>
-                <span>${escapeHtml(process.description || "Sin descripción pastoral")}</span>
-              </div>
-              <div class="inline-actions">
-                <button class="btn btn-secondary" type="button" data-action="edit-formation-process" data-process-id="${escapeHtml(process.id || "")}">Editar</button>
-                <button class="btn btn-ghost" type="button" data-action="select-formation-process" data-process-id="${escapeHtml(process.id || "")}">Usar este proceso</button>
-              </div>
-            </div>
-          </div>
-        `).join("") : `
-          <div class="empty-state">Primero crea al menos un Proceso de Formación para continuar con la estructura.</div>
-        `}
-      </div>
-    </article>
-
     <article class="detail-card module-section-anchor" id="formation-pastoral-path-panel">
       <div class="panel-head">
         <div>
@@ -7145,6 +7165,7 @@ function renderFormationLevelsWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
+        <span class="context-item"><strong>Ahora Que:</strong> 2 sesiones manuales</span>
         <span class="context-item"><strong>Encuentro:</strong> 3 días manuales</span>
         <span class="context-item"><strong>Bautismo, Sanidad, Niveles 7-11:</strong> 1 sola sesión cada uno</span>
         <span class="context-item"><strong>Formación Básica Cristiana:</strong> 4 subniveles de 12 domingos</span>
@@ -7157,18 +7178,75 @@ function renderFormationLevelsWorkspace_(context) {
     <article class="detail-card module-section-anchor" id="formation-structure-panel">
       <div class="panel-head">
         <div>
-          <h2>Estructura del proceso seleccionado</h2>
-          <p>Sobre el proceso activo defines nombres operativos, fechas y sesiones reales. El sistema dejará lista la ruta para tomar asistencia y registrar congregantes.</p>
+          <h2>Pasos del Proceso de Formación</h2>
+          <p>Selecciona el proceso activo y programa sus pasos reales. Para arrancar bien esta fase debes dejar listos, como mínimo, los primeros 3 pasos operativos del proceso.</p>
         </div>
         <span class="pill warning">${escapeHtml(selectedProcess?.name || "Selecciona un proceso")}</span>
       </div>
 
       ${selectedProcess ? `
+        <div class="field-grid two" style="margin-bottom:16px;">
+          <div class="field">
+            <label for="formation-structure-process">Proceso activo para programar</label>
+            <select id="formation-structure-process">
+              ${renderOptions(
+                processRows.map((process) => ({
+                  value: process.id,
+                  label: `${process.name || "Proceso de Formación"} · ${formatDate(process.startDate) || "Sin fecha"}`
+                })),
+                selectedProcess.id || "",
+                "Selecciona proceso"
+              )}
+            </select>
+          </div>
+          <div class="field">
+            <label>Acción rápida</label>
+            <div class="actions-row" style="justify-content:flex-start;">
+              <button class="btn btn-secondary" type="button" data-action="edit-formation-process" data-process-id="${escapeHtml(selectedProcess.id || "")}">Editar proceso activo</button>
+            </div>
+          </div>
+        </div>
+
         <div class="summary-strip">
           <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedProcess.name || "-")}</span>
-          <span class="context-item"><strong>Inicio referencia:</strong> ${escapeHtml(formatDate(selectedProcess.startDate) || "Sin fecha")}</span>
+          <span class="context-item"><strong>Inicio del proceso:</strong> ${escapeHtml(formatDate(selectedProcess.startDate) || "Sin fecha")}</span>
           <span class="context-item"><strong>Estado:</strong> ${escapeHtml(selectedProcess.status || "ACTIVO")}</span>
-          <span class="context-item"><strong>Programados:</strong> ${escapeHtml(String(offeringRows.length))} niveles</span>
+          <span class="context-item"><strong>Programados:</strong> ${escapeHtml(String(offeringRows.length))} pasos</span>
+        </div>
+
+        <div class="summary-strip" style="margin-top:12px;">
+          <span class="context-item"><strong>Obligatorios hoy en V2:</strong> Ahora Que 1 y Ahora Que 2, Encuentro y Bautismo en Agua</span>
+          <span class="context-item"><strong>Siguiente ajuste:</strong> continuar con Paso 4 en adelante dentro de la misma ruta operativa</span>
+        </div>
+
+        <div class="results-list" style="margin-top:16px; margin-bottom:16px;">
+          ${getFormationRequiredStructureStarterNodes_().map((node) => {
+            const offering = getFormationProcessOfferingByNode_(selectedProcess.id, node);
+            const stepIndex = getFormationProcessStepIndex_(node);
+            const stepStatus = offering ? "Listo" : "Pendiente";
+            const stepTone = offering ? "success" : "warning";
+            const stepDates = getFormationOfferingSessionDates_(offering);
+            const stepDatesLabel = stepDates.length
+              ? stepDates.map((dateValue) => formatDate(dateValue) || dateValue).join(" · ")
+              : "Todavía sin fechas";
+
+            return `
+              <div class="result-card">
+                <div class="result-row" style="align-items:flex-start; gap:16px;">
+                  <div class="result-copy-stack">
+                    <strong>${escapeHtml(`Paso ${stepIndex} obligatorio · ${node.name}`)}</strong>
+                    <span>${escapeHtml(node.rule || "Sin condición pastoral")}</span>
+                  </div>
+                  <span class="status-chip ${stepTone}">${escapeHtml(stepStatus)}</span>
+                </div>
+                <div class="summary-strip">
+                  <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(node.totalSessionsDefault || 0))}</span>
+                  <span class="context-item"><strong>Calendario:</strong> ${escapeHtml(node.calendarMode === "MANUAL_MULTI" ? "Fechas manuales" : (node.calendarMode === "WEEKLY_SUNDAY" ? "Domingos consecutivos" : "Fecha única"))}</span>
+                  <span class="context-item"><strong>Fechas:</strong> ${escapeHtml(stepDatesLabel)}</span>
+                </div>
+              </div>
+            `;
+          }).join("")}
         </div>
 
         <form id="formation-process-structure-form">
@@ -7181,7 +7259,7 @@ function renderFormationLevelsWorkspace_(context) {
           </div>
 
           <div class="actions-row" style="margin-top:18px;">
-            <button class="btn btn-primary" type="submit">Guardar estructura del proceso</button>
+            <button class="btn btn-primary" type="submit">Guardar pasos del proceso</button>
             <button class="btn btn-secondary" type="button" data-action="select-formation-process" data-process-id="${escapeHtml(selectedProcess.id || "")}">Recargar este proceso</button>
           </div>
         </form>
@@ -19315,6 +19393,23 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "formation-structure-process") {
+      state.filters.formationOps.processId = target.value || "";
+      state.filters.formationOps.offeringId = "";
+      state.ui.selectedFormationOfferingId = "";
+      state.ui.editingFormationOfferingId = "";
+      state.qrScanner.result = null;
+      state.formationQrActivity = [];
+      await loadFormationOperationsData_({
+        force: true,
+        showLoading: false,
+        processId: state.filters.formationOps.processId,
+        sessionNumber: "1"
+      });
+      renderApp();
+      return;
+    }
+
     if (target.id === "formation-ops-level") {
       state.filters.formationOps.levelId = target.value;
       state.filters.formationOps.offeringId = "";
@@ -23155,10 +23250,27 @@ async function saveFormationProcessStructure_(form) {
     return;
   }
 
+  const requiredStarterNodes = getFormationRequiredStructureStarterNodes_();
+  const missingStarterNodes = requiredStarterNodes.filter((node) => {
+    return !items.some((item) => {
+      return String(item?.levelId || "") === String(node.id || "")
+        || String(item?.levelCode || "") === String(node.code || "");
+    });
+  });
+
   if (!items.length) {
     showToast(
       "Sin estructura programada",
       "Captura al menos una fecha operativa para empezar a guardar este proceso.",
+      "warning"
+    );
+    return;
+  }
+
+  if (missingStarterNodes.length) {
+    showToast(
+      "Faltan pasos obligatorios",
+      `Antes de guardar este proceso deja listos los primeros 3 pasos operativos: ${missingStarterNodes.map((node) => node.name).join(", ")}.`,
       "warning"
     );
     return;
@@ -23187,8 +23299,8 @@ async function saveFormationProcessStructure_(form) {
 
   state.ui.formationSection = "levels";
   showToast(
-    "Estructura guardada",
-    "El proceso ya quedó programado con sus niveles, fechas y sesiones operativas.",
+    "Pasos guardados",
+    "El Proceso de Formación ya quedó programado con sus pasos, fechas y sesiones operativas.",
     "success"
   );
   renderApp();
@@ -23342,7 +23454,7 @@ async function saveFormationProcess_(rawPayload) {
   state.ui.formationSection = "levels";
   showToast(
     "Proceso guardado",
-    "El Proceso de Formación ya quedó listo. Ahora crea dentro de él los niveles programados con sus sesiones.",
+    "El Proceso de Formación ya quedó listo. Ahora programa, como mínimo, los primeros 3 pasos operativos del proceso.",
     "success"
   );
   renderApp();
