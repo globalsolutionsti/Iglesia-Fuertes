@@ -1578,6 +1578,12 @@ div {
   align-items: flex-start;
 }
 
+.formation-portal-row-title {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
 .formation-portal-row-head strong {
   display: block;
   font-size: 22px;
@@ -1585,12 +1591,24 @@ div {
   letter-spacing: -0.04em;
 }
 
-.formation-portal-row-head span {
-  display: block;
-  margin-top: 7px;
+.formation-portal-row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formation-portal-row-chip {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: #f1eee8;
   color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 
@@ -6595,12 +6613,17 @@ tbody tr:hover {
     font-size: 18px;
   }
 
-  .formation-portal-row-head span,
   .formation-portal-row-meta span,
   .formation-portal-row-stat span,
   .formation-portal-row-actions span {
     font-size: 12px;
     line-height: 1.45;
+  }
+
+  .formation-portal-row-chip {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 11px;
   }
 
   .formation-portal-row-meta {
@@ -6623,6 +6646,76 @@ tbody tr:hover {
 
   .formation-portal-modal-preview {
     padding: 10px 10px 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .formation-portal-row {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .formation-portal-row-main,
+  .formation-portal-row-stats,
+  .formation-portal-row-actions {
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .formation-portal-row-head {
+    gap: 10px;
+  }
+
+  .formation-portal-row-head strong {
+    font-size: 16px;
+    line-height: 1.08;
+  }
+
+  .formation-portal-row-chips {
+    gap: 6px;
+  }
+
+  .formation-portal-row-chip {
+    min-height: 28px;
+    padding: 0 9px;
+    font-size: 10px;
+  }
+
+  .formation-portal-row-meta {
+    gap: 7px;
+  }
+
+  .formation-portal-row-meta span {
+    font-size: 11px;
+    line-height: 1.38;
+  }
+
+  .formation-portal-row-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .formation-portal-row-stat {
+    padding: 12px;
+    gap: 5px;
+  }
+
+  .formation-portal-row-stat strong {
+    font-size: 16px;
+  }
+
+  .formation-portal-row-stat span,
+  .formation-portal-row-actions span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .formation-portal-row-actions {
+    gap: 8px;
+  }
+
+  .formation-portal-row-actions .btn {
+    min-height: 42px;
+    font-size: 13px;
   }
 }
 
