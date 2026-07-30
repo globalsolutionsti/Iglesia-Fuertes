@@ -25925,10 +25925,17 @@ async function registerQrAttendance(personId, options = {}) {
         ...state.formationQrActivity
       ].slice(0, 8);
       qrScannerRuntime.pausedUntil = Date.now() + 4200;
-      await loadFormationAttendanceContext_(formationContext.offeringId, {
+      playKioskSignal_(state.qrScanner.result?.tone || "success");
+      renderApp();
+
+      void loadFormationAttendanceContext_(formationContext.offeringId, {
         force: true,
         showLoading: false,
         sessionNumber: formationContext.sessionNumber
+      }).then(() => {
+        renderApp();
+      }).catch((refreshError) => {
+        console.error("Formation QR context refresh warning", refreshError);
       });
     };
 
@@ -25943,7 +25950,6 @@ async function registerQrAttendance(personId, options = {}) {
         showToast("Registro exitoso", "La asistencia se guardó dentro de Proceso de Formación.", "success");
       }
 
-      playKioskSignal_(state.qrScanner.result?.tone || "success");
       renderApp();
     } catch (error) {
       state.qrScanner.result = buildFormationQrFailureResult_(error, cleanPersonId);
