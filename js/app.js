@@ -28524,7 +28524,7 @@ async function buildCredentialPngBlob_(person, options = {}) {
   const qrShellSize = 652;
   const qrSize = 560;
   const qrShellX = (width - qrShellSize) / 2;
-  const qrShellY = 246;
+  const qrShellY = 286;
   const qrX = qrShellX + ((qrShellSize - qrSize) / 2);
   const qrY = qrShellY + ((qrShellSize - qrSize) / 2);
 
@@ -28575,7 +28575,7 @@ async function buildCredentialPngBlob_(person, options = {}) {
     fontWeight: 800
   });
   const nameLineHeight = Math.round(nameBlock.fontSize * 1.02);
-  let cursorY = 1006;
+  let cursorY = 1080;
 
   context.fillStyle = "#1a1a1a";
   context.textAlign = "center";
@@ -28589,17 +28589,17 @@ async function buildCredentialPngBlob_(person, options = {}) {
   context.strokeStyle = "#ededed";
   context.lineWidth = 2;
   context.beginPath();
-  context.moveTo(180, 1346);
-  context.lineTo(width - 180, 1346);
+  context.moveTo(180, 1410);
+  context.lineTo(width - 180, 1410);
   context.stroke();
 
   context.fillStyle = "#7d7d7d";
   context.font = "800 20px Manrope, Arial, sans-serif";
-  context.fillText("QR ID", width / 2, 1404);
+  context.fillText("QR ID", width / 2, 1468);
 
   context.fillStyle = "#1a1a1a";
   context.font = "700 42px Manrope, Arial, sans-serif";
-  context.fillText(qrId, width / 2, 1470);
+  context.fillText(qrId, width / 2, 1534);
 
   return canvasToBlob_(canvas, "image/png");
 }
