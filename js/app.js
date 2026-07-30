@@ -16211,6 +16211,12 @@ function buildFormationQrFailureResult_(error, personId) {
   };
 }
 
+function buildActiveQrFailureResult_(error, personId) {
+  return isFormationOperationsQrActive_()
+    ? buildFormationQrFailureResult_(error, personId)
+    : buildQrFailureResult_(error, personId);
+}
+
 function resolveGroupName_(groupId) {
   const match = state.catalogs.groups.find((group) => String(group.id) === String(groupId));
   return match ? match.name : "";
@@ -25707,7 +25713,7 @@ async function loadQrSummary(options = {}) {
 }
 
 async function registerQrAttendance(personId, options = {}) {
-  const cleanPersonId = String(personId || "").trim();
+  const cleanPersonId = extractPersonIdFromScan_(personId) || String(personId || "").trim();
   if (!cleanPersonId) {
     showToast("Falta QR ID", "Escribe o selecciona un QR ID valido.", "warning");
     return;
@@ -26016,9 +26022,9 @@ function processQrRawValue_(rawValue) {
   const extractedPersonId = extractPersonIdFromScan_(rawValue);
 
   if (!extractedPersonId) {
-    state.qrScanner.result = buildQrFailureResult_(
+    state.qrScanner.result = buildActiveQrFailureResult_(
       new ApiError("El codigo QR no contiene un QR ID reconocible.", "INVALID_QR_VALUE"),
-      rawValue
+      extractNumericQrIdCandidate_(rawValue) || String(rawValue || "").trim()
     );
     state.qrScanner.status = "error";
     state.qrScanner.message = state.qrScanner.result.message;
@@ -26049,37 +26055,116 @@ function processQrRawValue_(rawValue) {
 }
 
 function extractPersonIdFromScan_(rawValue) {
-  const text = String(rawValue || "").trim();
+  const text = normalizeQrScanText_(rawValue);
 
   if (!text) {
     return "";
   }
 
+  if (/^\d{10,}$/.test(text)) {
+    return text;
+  }
+
   try {
     const parsed = JSON.parse(text);
-    return String(parsed.personId || parsed.id || parsed.codigo || "").trim();
+    const parsedCandidate = normalizeQrScanText_(
+      parsed.personId
+      || parsed.id
+      || parsed.codigo
+      || parsed.qrId
+      || parsed.qr
+      || parsed.value
+      || ""
+    );
+
+    if (parsedCandidate) {
+      if (/^\d{10,}$/.test(parsedCandidate)) {
+        return parsedCandidate;
+      }
+      const nestedDigits = extractNumericQrIdCandidate_(parsedCandidate);
+      if (nestedDigits) {
+        return nestedDigits;
+      }
+    }
   } catch (error) {
     // Continuamos con otras estrategias de lectura.
   }
 
   try {
     const url = new URL(text);
-    return String(
+    const urlCandidate = normalizeQrScanText_(
       url.searchParams.get("personId") ||
       url.searchParams.get("id") ||
+      url.searchParams.get("qrId") ||
       url.searchParams.get("code") ||
+      url.searchParams.get("qr") ||
       ""
-    ).trim() || text;
+    );
+
+    if (urlCandidate) {
+      if (/^\d{10,}$/.test(urlCandidate)) {
+        return urlCandidate;
+      }
+      const nestedUrlDigits = extractNumericQrIdCandidate_(urlCandidate);
+      if (nestedUrlDigits) {
+        return nestedUrlDigits;
+      }
+    }
+
+    const urlFallback = extractNumericQrIdCandidate_(
+      decodeURIComponent(`${url.pathname || ""} ${url.hash || ""}`.trim())
+    );
+
+    if (urlFallback) {
+      return urlFallback;
+    }
   } catch (error) {
-    return text;
+    // Seguimos con el análisis textual.
   }
+
+  const explicitLabelMatch = text.match(/\b(?:personid|persona|qrid|qr|id|codigo|code)\b[^0-9]*(\d{10,})/i);
+  if (explicitLabelMatch?.[1]) {
+    return explicitLabelMatch[1].trim();
+  }
+
+  const numericCandidate = extractNumericQrIdCandidate_(text);
+  if (numericCandidate) {
+    return numericCandidate;
+  }
+
+  const compactText = text.replace(/\s+/g, "");
+  return /^\d{10,}$/.test(compactText) ? compactText : "";
+}
+
+function normalizeQrScanText_(rawValue) {
+  return String(rawValue || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractNumericQrIdCandidate_(rawValue) {
+  const text = normalizeQrScanText_(rawValue);
+
+  if (!text) {
+    return "";
+  }
+
+  const matches = text.match(/\d{10,}/g);
+  if (!matches?.length) {
+    return "";
+  }
+
+  return matches.reduce((longest, current) => (
+    String(current || "").length > String(longest || "").length ? current : longest
+  ), matches[0]).trim();
 }
 
 function throwQrScannerError_(code, message) {
   state.qrScanner.enabled = false;
   state.qrScanner.status = "error";
   state.qrScanner.message = message;
-  state.qrScanner.result = buildQrFailureResult_(new ApiError(message, code), "");
+  state.qrScanner.result = buildActiveQrFailureResult_(new ApiError(message, code), "");
   stopQrScannerRuntime_(true);
   renderApp();
 }
