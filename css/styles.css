@@ -1554,6 +1554,7 @@ div {
   border: 1px solid rgba(17, 17, 17, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(246, 246, 246, 0.98) 100%);
   align-items: stretch;
+  overflow: hidden;
 }
 
 .formation-portal-row-main,
@@ -1589,6 +1590,7 @@ div {
   font-size: 22px;
   line-height: 1.04;
   letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
 }
 
 .formation-portal-row-chips {
@@ -1746,6 +1748,7 @@ div {
   font-size: 18px;
   line-height: 1.08;
   letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
 }
 
 .formation-portal-row-actions-label p {
@@ -6670,6 +6673,11 @@ tbody tr:hover {
     display: grid;
     grid-template-columns: 1fr;
     justify-items: stretch;
+    gap: 10px;
+  }
+
+  .formation-portal-roster-toolbar .btn {
+    width: 100%;
   }
 
   .formation-portal-direct-item {
@@ -6677,8 +6685,10 @@ tbody tr:hover {
   }
 
   .formation-portal-row {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
     padding: 14px;
     gap: 12px;
+    align-items: start;
   }
 
   .formation-portal-row-main,
@@ -6694,6 +6704,22 @@ tbody tr:hover {
 
   .formation-portal-row-head strong {
     font-size: 18px;
+  }
+
+  .formation-portal-row-main {
+    grid-column: 1;
+  }
+
+  .formation-portal-row-actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: stretch;
+  }
+
+  .formation-portal-row-stats {
+    grid-column: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-self: start;
   }
 
   .formation-portal-row-meta span,
@@ -6754,16 +6780,40 @@ tbody tr:hover {
 }
 
 @media (max-width: 760px) {
+  .formation-portal-roster-toolbar {
+    gap: 8px;
+  }
+
   .formation-portal-row {
+    grid-template-columns: 1fr;
     gap: 10px;
-    padding: 12px;
+    padding: 10px;
+    border-radius: 20px;
   }
 
   .formation-portal-row-main,
   .formation-portal-row-stats,
   .formation-portal-row-actions {
+    width: 100%;
     padding: 12px;
     border-radius: 16px;
+  }
+
+  .formation-portal-row-main {
+    order: 1;
+    grid-column: auto;
+  }
+
+  .formation-portal-row-actions {
+    order: 2;
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .formation-portal-row-stats {
+    order: 3;
+    grid-column: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .formation-portal-row-head {
@@ -6771,8 +6821,8 @@ tbody tr:hover {
   }
 
   .formation-portal-row-head strong {
-    font-size: 16px;
-    line-height: 1.08;
+    font-size: 21px;
+    line-height: 1.02;
   }
 
   .formation-portal-row-chips {
@@ -6796,8 +6846,8 @@ tbody tr:hover {
   }
 
   .formation-portal-row-identity-card strong {
-    font-size: 17px;
-    line-height: 1.05;
+    font-size: 21px;
+    line-height: 1.02;
   }
 
   .formation-portal-row-identity-card span {
@@ -6810,9 +6860,9 @@ tbody tr:hover {
   }
 
   .formation-portal-row-meta span {
-    font-size: 11px;
-    line-height: 1.38;
-    padding: 9px 10px;
+    font-size: 12px;
+    line-height: 1.34;
+    padding: 10px 11px;
   }
 
   .formation-portal-row-meta strong {
@@ -6824,17 +6874,15 @@ tbody tr:hover {
     display: none;
   }
 
-  .formation-portal-row-stats {
-    grid-template-columns: 1fr;
-  }
-
   .formation-portal-row-stat {
-    padding: 12px;
+    min-width: 0;
+    padding: 11px;
     gap: 5px;
   }
 
   .formation-portal-row-stat strong {
-    font-size: 16px;
+    font-size: 18px;
+    line-height: 1.04;
   }
 
   .formation-portal-row-stat span,
@@ -6858,8 +6906,8 @@ tbody tr:hover {
   }
 
   .formation-portal-row-actions-label strong {
-    font-size: 16px;
-    line-height: 1.06;
+    font-size: 19px;
+    line-height: 1.04;
   }
 
   .formation-portal-row-actions-label p {
@@ -6868,8 +6916,9 @@ tbody tr:hover {
   }
 
   .formation-portal-row-actions .btn {
-    min-height: 42px;
-    font-size: 13px;
+    min-height: 46px;
+    font-size: 14px;
+    border-radius: 14px;
   }
 }
 
