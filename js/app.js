@@ -311,6 +311,7 @@ const state = {
     formationProcessSavingMessage: "",
     formationSection: "route",
     formationStructureDrafts: {},
+    formationStructureExpanded: {},
     formationProfileLoading: false,
     formationProfileLoadingPersonId: "",
     welcomeNewRefreshing: false,
@@ -1339,6 +1340,47 @@ function clearFormationStructureDrafts_(processId = "") {
   delete state.ui.formationStructureDrafts[cleanProcessId];
 }
 
+function getFormationStructureExpandedBucket_(processId, createIfMissing = false) {
+  const cleanProcessId = String(processId || "").trim();
+
+  if (!cleanProcessId) {
+    return null;
+  }
+
+  if (!state.ui.formationStructureExpanded[cleanProcessId] && createIfMissing) {
+    state.ui.formationStructureExpanded[cleanProcessId] = {};
+  }
+
+  return state.ui.formationStructureExpanded[cleanProcessId] || null;
+}
+
+function isFormationStructureNodeExpanded_(processId, nodeOrKey) {
+  const key = typeof nodeOrKey === "string"
+    ? nodeOrKey
+    : getFormationPastoralNodeKey_(nodeOrKey?.code || "");
+  const bucket = getFormationStructureExpandedBucket_(processId, false);
+  return Boolean(bucket && bucket[key]);
+}
+
+function setFormationStructureNodeExpanded_(processId, nodeOrKey, expanded) {
+  const key = typeof nodeOrKey === "string"
+    ? nodeOrKey
+    : getFormationPastoralNodeKey_(nodeOrKey?.code || "");
+  const bucket = getFormationStructureExpandedBucket_(processId, true);
+
+  if (!bucket || !key) {
+    return;
+  }
+
+  bucket[key] = Boolean(expanded);
+}
+
+function toggleFormationStructureNodeExpanded_(processId, nodeOrKey) {
+  const nextExpanded = !isFormationStructureNodeExpanded_(processId, nodeOrKey);
+  setFormationStructureNodeExpanded_(processId, nodeOrKey, nextExpanded);
+  return nextExpanded;
+}
+
 function getFormationStructureSessionCount_(processId, node, offering) {
   if (String(node?.stageType || "").toUpperCase() === "BLOQUE") {
     return 0;
@@ -1351,6 +1393,104 @@ function getFormationStructureSessionCount_(processId, node, offering) {
   const draft = getFormationStructureDraft_(processId, node);
   const rawValue = draft.sessions ?? offering?.totalSessions ?? node?.totalSessionsDefault ?? 1;
   return Math.max(Number(rawValue || 0), 1);
+}
+
+function getFormationNodeCalendarLabel_(node) {
+  const mode = String(node?.calendarMode || "").toUpperCase();
+
+  if (mode === "MANUAL_MULTI") {
+    return "Fechas manuales";
+  }
+
+  if (mode === "WEEKLY_SUNDAY") {
+    return "Domingos consecutivos";
+  }
+
+  if (mode === "CONTAINER") {
+    return "Bloque de subniveles";
+  }
+
+  return "Fecha única";
+}
+
+function getFormationNodeDateSummary_(dates, node, sessionCount) {
+  if (Array.isArray(dates) && dates.length) {
+    return dates
+      .map((dateValue) => formatDate(dateValue) || dateValue)
+      .join(" · ");
+  }
+
+  const mode = String(node?.calendarMode || "").toUpperCase();
+
+  if (mode === "MANUAL_MULTI") {
+    return `${sessionCount} fecha(s) por definir`;
+  }
+
+  if (mode === "WEEKLY_SUNDAY") {
+    return `${sessionCount} domingo(s) por definir`;
+  }
+
+  if (mode === "CONTAINER") {
+    return "Sin fechas directas";
+  }
+
+  return "Fecha por definir";
+}
+
+function getTodayFormationSession_(offering) {
+  const todayKey = String(formatDateForInput_(new Date()) || "").trim();
+  const schedule = Array.isArray(offering?.sessionSchedule) ? offering.sessionSchedule : [];
+
+  if (!todayKey || !schedule.length) {
+    return null;
+  }
+
+  return schedule.find((session) => {
+    return String(formatDateForInput_(session?.date || "") || "").trim() === todayKey;
+  }) || null;
+}
+
+function getStudentPortalVisibleLevels_(levels, currentLevelId = "", nextLevelId = "") {
+  const rows = Array.isArray(levels) ? levels : [];
+  const cleanCurrentLevelId = String(currentLevelId || "").trim();
+  const cleanNextLevelId = String(nextLevelId || "").trim();
+  const selected = [];
+  const selectedIds = {};
+
+  rows.forEach((level) => {
+    const levelId = String(level?.levelId || "").trim();
+
+    if (!levelId) {
+      return;
+    }
+
+    if (
+      levelId === cleanCurrentLevelId
+      || (cleanNextLevelId && levelId === cleanNextLevelId)
+    ) {
+      if (!selectedIds[levelId]) {
+        selected.push(level);
+        selectedIds[levelId] = true;
+      }
+    }
+  });
+
+  if (cleanCurrentLevelId) {
+    const currentIndex = rows.findIndex((level) => String(level?.levelId || "").trim() === cleanCurrentLevelId);
+    const nextSequential = currentIndex >= 0 ? rows[currentIndex + 1] : null;
+    const nextSequentialId = String(nextSequential?.levelId || "").trim();
+
+    if (nextSequentialId && !selectedIds[nextSequentialId]) {
+      selected.push(nextSequential);
+      selectedIds[nextSequentialId] = true;
+    }
+  }
+
+  if (!selected.length && rows.length) {
+    return rows.slice(0, 1);
+  }
+
+  return selected;
 }
 
 function buildFormationSundaySeries_(startDate, totalSessions) {
@@ -3949,6 +4089,11 @@ function renderStudentPortalHomeScreen_(context) {
     supportUrl
   } = context;
   const currentStatus = String(currentLevel?.status || "BLOQUEADO").trim().toUpperCase();
+  const visibleLevels = getStudentPortalVisibleLevels_(
+    levels,
+    currentLevel?.levelId || "",
+    context.nextLevel?.levelId || ""
+  );
 
   return `
     <section class="student-portal-screen student-portal-screen-home">
@@ -4003,7 +4148,7 @@ function renderStudentPortalHomeScreen_(context) {
         </div>
 
         <div class="student-portal-level-preview-list">
-          ${levels.map((level) => renderStudentPortalCompactLevelRow_(level, {
+          ${visibleLevels.map((level) => renderStudentPortalCompactLevelRow_(level, {
             currentLevelId: currentLevel?.levelId || "",
             nextLevelId: context.nextLevel?.levelId || ""
           })).join("")}
@@ -4022,6 +4167,11 @@ function renderStudentPortalHomeScreen_(context) {
 
 function renderStudentPortalPathScreen_(context) {
   const { currentLevel, nextLevel, levels } = context;
+  const visibleLevels = getStudentPortalVisibleLevels_(
+    levels,
+    currentLevel?.levelId || "",
+    nextLevel?.levelId || ""
+  );
 
   return `
     <section class="student-portal-screen student-portal-screen-path">
@@ -4033,9 +4183,9 @@ function renderStudentPortalPathScreen_(context) {
       </div>
 
       <div class="student-portal-journey-stack">
-        ${levels.map((level, index) => renderStudentPortalJourneyCard_(level, {
+        ${visibleLevels.map((level, index) => renderStudentPortalJourneyCard_(level, {
           index,
-          total: levels.length,
+          total: visibleLevels.length,
           currentLevelId: currentLevel?.levelId || "",
           nextLevelId: nextLevel?.levelId || ""
         })).join("")}
@@ -7044,28 +7194,43 @@ function renderFormationStructurePlannerNode_(node, processId, depth = 0) {
   const isRequired = getFormationProcessStepIndex_(node) > 0 && getFormationProcessStepIndex_(node) <= 3;
   const statusLabel = offering ? "Configurado" : (isRequired ? "Obligatorio" : "Opcional");
   const statusKind = offering ? "success" : (isRequired ? "warning" : "neutral");
+  const expanded = isFormationStructureNodeExpanded_(processId, key);
+  const calendarLabel = getFormationNodeCalendarLabel_(node);
+  const dateSummary = getFormationNodeDateSummary_(dates, node, sessionCount);
 
   if (String(node.stageType || "").toUpperCase() === "BLOQUE") {
     const children = getFormationPastoralCatalogNodes_().filter((child) => String(child.parentCode || "") === String(node.code || ""));
     const configuredChildren = children.filter((child) => getFormationProcessOfferingByNode_(processId, child)).length;
 
     return `
-      <div class="result-card" ${depth ? `style="margin-left:${Math.min(depth * 18, 42)}px;"` : ""}>
-        <div class="result-row" style="align-items:flex-start; gap:16px;">
-          <div class="result-copy-stack">
-            <strong>${escapeHtml(`Paso ${node.code} · ${node.name}`)}</strong>
+      <div class="formation-step-card formation-step-card-block ${expanded ? "is-expanded" : ""}" ${depth ? `style="margin-left:${Math.min(depth * 16, 36)}px;"` : ""}>
+        <button
+          class="formation-step-toggle"
+          type="button"
+          data-action="toggle-formation-structure-step"
+          data-process-id="${escapeHtml(processId || "")}"
+          data-step-key="${escapeHtml(key)}"
+        >
+          <div class="formation-step-toggle-copy">
+            <span class="formation-step-toggle-kicker">${escapeHtml(`Paso ${node.code}`)}</span>
+            <strong>${escapeHtml(node.name || "Bloque")}</strong>
             <span>${escapeHtml(node.rule || "Bloque contenedor")}</span>
           </div>
-          <span class="status-chip neutral">${escapeHtml(`${configuredChildren}/${children.length} subniveles`)}</span>
-        </div>
+          <div class="formation-step-toggle-meta">
+            <span class="status-chip neutral">${escapeHtml(`${configuredChildren}/${children.length} subniveles`)}</span>
+            <span class="formation-step-toggle-arrow">${expanded ? "−" : "+"}</span>
+          </div>
+        </button>
 
-        <div class="summary-strip">
-          <span class="context-item"><strong>Función:</strong> agrupa los subniveles ${escapeHtml(`${node.code}.1 a ${node.code}.4`)}</span>
-          <span class="context-item"><strong>Condición pastoral:</strong> cada subnivel exige 75% de asistencia y examen acreditado</span>
-        </div>
+        <div class="formation-step-detail ${expanded ? "is-expanded" : ""}">
+          <div class="summary-strip">
+            <span class="context-item"><strong>Función:</strong> agrupa los subniveles ${escapeHtml(`${node.code}.1 a ${node.code}.4`)}</span>
+            <span class="context-item"><strong>Regla:</strong> 75% de asistencia mínima, máximo 3 faltas y examen acreditado</span>
+          </div>
 
-        <div class="results-list" style="margin-top:16px;">
-          ${children.map((child) => renderFormationStructurePlannerNode_(child, processId, depth + 1)).join("")}
+          <div class="results-list formation-step-subtree">
+            ${children.map((child) => renderFormationStructurePlannerNode_(child, processId, depth + 1)).join("")}
+          </div>
         </div>
       </div>
     `;
@@ -7127,28 +7292,46 @@ function renderFormationStructurePlannerNode_(node, processId, depth = 0) {
       `);
 
   return `
-    <div class="result-card" ${depth ? `style="margin-left:${Math.min(depth * 18, 42)}px;"` : ""}>
-      <div class="result-row" style="align-items:flex-start; gap:16px;">
-        <div class="result-copy-stack">
-          <strong>${escapeHtml(getFormationNodeHeading_(node))}</strong>
+    <div class="formation-step-card ${expanded ? "is-expanded" : ""}" ${depth ? `style="margin-left:${Math.min(depth * 16, 36)}px;"` : ""}>
+      <button
+        class="formation-step-toggle"
+        type="button"
+        data-action="toggle-formation-structure-step"
+        data-process-id="${escapeHtml(processId || "")}"
+        data-step-key="${escapeHtml(key)}"
+      >
+        <div class="formation-step-toggle-copy">
+          <span class="formation-step-toggle-kicker">${escapeHtml(getFormationNodeHeading_(node))}</span>
+          <strong>${escapeHtml(defaultName || node.name || "Paso sin nombre")}</strong>
           <span>${escapeHtml(node.rule || "Sin regla pastoral")}</span>
         </div>
-        <span class="status-chip ${statusKind}">${escapeHtml(statusLabel)}</span>
-      </div>
-
-      <div class="summary-strip">
-        <span class="context-item"><strong>Sesiones base:</strong> ${escapeHtml(String(sessionCount))}</span>
-        <span class="context-item"><strong>Pasa con:</strong> ${escapeHtml(Number(node.attendanceMinimum || 0) >= 100 ? "100% asistencia" : `${node.attendanceMinimum}% asistencia`)}</span>
-        <span class="context-item"><strong>Examen:</strong> ${escapeHtml(node.requiresExam ? "Sí" : "No")}</span>
-      </div>
-
-      <div class="field-grid two" style="margin-top:16px;">
-        <div class="field">
-          <label for="structure_${key}_name">Nombre operativo</label>
-          <input id="structure_${key}_name" name="structure_${key}_name" value="${escapeHtml(defaultName)}" placeholder="${escapeHtml(node.name)}">
+        <div class="formation-step-toggle-meta">
+          <span class="status-chip ${statusKind}">${escapeHtml(statusLabel)}</span>
+          <span class="formation-step-toggle-arrow">${expanded ? "−" : "+"}</span>
         </div>
-        ${sessionCountField}
-        ${dateInputs}
+      </button>
+
+      <div class="formation-step-inline-summary">
+        <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(sessionCount))}</span>
+        <span class="context-item"><strong>Calendario:</strong> ${escapeHtml(calendarLabel)}</span>
+        <span class="context-item"><strong>Fechas:</strong> ${escapeHtml(dateSummary)}</span>
+      </div>
+
+      <div class="formation-step-detail ${expanded ? "is-expanded" : ""}">
+        <div class="summary-strip">
+          <span class="context-item"><strong>Pasa con:</strong> ${escapeHtml(Number(node.attendanceMinimum || 0) >= 100 ? "100% asistencia" : `${node.attendanceMinimum}% asistencia`)}</span>
+          <span class="context-item"><strong>Máx. faltas:</strong> ${escapeHtml(String(node.maxAbsences ?? 0))}</span>
+          <span class="context-item"><strong>Examen:</strong> ${escapeHtml(node.requiresExam ? "Sí" : "No")}</span>
+        </div>
+
+        <div class="field-grid two" style="margin-top:16px;">
+          <div class="field">
+            <label for="structure_${key}_name">Nombre operativo</label>
+            <input id="structure_${key}_name" name="structure_${key}_name" value="${escapeHtml(defaultName)}" placeholder="${escapeHtml(node.name)}">
+          </div>
+          ${sessionCountField}
+          ${dateInputs}
+        </div>
       </div>
     </div>
   `;
@@ -7200,15 +7383,18 @@ function renderFormationLevelsWorkspace_(context) {
       });
     }).length
     : 0;
+  const totalPlannedSessions = selectedProcessOfferings.reduce((sum, offering) => {
+    return sum + Math.max(Number(offering.totalSessions || 0), 0);
+  }, 0);
 
   return `
     <article class="panel-card module-section-anchor" id="formation-levels-workspace">
       <div class="panel-head">
         <div>
           <h2>Catálogos del Proceso de Formación</h2>
-          <p>Primero creas el Proceso de Formación, después das de alta los pasos obligatorios 1, 2 y 3, y al final revisas el árbol completo con sesiones, fechas y condiciones de avance.</p>
+          <p>Primero creas el Proceso de Formación y después programas sus pasos en una vista compacta. Solo abres el detalle del paso que necesitas editar.</p>
         </div>
-        <span class="status-chip neutral">Proceso → Pasos → Árbol operativo</span>
+        <span class="status-chip neutral">Proceso → Lista de pasos → Detalle por clic</span>
       </div>
 
       <div class="stats-grid assistants-stats-grid">
@@ -7225,12 +7411,12 @@ function renderFormationLevelsWorkspace_(context) {
         <article class="stat-card">
           <span class="status-chip success">Programados</span>
           <strong>${escapeHtml(String(catalogSummary.offerings))}</strong>
-          <span>Pasos ya programados dentro de los distintos procesos creados.</span>
+          <span>Pasos ya programados dentro de los procesos que el ministerio ya dejó listos.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip dark">Sesiones</span>
           <strong>${escapeHtml(String(catalogSummary.sessions))}</strong>
-          <span>Sesiones ya calendarizadas para asistencia y avance por paso.</span>
+          <span>Sesiones ya calendarizadas para asistencia, QR y avance por paso.</span>
         </article>
       </div>
 
@@ -7238,7 +7424,7 @@ function renderFormationLevelsWorkspace_(context) {
         <span class="context-item"><strong>Paso 1:</strong> Ahora Qué 1 y Ahora Qué 2</span>
         <span class="context-item"><strong>Paso 2:</strong> Encuentro</span>
         <span class="context-item"><strong>Paso 3:</strong> Bautismo en Agua</span>
-        <span class="context-item"><strong>Regla:</strong> para abrir un proceso nuevo, estos 3 pasos quedan obligatorios</span>
+        <span class="context-item"><strong>Regla:</strong> para dar por listo un proceso, estos 3 pasos quedan obligatorios</span>
       </div>
     </article>
 
@@ -7246,7 +7432,7 @@ function renderFormationLevelsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>${editingProcess ? "Editar Proceso de Formación" : "Crear Proceso de Formación"}</h2>
-          <p>Este proceso agrupa una generación completa. En cuanto lo guardas, el sistema te habilita la programación de sus pasos obligatorios y opcionales.</p>
+          <p>Este proceso agrupa una generación completa. En cuanto lo guardas, aquí mismo podrás programar sus pasos obligatorios y opcionales.</p>
         </div>
         <span class="pill ${state.ui.formationProcessSaving ? "warning" : "dark"}">
           ${state.ui.formationProcessSaving
@@ -7297,7 +7483,7 @@ function renderFormationLevelsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Procesos de Formación creados</h2>
-          <p>Cuando guardes un proceso aparecerá aquí. Toca Abrir proceso para programar sus pasos y ver después su árbol completo.</p>
+          <p>Elige un proceso para trabajar sus pasos. Así la operación queda ordenada y el usuario no se pierde dentro de una pantalla larga.</p>
         </div>
         <span class="pill dark">${escapeHtml(`${String(processRows.length)} activos`)}</span>
       </div>
@@ -7345,7 +7531,7 @@ function renderFormationLevelsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Pasos del Proceso de Formación</h2>
-          <p>Selecciona el proceso y programa su ruta real. El sistema te exigirá dejar listos, como mínimo, los primeros 3 pasos antes de considerar completo el arranque del proceso.</p>
+          <p>Selecciona el proceso y trabaja sus pasos como un listado compacto. Toca cada paso para desplegar sesiones, fechas y reglas de avance.</p>
         </div>
         <span class="pill warning">${escapeHtml(selectedProcess?.name || "Selecciona un proceso")}</span>
       </div>
@@ -7368,7 +7554,7 @@ function renderFormationLevelsWorkspace_(context) {
           <div class="field">
             <label>Acción rápida</label>
             <div class="actions-row" style="justify-content:flex-start;">
-              <button class="btn btn-secondary" type="button" data-action="edit-formation-process" data-process-id="${escapeHtml(selectedProcess.id || "")}">Editar proceso activo</button>
+              <button class="btn btn-secondary" type="button" data-action="edit-formation-process" data-process-id="${escapeHtml(selectedProcess.id || "")}">Editar encabezado del proceso</button>
             </div>
           </div>
         </div>
@@ -7378,47 +7564,29 @@ function renderFormationLevelsWorkspace_(context) {
           <span class="context-item"><strong>Inicio del proceso:</strong> ${escapeHtml(formatDate(selectedProcess.startDate) || "Sin fecha")}</span>
           <span class="context-item"><strong>Estado:</strong> ${escapeHtml(selectedProcess.status || "ACTIVO")}</span>
           <span class="context-item"><strong>Programados:</strong> ${escapeHtml(String(offeringRows.length))} pasos</span>
+          <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(totalPlannedSessions))}</span>
         </div>
 
         <div class="summary-strip" style="margin-top:12px;">
           <span class="context-item"><strong>Obligatorios:</strong> Paso 1 Ahora Qué, Paso 2 Encuentro y Paso 3 Bautismo</span>
           <span class="context-item"><strong>Arranque actual:</strong> ${escapeHtml(`${requiredConfiguredCount}/3 pasos obligatorios configurados`)}</span>
           <span class="context-item"><strong>Opcionales:</strong> del Paso 4 al Paso 10 puedes programarlos ahora o después</span>
+          <span class="context-item"><strong>Modo de trabajo:</strong> abre solo el paso que vas a editar</span>
         </div>
 
-        <div class="results-list" style="margin-top:16px; margin-bottom:16px;">
-          ${requiredNodes.map((node) => {
-            const offering = getFormationProcessOfferingByNode_(selectedProcess.id, node);
-            const stepIndex = getFormationProcessStepIndex_(node);
-            const stepStatus = offering ? "Listo" : "Pendiente";
-            const stepTone = offering ? "success" : "warning";
-            const stepDates = getFormationOfferingSessionDates_(offering);
-            const stepDatesLabel = stepDates.length
-              ? stepDates.map((dateValue) => formatDate(dateValue) || dateValue).join(" · ")
-              : "Todavía sin fechas";
-
-            return `
-              <div class="result-card">
-                <div class="result-row" style="align-items:flex-start; gap:16px;">
-                  <div class="result-copy-stack">
-                    <strong>${escapeHtml(`Paso ${stepIndex} obligatorio · ${node.name}`)}</strong>
-                    <span>${escapeHtml(node.rule || "Sin condición pastoral")}</span>
-                  </div>
-                  <span class="status-chip ${stepTone}">${escapeHtml(stepStatus)}</span>
-                </div>
-                <div class="summary-strip">
-                  <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(node.totalSessionsDefault || 0))}</span>
-                  <span class="context-item"><strong>Calendario:</strong> ${escapeHtml(node.calendarMode === "MANUAL_MULTI" ? "Fechas manuales" : (node.calendarMode === "WEEKLY_SUNDAY" ? "Domingos consecutivos" : "Fecha única"))}</span>
-                  <span class="context-item"><strong>Fechas:</strong> ${escapeHtml(stepDatesLabel)}</span>
-                </div>
-              </div>
-            `;
-          }).join("")}
-        </div>
+        <article class="result-card result-card-muted" style="margin-top:16px; margin-bottom:16px;">
+          <div class="result-row" style="align-items:flex-start; gap:16px;">
+            <div class="result-copy-stack">
+              <strong>Cómo usar este listado</strong>
+              <span>Primero deja listos los pasos 1, 2 y 3. Después, cuando sea necesario, agregas o ajustas los pasos opcionales. Cada paso se abre solo al tocarlo.</span>
+            </div>
+            <span class="status-chip ${requiredConfiguredCount >= 3 ? "success" : "warning"}">${escapeHtml(`${requiredConfiguredCount}/3 obligatorios`)}</span>
+          </div>
+        </article>
 
         <form id="formation-process-structure-form">
           <input type="hidden" name="processId" value="${escapeHtml(selectedProcess.id || "")}">
-          <div class="results-list">
+          <div class="results-list formation-structure-list">
             ${topNodes
               .map((node) => renderFormationStructurePlannerNode_(node, selectedProcess.id))
               .join("")}
@@ -7432,22 +7600,6 @@ function renderFormationLevelsWorkspace_(context) {
       ` : `
         <div class="empty-state">Crea o selecciona un Proceso de Formación. En cuanto lo hagas, aquí se habilitará el listado de pasos con sus sesiones y fechas.</div>
       `}
-    </article>
-
-    <article class="detail-card module-section-anchor" id="formation-process-tree">
-      <div class="panel-head">
-        <div>
-          <h2>Árbol del proceso guardado</h2>
-          <p>Al tocar un proceso en el listado, aquí ves su estructura completa con pasos, subniveles, fechas y condición de avance.</p>
-        </div>
-        <span class="pill dark">${escapeHtml(String(offeringRows.length))} programados</span>
-      </div>
-
-      ${selectedProcess
-        ? renderFormationPastoralTree_(pastoralNodes, {
-          processId: selectedProcess.id
-        })
-        : `<div class="empty-state">Elige un proceso y programa al menos un nivel para ver aquí el árbol jerárquico completo.</div>`}
     </article>
   `;
 }
@@ -7492,7 +7644,7 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Discipulado</h2>
-          <p>Aquí operas el proceso ya creado: eliges el Proceso de Formación, seleccionas el nivel correspondiente e inscribes al congregante en sus sesiones.</p>
+          <p>Aquí operas el proceso ya creado: eliges el Proceso de Formación, seleccionas el paso correspondiente e inscribes al congregante en sus sesiones.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral">Inscripción → Asistencia → Evaluación → Portal</span>
@@ -7535,7 +7687,7 @@ function renderFormationOperationsWorkspace_(context) {
           <div class="panel-head">
             <div>
               <h2>Candidato listo para inscribir</h2>
-              <p>Este paso viene desde Ruta a Encuentro. Elige el proceso, confirma el nivel habilitado y completa la inscripción para generar su usuario y PIN del portal.</p>
+          <p>Este paso viene desde Ruta a Encuentro. Elige el proceso, confirma el paso habilitado y completa la inscripción para generar su usuario y PIN del portal.</p>
             </div>
             <div class="actions-row">
               <span class="pill warning">${escapeHtml(pendingCandidate.invitedAt ? "Invitación aceptada / por inscribir" : "Paso preparado")}</span>
@@ -7567,7 +7719,7 @@ function renderFormationOperationsWorkspace_(context) {
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-level">Nivel</label>
+          <label for="formation-ops-level">Paso del proceso</label>
           <select id="formation-ops-level">
             ${renderOptions(
               getFormationSortedLevels_().map((level) => ({
@@ -7580,7 +7732,7 @@ function renderFormationOperationsWorkspace_(context) {
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-offering">Nivel programado</label>
+          <label for="formation-ops-offering">Paso en operación</label>
           <select id="formation-ops-offering">
             ${renderOptions(
               filteredOfferings.map((offering) => ({
@@ -7588,12 +7740,12 @@ function renderFormationOperationsWorkspace_(context) {
                 label: `${offering.levelName} | ${offering.name}`
               })),
               selectedOffering?.id || state.filters.formationOps.offeringId,
-              pendingCandidate ? "Selecciona nivel habilitado" : "Selecciona nivel en operación"
+              pendingCandidate ? "Selecciona paso habilitado" : "Selecciona paso en operación"
             )}
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-session">Sesion del nivel</label>
+          <label for="formation-ops-session">Sesión del paso</label>
           <select id="formation-ops-session" ${selectedOffering ? "" : "disabled"}>
             ${renderOptions(sessionOptions, currentSessionNumber, "Selecciona sesión")}
           </select>
@@ -7635,9 +7787,9 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Inscripción al proceso</h2>
-          <p>${pendingCandidate ? "Confirma el proceso y el nivel habilitado para completar la inscripción. Al guardar, el sistema registra al congregante en todas las sesiones del nivel y genera su acceso al portal." : "Busca a la persona y desde aquí la inscribes al nivel en operación. Si le corresponde, su cuenta del portal queda lista o se mantiene vigente."}</p>
+          <p>${pendingCandidate ? "Confirma el proceso y el paso habilitado para completar la inscripción. Al guardar, el sistema registra al congregante en todas las sesiones del paso y genera su acceso al portal." : "Busca a la persona y desde aquí la inscribes al paso en operación. Si le corresponde, su cuenta del portal queda lista o se mantiene vigente."}</p>
         </div>
-        ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.levelName || "Nivel")}</span>` : `<span class="pill dark">Primero elige un nivel</span>`}
+        ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.levelName || "Paso")}</span>` : `<span class="pill dark">Primero elige un paso</span>`}
       </div>
 
       ${selectedOffering ? `
@@ -7656,7 +7808,7 @@ function renderFormationOperationsWorkspace_(context) {
                 <span>${escapeHtml(pendingCandidate.personPhone || "Sin teléfono")} | ${escapeHtml(pendingCandidate.groupName || "Sin grupo")}</span>
               </div>
               <button class="btn btn-primary" type="button" data-action="assign-formation-person" data-person-id="${escapeHtml(pendingCandidate.personId || "")}">
-                ${escapeHtml(`Inscribir en ${selectedOffering.levelName || "este nivel"}`)}
+                ${escapeHtml(`Inscribir en ${selectedOffering.levelName || "este paso"}`)}
               </button>
             </article>
           </div>
@@ -7681,26 +7833,26 @@ function renderFormationOperationsWorkspace_(context) {
           </div>
         `}
         <div class="footer-note" style="margin-top: 14px;">
-          Al confirmar la inscripción, el sistema registra a la persona en todas las sesiones de este nivel y, si es su primer ingreso al discipulado, genera su usuario y PIN temporal para el portal.
+          Al confirmar la inscripción, el sistema registra a la persona en todas las sesiones de este paso y, si es su primer ingreso al discipulado, genera su usuario y PIN temporal para el portal.
         </div>
       ` : `
-        <div class="empty-state">${pendingCandidate ? "Primero elige el Proceso de Formación y luego el nivel habilitado para este congregante." : "Selecciona primero un nivel en operación para habilitar las inscripciones."}</div>
+        <div class="empty-state">${pendingCandidate ? "Primero elige el Proceso de Formación y luego el paso habilitado para este congregante." : "Selecciona primero un paso en operación para habilitar las inscripciones."}</div>
       `}
     </article>
 
     <article class="detail-card module-section-anchor" id="formation-operations-attendance">
       <div class="panel-head">
         <div>
-          <h2>Asistencia por nivel</h2>
-          <p>Primero activa la sesión correcta del nivel y después captura asistencia en modo manual, QR asistido o kiosko.</p>
+          <h2>Asistencia por paso</h2>
+          <p>Primero activa la sesión correcta del paso y después captura asistencia en modo manual, QR asistido o kiosko.</p>
         </div>
-        ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Nivel en operación")}</span>` : `<span class="pill dark">Sin nivel activo</span>`}
+        ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Paso en operación")}</span>` : `<span class="pill dark">Sin paso activo</span>`}
       </div>
 
       ${selectedOffering ? `
         ${renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants)}
       ` : `
-        <div class="empty-state">Selecciona un nivel en operación para cargar la asistencia por sesión.</div>
+        <div class="empty-state">Selecciona un paso en operación para cargar la asistencia por sesión.</div>
       `}
     </article>
 
@@ -7821,7 +7973,7 @@ function renderFormationOperationsWorkspace_(context) {
           <div class="empty-state" style="margin-top: 18px;">Selecciona un inscrito para registrar su evaluación y desbloquear el siguiente nivel cuando cumpla todos los requisitos.</div>
         `}
       ` : `
-        <div class="empty-state">Selecciona un nivel en operación para operar sus inscritos y evaluaciones.</div>
+        <div class="empty-state">Selecciona un paso en operación para operar sus inscritos y evaluaciones.</div>
       `}
     </article>
   `;
@@ -7857,7 +8009,7 @@ function renderFormationPortalWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Uso recomendado:</strong> selecciona primero el nivel en operación de Encuentro.</span>
+        <span class="context-item"><strong>Uso recomendado:</strong> selecciona primero el paso en operación del proceso.</span>
         <span class="context-item"><strong>Vista espejo:</strong> aquí ves prácticamente la misma experiencia que el asistente consulta desde su portal.</span>
       </div>
 
@@ -7935,10 +8087,10 @@ function renderFormationPortalWorkspace_(context) {
               ${roster.map((enrollment) => renderFormationPortalEnrollmentRow_(enrollment, previewPersonId)).join("")}
             </div>
           ` : `
-            <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este nivel en operación.</div>
+            <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este paso en operación.</div>
           `}
         ` : `
-          <div class="empty-state">Selecciona primero un nivel en operación para ver el listado de inscritos.</div>
+          <div class="empty-state">Selecciona primero un paso en operación para ver el listado de inscritos.</div>
         `}
       </article>
 
@@ -8036,20 +8188,22 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
     ? "La cámara está lista. Cada lectura se registra en la sesión seleccionada."
     : "Activa la cámara para comenzar a registrar asistencias del curso.");
   const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
+  const todaySession = getTodayFormationSession_(selectedOffering);
+  const todaySessionMatches = Boolean(todaySession && String(todaySession.number || "") === String(currentSessionNumber || ""));
 
   return `
     <div class="summary-strip formation-attendance-mode-strip">
       <span class="context-item"><strong>Nivel catálogo:</strong> ${escapeHtml(selectedOffering.levelName || "-")}</span>
-      <span class="context-item"><strong>Nivel en operación:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
+      <span class="context-item"><strong>Paso en operación:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
       <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(selectedSession?.label || `Sesión ${currentSessionNumber}`)}</span>
       <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSession?.label || "Todavía no activada")}</span>
       <span class="context-item"><strong>Avance:</strong> ${escapeHtml(`${attendanceYesCount}/${attendanceParticipants.length} con asistencia SI`)}</span>
     </div>
 
     <div class="summary-strip">
-      <span class="context-item"><strong>Paso 1:</strong> elige el nivel en operación</span>
+      <span class="context-item"><strong>Paso 1:</strong> elige el paso en operación</span>
       <span class="context-item"><strong>Paso 2:</strong> elige la sesión correcta</span>
-      <span class="context-item"><strong>Paso 3:</strong> activa esa sesión para el domingo actual</span>
+      <span class="context-item"><strong>Paso 3:</strong> si la fecha coincide con hoy, el sistema la activa automáticamente</span>
       <span class="context-item"><strong>Paso 4:</strong> ahora sí captura asistencia</span>
     </div>
 
@@ -8057,7 +8211,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}">
         ${captureEnabled ? "Sesión ya activa" : "Activar sesión seleccionada"}
       </button>
-      <span class="footer-note">${escapeHtml(captureEnabled ? "La asistencia ya se guardará en esta sesión del nivel." : "Hasta que actives la sesión, el sistema bloqueará manual, QR y kiosko para evitar errores.")}</span>
+      <span class="footer-note">${escapeHtml(captureEnabled ? "La asistencia ya se guardará en esta sesión del paso." : (todaySessionMatches ? "Hoy coincide con esta sesión. Si aún no quedó activa, puedes activarla manualmente como respaldo." : "Hasta que actives la sesión, el sistema bloqueará manual, QR y kiosko para evitar errores."))}</span>
     </div>
 
     <div class="toggle-group formation-attendance-toggle">
@@ -8201,7 +8355,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             `).join("")}
           </div>
         ` : `
-          <div class="empty-state">Todavía no hay lecturas recientes en este nivel en operación.</div>
+          <div class="empty-state">Todavía no hay lecturas recientes en este paso en operación.</div>
         `}
       </div>
     `}
@@ -18583,12 +18737,21 @@ async function handleClick(event) {
       state.ui.formationSection = "levels";
       state.ui.editingFormationLevelId = String(button.dataset.levelId || "");
       renderApp();
-      scrollToSection_("formation-level-panel");
+      scrollToSection_("formation-structure-panel");
       return;
     }
 
     if (action === "sync-formation-pastoral-path") {
       await syncFormationPastoralCatalog_();
+      return;
+    }
+
+    if (action === "toggle-formation-structure-step") {
+      toggleFormationStructureNodeExpanded_(
+        button.dataset.processId || state.filters.formationOps.processId || "",
+        button.dataset.stepKey || ""
+      );
+      renderApp();
       return;
     }
 
@@ -18671,7 +18834,7 @@ async function handleClick(event) {
       });
       state.ui.formationSection = "levels";
       renderApp();
-      scrollToSection_("formation-offering-panel");
+      scrollToSection_("formation-structure-panel");
       return;
     }
 
@@ -20908,10 +21071,16 @@ function syncFormationOperationsSelection_() {
   }
 
   const totalSessions = Math.max(Number(nextOffering.totalSessions || 0), 1);
+  const offeringChanged = String(nextOffering.id || "") !== currentOfferingId;
+  const todaySession = getTodayFormationSession_(nextOffering);
   let nextSessionNumber = Math.max(
     Number(state.filters.formationOps.sessionNumber || nextOffering.activeSessionNumber || 1),
     1
   );
+
+  if (offeringChanged && todaySession?.number) {
+    nextSessionNumber = Math.max(Number(todaySession.number || 1), 1);
+  }
 
   if (nextSessionNumber > totalSessions) {
     nextSessionNumber = Math.max(Number(nextOffering.activeSessionNumber || 1), 1);
@@ -20947,10 +21116,32 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
   const sessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
   const requestKey = `${cleanOfferingId}::${sessionNumber}`;
   const task = async () => {
-    const context = await apiGet("formation.levelAttendance.context", {
+    let context = await apiGet("formation.levelAttendance.context", {
       offeringId: cleanOfferingId,
       sessionNumber
     });
+    const todaySession = getTodayFormationSession_(context?.offering || {});
+    const activeSessionNumber = String(
+      context?.activeSession?.number
+      || context?.offering?.activeSessionNumber
+      || ""
+    ).trim();
+    const selectedSessionNumber = String(context?.sessionNumber || sessionNumber || "1").trim();
+    const shouldAutoActivateToday = Boolean(
+      options.autoActivate !== false
+      && todaySession?.number
+      && !activeSessionNumber
+      && String(todaySession.number) === selectedSessionNumber
+    );
+
+    if (shouldAutoActivateToday) {
+      const response = await apiPost("formation.levelAttendance.activateSession", {
+        offeringId: cleanOfferingId,
+        sessionNumber: selectedSessionNumber,
+        activatedBy: state.user?.name || "Sistema"
+      });
+      context = response?.context || context;
+    }
 
     state.formationAttendanceContext = context;
     state.loaded.formationAttendanceContext = true;
@@ -23304,14 +23495,14 @@ async function saveFormationProcessStructure_(form) {
   });
 
   if (!processId) {
-    showToast("Selecciona un proceso", "Primero elige el Proceso de Formación sobre el que vas a programar niveles.", "warning");
+    showToast("Selecciona un proceso", "Primero elige el Proceso de Formación sobre el que vas a programar los pasos.", "warning");
     return;
   }
 
   if (unsyncedNodes.length) {
     showToast(
       "Sincroniza primero el catálogo",
-      "Antes de guardar la estructura usa el botón Sincronizar ruta pastoral para completar los niveles base.",
+      "Antes de guardar la estructura usa el botón Sincronizar ruta pastoral para completar los pasos base.",
       "warning"
     );
     return;
@@ -23439,7 +23630,7 @@ async function saveFormationOffering_(rawPayload) {
   if (!payload.processId) {
     showToast(
       "Primero crea el proceso",
-      "Antes de dar de alta un nivel, primero crea o selecciona el Proceso de Formación principal.",
+      "Antes de dar de alta un paso, primero crea o selecciona el Proceso de Formación principal.",
       "warning"
     );
     return;
@@ -23461,13 +23652,13 @@ async function saveFormationOffering_(rawPayload) {
       offeringId: savedOffering.id,
       sessionNumber: "1"
     });
-  }, payload.id ? "Actualizando nivel en operación..." : "Creando nivel en operación...");
+  }, payload.id ? "Actualizando paso en operación..." : "Creando paso en operación...");
 
   state.ui.editingFormationOfferingId = "";
   state.ui.formationSection = "levels";
-  showToast("Nivel guardado", "El nivel quedó programado dentro del proceso. Ahora ya aparece listo para usarse después en Discipulado.", "success");
+  showToast("Paso guardado", "El paso quedó programado dentro del proceso. Ahora ya aparece listo para usarse después en Discipulado.", "success");
   renderApp();
-  scrollToSection_("formation-offering-panel");
+  scrollToSection_("formation-structure-panel");
 }
 
 async function saveFormationProcess_(rawPayload) {
@@ -23535,7 +23726,7 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
   let response = null;
 
   if (!cleanOfferingId) {
-    showToast("Selecciona un nivel", "Primero elige el nivel en operación que vas a trabajar.", "warning");
+    showToast("Selecciona un paso", "Primero elige el paso en operación que vas a trabajar.", "warning");
     return;
   }
 
@@ -23555,12 +23746,12 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
       offeringId: cleanOfferingId,
       sessionNumber: state.filters.formationOps.sessionNumber
     });
-  }, "Activando sesión del nivel...");
+  }, "Activando sesión del paso...");
 
   renderApp();
   showToast(
     "Sesión activada",
-    `${response?.activeSession?.label || `Sesión ${state.filters.formationOps.sessionNumber}`} quedó lista para capturar asistencia.`,
+    `${response?.activeSession?.label || `Sesión ${state.filters.formationOps.sessionNumber}`} quedó lista para capturar asistencia del paso.`,
     "success"
   );
 }
@@ -23579,7 +23770,7 @@ async function assignFormationEnrollment_(personId) {
   }
 
   if (!selectedOffering?.id) {
-    showToast("Selecciona un nivel", "Primero elige el nivel en operación donde vas a inscribir congregantes.", "warning");
+    showToast("Selecciona un paso", "Primero elige el paso en operación donde vas a inscribir congregantes.", "warning");
     return;
   }
 
@@ -23591,16 +23782,16 @@ async function assignFormationEnrollment_(personId) {
         seasonId: originSeasonId,
         enrolledBy: state.user?.name || ""
       });
-    }, "Inscribiendo al nivel...");
+    }, "Inscribiendo al paso...");
   } catch (error) {
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "PREVIOUS_LEVEL_REQUIRED") {
       const previousLevelName = String(error.details?.previousLevelName || "el nivel anterior");
-      showToast("Primero acredita el nivel anterior", `Esta persona debe acreditar ${previousLevelName} antes de entrar a ${selectedOffering.levelName || "este nivel"}.`, "warning");
+      showToast("Primero acredita el paso anterior", `Esta persona debe acreditar ${previousLevelName} antes de entrar a ${selectedOffering.levelName || "este paso"}.`, "warning");
       return;
     }
 
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "DUPLICATE_LEVEL_ENROLLMENT") {
-      showToast("Ya está inscrito en ese nivel", "La persona ya tiene una inscripción activa o acreditada para este mismo nivel.", "warning");
+      showToast("Ya está inscrito en ese paso", "La persona ya tiene una inscripción activa o acreditada para este mismo paso.", "warning");
       return;
     }
 
@@ -23879,13 +24070,13 @@ async function registerFormationEncounter_(candidate) {
       "La persona ya está lista, pero en el proceso seleccionado todavía no existe un nivel disponible para inscribirla. Crea o activa el primer nivel.",
       "warning"
     );
-    scrollToSection_("formation-offering-panel");
+    scrollToSection_("formation-structure-panel");
     return;
   }
 
   showToast(
     "Paso listo",
-    `Ahora confirma el Proceso de Formación y completa la inscripción de ${candidate.personName || "la persona"} en ${firstEligibleOffering.levelName || "el primer nivel"}.`,
+    `Ahora confirma el Proceso de Formación y completa la inscripción de ${candidate.personName || "la persona"} en ${firstEligibleOffering.levelName || "el Paso 1"}.`,
     "success"
   );
 }
@@ -24461,6 +24652,8 @@ function applyScrapDeleteFormationProcessLocally_(processId) {
   state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((enrollment) => String(enrollment?.processId || "").trim() !== cleanProcessId);
   state.loaded.formationRecords = false;
   state.cacheKeys.formationRecords = "";
+  clearFormationStructureDrafts_(cleanProcessId);
+  delete state.ui.formationStructureExpanded[cleanProcessId];
   state.ui.scrapFormationProcessPreview = String(state.ui.scrapFormationProcessPreview?.processId || "") === cleanProcessId ? null : state.ui.scrapFormationProcessPreview;
   state.ui.selectedScrapFormationProcessId = String(state.ui.selectedScrapFormationProcessId || "") === cleanProcessId ? "" : state.ui.selectedScrapFormationProcessId;
 
@@ -24823,7 +25016,7 @@ async function executeDeleteFormationOffering_(offeringId) {
   );
   state.ui.formationSection = "levels";
   renderApp();
-  scrollToSection_("formation-offering-panel");
+  scrollToSection_("formation-structure-panel");
 }
 
 async function executeScrapDeletePerson_(personId, originView) {
@@ -29398,6 +29591,7 @@ function resetRuntimeState() {
     formationProcessSavingMessage: "",
     formationSection: "route",
     formationStructureDrafts: {},
+    formationStructureExpanded: {},
     welcomeNewRefreshing: false,
     welcomeNewSnapshotSource: "",
     selectedWelcomePersonId: "",
