@@ -8221,9 +8221,10 @@ function renderFormationPortalEnrollmentRow_(enrollment) {
       </div>
 
       <div class="formation-portal-row-actions">
-        <button class="btn btn-primary" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(enrollment?.personId || "")}">Preparar QR + WhatsApp</button>
+        <button class="btn btn-primary" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(enrollment?.personId || "")}">Abrir chat correcto</button>
+        <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(enrollment?.personId || "")}">Compartir QR adjunto</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(enrollment?.personId || "")}">Gestionar</button>
-        <span>Descarga la credencial del inscrito y abre el chat correcto de WhatsApp para evitar enviarla a otra persona.</span>
+        <span>Orden recomendado: primero abre el chat correcto y después comparte el QR adjunto para evitar enviarlo a otra persona.</span>
       </div>
     </article>
   `;
@@ -8301,12 +8302,13 @@ function renderFormationPortalAdminModal_() {
                 <button class="btn btn-secondary" data-action="reset-student-portal-pin" data-person-id="${escapeHtml(person?.id || "")}">Generar nuevo PIN</button>
                 <button class="btn btn-ghost" data-action="send-student-portal-access-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPin && hasPreviewPhone ? "" : "disabled"}>Enviar acceso</button>
                 <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>${hasPreviewPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
-                <button class="btn btn-ghost" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(person?.id || "")}">Preparar QR y abrir WhatsApp</button>
+                <button class="btn btn-ghost" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>Abrir chat correcto</button>
+                <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(person?.id || "")}">Compartir QR adjunto</button>
                 <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar vista</button>
               </div>
 
               <div class="footer-note">
-                ${escapeHtml("En iPad o celular el botón de QR intentará abrir el menú compartir para enviarlo por WhatsApp. En computadora descargará el PNG como respaldo para enviarlo manualmente.")}
+                ${escapeHtml("Flujo sugerido para mañana: 1) Abrir chat correcto. 2) Compartir QR adjunto. En iPad o celular se abrirá el menú compartir; en computadora se descargará el PNG como respaldo.")}
               </div>
             </div>
 
@@ -17249,7 +17251,27 @@ async function handleClick(event) {
         return;
       }
 
-      await prepareCredentialWhatsappChat_(person);
+      openCredentialWhatsappChat_(person);
+      return;
+    }
+
+    if (action === "share-formation-portal-qr") {
+      const personId = String(button.dataset.personId || "");
+      const person = state.peopleDirectory.find((item) => String(item.id || "") === personId)
+        || state.people.find((item) => String(item.id || "") === personId)
+        || getFormationPortalEnrollmentPerson_({
+          personId,
+          personNumber: state.formationProfile?.person?.numero,
+          personName: state.formationProfile?.person?.nombreCompleto || state.formationProfile?.person?.nombre,
+          personPhone: state.formationProfile?.person?.telefono
+        });
+
+      if (!personId || !person?.id) {
+        showToast("QR no disponible", "No fue posible ubicar al inscrito para compartir su credencial QR.", "warning");
+        return;
+      }
+
+      await shareCredentialPng_(person);
       return;
     }
 
@@ -28403,27 +28425,26 @@ async function shareCredentialPng_(person) {
   }, "Preparando credencial para compartir...");
 }
 
-async function prepareCredentialWhatsappChat_(person) {
+function openCredentialWhatsappChat_(person) {
   const phone = normalizeWhatsappPhone_(person?.telefono);
-  const fileName = `${buildCredentialFileName_(person)}.png`;
-  const shareMessage = buildCredentialShareText_(person);
 
   if (!phone) {
     showToast("Sin teléfono", "El congregante no tiene un número válido para abrir su chat de WhatsApp.", "warning");
     return;
   }
 
-  await withLoading(async () => {
-    const blob = await buildCredentialPngBlob_(person);
-    downloadBlob_(blob, fileName);
-  }, "Preparando QR y WhatsApp...");
+  const opened = openWhatsappDirectChat_(phone, "");
 
-  openWhatsappDirectChat_(phone, shareMessage);
+  if (!opened) {
+    showToast("Chat no disponible", "No fue posible abrir el chat de WhatsApp del congregante.", "warning");
+    return;
+  }
+
   showToast(
     isLikelyMobileDevice_() ? "WhatsApp del celular listo" : "WhatsApp listo",
     isLikelyMobileDevice_()
-      ? "Se descargó el QR y se abrió el WhatsApp de tu celular en el chat correcto del congregante."
-      : "Se descargó el QR y se abrió el chat correcto del congregante en WhatsApp.",
+      ? "Se abrió el chat correcto del congregante en tu WhatsApp. Ahora usa Compartir QR adjunto para enviar la credencial."
+      : "Se abrió el chat correcto del congregante. Ahora comparte el QR adjunto para completar el envío.",
     "success"
   );
 }
