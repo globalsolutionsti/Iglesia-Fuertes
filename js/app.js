@@ -8182,10 +8182,12 @@ function renderFormationPortalEnrollmentRow_(enrollment) {
   const attendanceSummary = `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} sesiones`;
   const examLabel = enrollment?.examScore ? `${enrollment.examScore} pts` : (enrollment?.examApproved ? "Aprobado" : "Pendiente");
   const originSeason = resolveSeasonName_(enrollment?.seasonId) || enrollment?.seasonId || "Sin temporada";
+  const personName = enrollment?.personName || "Congregante";
+  const personQr = enrollment?.personId || "Sin QR";
+  const personPhone = enrollment?.personPhone || "Sin teléfono";
+  const hasPhone = Boolean(String(enrollment?.personPhone || "").trim());
   const identityChips = [
     enrollment?.personNumber ? `<span class="formation-portal-row-chip">${escapeHtml(enrollment.personNumber)}</span>` : "",
-    enrollment?.personId ? `<span class="formation-portal-row-chip">QR ${escapeHtml(enrollment.personId)}</span>` : "",
-    enrollment?.personPhone ? `<span class="formation-portal-row-chip">${escapeHtml(enrollment.personPhone)}</span>` : "",
     enrollment?.offeringName || enrollment?.levelName ? `<span class="formation-portal-row-chip">${escapeHtml(enrollment?.offeringName || enrollment?.levelName)}</span>` : ""
   ].filter(Boolean).join("");
 
@@ -8194,10 +8196,22 @@ function renderFormationPortalEnrollmentRow_(enrollment) {
       <div class="formation-portal-row-main">
         <div class="formation-portal-row-head">
           <div class="formation-portal-row-title">
-            <strong>${escapeHtml(enrollment?.personName || "Congregante")}</strong>
+            <strong>${escapeHtml(personName)}</strong>
             <div class="formation-portal-row-chips">${identityChips || `<span class="formation-portal-row-chip">Sin datos</span>`}</div>
           </div>
           <div>${renderWorkflowStatusPill_(enrollment?.status || "EN_CURSO")}</div>
+        </div>
+        <div class="formation-portal-row-identity">
+          <article class="formation-portal-row-identity-card is-qr">
+            <small>QR del inscrito</small>
+            <strong>${escapeHtml(personQr)}</strong>
+            <span>Este es el código que vas a compartir.</span>
+          </article>
+          <article class="formation-portal-row-identity-card">
+            <small>WhatsApp destino</small>
+            <strong>${escapeHtml(personPhone)}</strong>
+            <span>${escapeHtml(hasPhone ? "Chat correcto disponible para abrir." : "Captura el teléfono para compartir su credencial.")}</span>
+          </article>
         </div>
         <div class="formation-portal-row-meta">
           <span><strong>Proceso:</strong> ${escapeHtml(enrollment?.processName || "Sin proceso")}</span>
@@ -8221,6 +8235,11 @@ function renderFormationPortalEnrollmentRow_(enrollment) {
       </div>
 
       <div class="formation-portal-row-actions">
+        <div class="formation-portal-row-actions-label">
+          <small>Compartir credencial</small>
+          <strong>QR de ${escapeHtml(personName)}</strong>
+          <p>Primero abre el chat correcto y después comparte el QR adjunto.</p>
+        </div>
         <button class="btn btn-primary" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(enrollment?.personId || "")}">Abrir chat correcto</button>
         <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(enrollment?.personId || "")}">Compartir QR adjunto</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(enrollment?.personId || "")}">Gestionar</button>
