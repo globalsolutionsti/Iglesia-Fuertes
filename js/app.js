@@ -3351,6 +3351,11 @@ async function confirmSystemAction_() {
     return;
   }
 
+  if (confirmation.kind === "scrap-delete-formation-attendances") {
+    await executeScrapDeleteFormationAttendances_(confirmation.payload.personId);
+    return;
+  }
+
   if (confirmation.kind === "scrap-delete-formation-process") {
     await executeScrapDeleteFormationProcess_(confirmation.payload.processId);
     return;
@@ -9286,6 +9291,7 @@ function renderAdminScrapCenter_() {
               </div>
 
               <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-secondary" type="button" data-action="prompt-scrap-delete-formation-attendances" data-person-id="${escapeHtml(selectedPerson.id || "")}" ${Number(preview.footprint?.formationLevelAttendances || 0) > 0 ? "" : "disabled"}>Limpiar solo asistencias Formación</button>
                 <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-origin-view="admin-settings">Eliminar persona demo + todos sus registros</button>
                 <button class="btn btn-ghost" type="button" data-action="clear-scrap-preview">Limpiar selección</button>
               </div>
@@ -18009,6 +18015,39 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "prompt-scrap-delete-formation-attendances") {
+      const personId = String(button.dataset.personId || state.ui.selectedScrapPersonId || "");
+      const preview = String(state.ui.scrapPreview?.personId || "") === personId ? state.ui.scrapPreview : null;
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!personId) {
+        showToast("Persona no disponible", "Selecciona primero a la persona demo y analiza su huella antes de limpiar asistencias.", "warning");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-formation-attendances",
+        title: "Limpiar solo asistencias de Formación",
+        copy: `Se eliminarán únicamente las asistencias de Proceso de Formación de ${preview?.personName || "la persona demo seleccionada"}. La inscripción, la cuenta portal y el padrón base se conservarán intactos.`,
+        badge: "SCRAP Formación",
+        confirmLabel: "Limpiar asistencias",
+        tone: "warning",
+        notes: [
+          `Asistencias Formación detectadas: ${preview?.footprint?.formationLevelAttendances || 0}`,
+          `Inscripciones que se conservan: ${preview?.footprint?.formationEnrollments || 0}`,
+          `Cuentas portal que se conservan: ${preview?.footprint?.formationAccounts || 0}`
+        ],
+        payload: {
+          personId
+        }
+      });
+      return;
+    }
+
     if (action === "prompt-scrap-delete-season") {
       const seasonId = String(button.dataset.seasonId || state.ui.selectedScrapSeasonId || "");
       const season = (Array.isArray(state.seasons) ? state.seasons : []).find((item) => String(item.id || "") === seasonId);
@@ -25528,6 +25567,75 @@ async function executeDeleteFormationOffering_(offeringId) {
   state.ui.formationSection = "levels";
   renderApp();
   scrollToSection_("formation-structure-panel");
+}
+
+async function executeScrapDeleteFormationAttendances_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+  let response = null;
+
+  if (!cleanPersonId) {
+    showToast("Falta persona", "Selecciona primero a la persona demo cuyas asistencias de Formación deseas limpiar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteFormationAttendances", {
+      personId: cleanPersonId
+    });
+
+    if (String(state.ui.selectedFormationPersonId || "") === cleanPersonId) {
+      state.ui.selectedFormationPersonId = "";
+      state.formationProfile = null;
+    }
+
+    const refreshResults = await Promise.allSettled([
+      loadScrapDeletePreview_(cleanPersonId, {
+        force: true,
+        showLoading: false
+      }),
+      (state.loaded.formationRecords || state.loaded.formationCandidates)
+        ? loadFormationData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      (state.loaded.formationOfferings || state.loaded.formationEnrollments)
+        ? loadFormationOperationsData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve()
+    ]);
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP formation attendances refresh warning", result.reason);
+      });
+
+    if (state.currentView === "formation") {
+      try {
+        await ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        });
+        await ensureFormationOperationsViewData_({
+          force: true,
+          showLoading: false
+        });
+      } catch (error) {
+        console.error("SCRAP formation attendances reload warning", error);
+      }
+    }
+  }, "Limpiando asistencias de Formación...");
+
+  showToast(
+    "Asistencias de Formación limpiadas",
+    `${response?.personName || "La persona"} quedó con ${response?.deletedFormationLevelAttendances || 0} asistencia(s) de Formación eliminada(s). Se conservaron ${response?.preservedFormationEnrollments || 0} inscripción(es), ${response?.preservedFormationAccounts || 0} cuenta(s) portal y ${response?.preservedFormationRecords || 0} registro(s) del proceso.`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
 }
 
 async function executeScrapDeletePerson_(personId, originView) {
