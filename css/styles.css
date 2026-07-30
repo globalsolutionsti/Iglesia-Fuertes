@@ -1834,6 +1834,109 @@ div {
   margin-top: 8px;
 }
 
+.formation-structure-list {
+  display: grid;
+  gap: 14px;
+}
+
+.formation-step-card {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.formation-step-card.is-expanded {
+  border-color: rgba(17, 17, 17, 0.14);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+}
+
+.formation-step-card-block {
+  background: linear-gradient(180deg, #fcfcfc 0%, #f7f7f7 100%);
+}
+
+.formation-step-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  text-align: left;
+}
+
+.formation-step-toggle-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.formation-step-toggle-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-step-toggle-copy strong {
+  font-size: 20px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.formation-step-toggle-copy span:last-child {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.formation-step-toggle-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.formation-step-toggle-arrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.formation-step-inline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 18px;
+}
+
+.formation-step-inline-summary .context-item {
+  background: #ffffff;
+}
+
+.formation-step-detail {
+  display: none;
+  padding: 0 20px 20px;
+}
+
+.formation-step-detail.is-expanded {
+  display: block;
+}
+
+.formation-step-subtree {
+  margin-top: 16px;
+}
+
 .formation-route-card {
   display: grid;
   gap: 14px;
@@ -6091,6 +6194,25 @@ tbody tr:hover {
   .app-shell.view-congregants-new .welcome-new-create-actions .btn {
     flex: 1 1 100%;
     width: 100%;
+  }
+
+  .formation-step-toggle {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .formation-step-toggle-meta {
+    justify-content: space-between;
+  }
+
+  .formation-step-toggle-copy strong {
+    font-size: 17px;
+  }
+
+  .formation-step-inline-summary,
+  .formation-step-detail {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   .app-shell.view-formation .formation-timeline-grid,
