@@ -318,6 +318,7 @@ const state = {
     selectedWelcomeFollowupId: "",
     welcomeWorkbenchMode: "",
     welcomeModal: null,
+    connectionEncounterModal: null,
     selectedFormationPersonId: "",
     pendingFormationEnrollmentPersonId: "",
     selectedFormationOfferingId: "",
@@ -2152,6 +2153,7 @@ function renderApp() {
     </div>
 
     ${renderSystemConfirmationDialog_()}
+    ${renderConnectionEncounterActionModal_()}
     ${renderWelcomeActionModal_()}
     ${renderAdminLeaderAccountModal_()}
   `;
@@ -2251,6 +2253,286 @@ function renderAdminLeaderAccountModal_() {
       </section>
     </div>
   `;
+}
+
+function renderConnectionEncounterActionModal_() {
+  const modalState = getConnectionEncounterModalState_();
+
+  if (!modalState) {
+    return "";
+  }
+
+  const {
+    modal,
+    candidate,
+    profile,
+    processId,
+    selectedProcess,
+    eligibleOfferings,
+    canOpenFormation
+  } = modalState;
+
+  if (modal.kind === "profile") {
+    const latestRecord = profile?.records?.[0] || null;
+    const currentStage = getFormationDisplayLevelName_({
+      currentLevel: profile?.currentCandidate?.currentLevel,
+      stageLabel: latestRecord?.stageLabel,
+      levelName: latestRecord?.levelName,
+      nivelFormacionActual: profile?.person?.nivelFormacionActual,
+      formationStatus: profile?.currentCandidate?.formationStatus || profile?.person?.estatusFormacion,
+      origin: latestRecord?.origin
+    }, getFormationPreStageLabel_());
+    const nextStep = profile?.nextLevel?.name || "Sin siguiente paso definido";
+    const profileLoading = Boolean(
+      state.ui.formationProfileLoading
+      && String(state.ui.formationProfileLoadingPersonId || "") === String(candidate?.personId || "")
+    );
+
+    return `
+      <div class="system-modal-backdrop">
+        <section class="system-modal-card welcome-prospect-modal" role="dialog" aria-modal="true" aria-labelledby="connection-encounter-profile-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="connection-encounter-profile-title">Perfil del candidato</h2>
+              <p>Aquí confirmas rápidamente el contexto pastoral antes de enviar la invitación o continuar hacia Formación.</p>
+            </div>
+            ${renderWorkflowStatusPill_(candidate?.formationStatus || profile?.person?.estatusFormacion || "CANDIDATO_ENCUENTRO")}
+          </div>
+
+          <div class="summary-stack" style="margin-bottom: 16px;">
+            <div class="summary-box">
+              <span class="status-chip neutral">Congregante</span>
+              <strong>${escapeHtml(candidate?.personName || profile?.person?.nombreCompleto || "Sin nombre")}</strong>
+              <span>${escapeHtml(candidate?.personNumber || profile?.person?.numero || "-")} | QR ${escapeHtml(candidate?.personId || profile?.person?.id || "-")} | ${escapeHtml(candidate?.personPhone || profile?.person?.telefono || "Sin teléfono")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Grupo de conexión</span>
+              <strong>${escapeHtml(candidate?.groupName || profile?.currentCandidate?.groupName || resolveGroupName_(profile?.person?.grupo) || "Sin grupo")}</strong>
+              <span>${escapeHtml(resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada")} | ${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`)}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Liderazgo</span>
+              <strong>${escapeHtml(candidate?.leaderName || "Sin líder")}</strong>
+              <span>${escapeHtml(candidate?.leaderPhone || "Sin teléfono registrado")}</span>
+            </div>
+          </div>
+
+          ${profileLoading ? `
+            <div class="formation-profile-loading">
+              <span class="loading-spinner" aria-hidden="true"></span>
+              <strong>Cargando perfil formativo...</strong>
+              <span>En unos segundos verás el historial y el siguiente paso recomendado.</span>
+            </div>
+          ` : `
+            <div class="summary-stack dashboard-summary-grid">
+              <div class="summary-box">
+                <span class="status-chip neutral">Etapa actual</span>
+                <strong>${escapeHtml(currentStage)}</strong>
+                <span>${escapeHtml(getWorkflowStatusLabel_(candidate?.formationStatus || profile?.person?.estatusFormacion || "CANDIDATO_ENCUENTRO"))}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Siguiente paso</span>
+                <strong>${escapeHtml(nextStep)}</strong>
+                <span>${escapeHtml(profile?.nextLevel ? `Orden ${profile.nextLevel.order}` : "Se definirá al abrir Proceso de Formación")}</span>
+              </div>
+              <div class="summary-box">
+                <span class="status-chip neutral">Invitación</span>
+                <strong>${escapeHtml(formatDate(candidate?.invitedAt) || "Pendiente")}</strong>
+                <span>${escapeHtml(candidate?.invitedAt ? "La invitación ya quedó registrada." : "Todavía no se registra invitación enviada.")}</span>
+              </div>
+            </div>
+            <div class="table-wrap" style="margin-top: 18px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Nivel</th>
+                    <th>Estatus</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(profile?.records || []).length ? profile.records.slice(0, 5).map((record) => `
+                    <tr>
+                      <td>${escapeHtml(formatDate(record.encounterRegisteredAt || record.invitedAt || record.requestedAt) || "-")}</td>
+                      <td>${escapeHtml(getFormationDisplayLevelName_(record, "Sin nivel"))}</td>
+                      <td>${renderWorkflowStatusPill_(record.status)}</td>
+                      <td>${escapeHtml(record.notes || record.reason || record.result || "Sin observaciones")}</td>
+                    </tr>
+                  `).join("") : `
+                    <tr>
+                      <td colspan="4"><div class="empty-state">Este congregante todavía no tiene historial registrado dentro del proceso de formación.</div></td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          `}
+
+          <div class="actions-row" style="margin-top: 18px;">
+            <button class="btn btn-ghost" data-action="close-connection-encounter-modal">Cerrar</button>
+            ${canOpenFormation ? `<button class="btn btn-primary" data-action="open-connection-encounter-profile-full" data-person-id="${escapeHtml(candidate?.personId || "")}">Abrir ficha completa</button>` : ""}
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  const processRows = Array.isArray(state.formationProcesses) ? state.formationProcesses : [];
+  const processOptions = renderOptions(
+    processRows.map((process) => ({
+      value: process.id,
+      label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
+    })),
+    processId,
+    "Selecciona Proceso de Formación"
+  );
+  const firstOffering = eligibleOfferings[0] || null;
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card welcome-prospect-modal" role="dialog" aria-modal="true" aria-labelledby="connection-encounter-enrollment-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="connection-encounter-enrollment-title">Preparar inscripción a Formación</h2>
+            <p>Este paso deja listo el Proceso de Formación y muestra el primer nivel habilitado para continuar en la siguiente etapa.</p>
+          </div>
+          <span class="pill warning">${escapeHtml(candidate?.invitedAt ? "Listo para inscripción" : "Primero envía invitación")}</span>
+        </div>
+
+        <div class="summary-stack" style="margin-bottom: 16px;">
+          <div class="summary-box">
+            <span class="status-chip neutral">Congregante</span>
+            <strong>${escapeHtml(candidate?.personName || "Sin nombre")}</strong>
+            <span>${escapeHtml(candidate?.personNumber || "-")} | QR ${escapeHtml(candidate?.personId || "-")} | ${escapeHtml(candidate?.personPhone || "Sin teléfono")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Origen pastoral</span>
+            <strong>${escapeHtml(candidate?.groupName || "Sin grupo")}</strong>
+            <span>${escapeHtml(resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada")} | ${escapeHtml(`${candidate?.consecutiveAttendances || 0} asistencias consecutivas`)}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Estado</span>
+            <strong>${escapeHtml(candidate?.invitedAt ? "Invitación registrada" : "Invitación pendiente")}</strong>
+            <span>${escapeHtml(candidate?.invitedAt ? "Ya puedes continuar al proceso formativo." : "Primero confirma la invitación antes de inscribirlo.")}</span>
+          </div>
+        </div>
+
+        ${processRows.length ? `
+          <div class="field-grid two">
+            <div class="field">
+              <label for="connection-encounter-process">Proceso de Formación</label>
+              <select id="connection-encounter-process">
+                ${processOptions}
+              </select>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Proceso seleccionado</span>
+              <strong>${escapeHtml(selectedProcess?.name || "Sin proceso")}</strong>
+              <span>${escapeHtml(selectedProcess?.description || "Selecciona el proceso donde continuará el congregante.")}</span>
+            </div>
+          </div>
+
+          <div class="summary-stack dashboard-summary-grid" style="margin-top: 18px;">
+            <div class="summary-box">
+              <span class="status-chip neutral">Primer nivel habilitado</span>
+              <strong>${escapeHtml(firstOffering?.levelName || "Sin nivel disponible")}</strong>
+              <span>${escapeHtml(firstOffering?.name || "Todavía no hay un nivel operativo elegible para esta persona.")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Sesiones del nivel</span>
+              <strong>${escapeHtml(String(firstOffering?.totalSessions || 0))}</strong>
+              <span>${escapeHtml(firstOffering?.startDate ? `Inicio ${formatDate(firstOffering.startDate) || firstOffering.startDate}` : "Sin fecha de inicio")}</span>
+            </div>
+            <div class="summary-box">
+              <span class="status-chip neutral">Niveles elegibles</span>
+              <strong>${escapeHtml(String(eligibleOfferings.length))}</strong>
+              <span>${escapeHtml(eligibleOfferings.length ? "El sistema ya filtró solo los niveles que esta persona sí puede tomar." : "No hay niveles habilitados todavía dentro del proceso seleccionado.")}</span>
+            </div>
+          </div>
+
+          <div class="results-list" style="margin-top: 18px;">
+            ${eligibleOfferings.length ? eligibleOfferings.slice(0, 4).map((offering) => `
+              <article class="result-card ${String(firstOffering?.id || "") === String(offering.id || "") ? "is-selected" : ""}">
+                <div class="result-row">
+                  <div class="result-copy-stack">
+                    <strong>${escapeHtml(offering.levelName || "Nivel")}</strong>
+                    <span>${escapeHtml(offering.name || "Sin nombre operativo")}</span>
+                    <span>${escapeHtml(formatDate(offering.startDate) || offering.startDate || "Sin fecha")} | ${escapeHtml(`${offering.totalSessions || 0} sesiones`)}</span>
+                  </div>
+                </div>
+              </article>
+            `).join("") : `
+              <div class="empty-state">Este proceso todavía no tiene un nivel operativo disponible para inscribir a ${escapeHtml(candidate?.personName || "la persona")}.</div>
+            `}
+          </div>
+        ` : `
+          <div class="empty-state">Todavía no hay Procesos de Formación dados de alta. Primero créalos en la ficha Proceso de Formación.</div>
+        `}
+
+        <div class="summary-box tone-neutral" style="margin-top: 18px;">
+          <span class="status-chip neutral">Siguiente etapa</span>
+          <strong>La inscripción real continuará en Proceso de Formación</strong>
+          <span>Desde ahí se registrará al congregante en el proceso, nivel y sesiones correspondientes, además de generar su acceso al portal.</span>
+        </div>
+
+        <div class="actions-row" style="margin-top: 18px;">
+          <button class="btn btn-ghost" data-action="close-connection-encounter-modal">Cerrar</button>
+          ${canOpenFormation && processId ? `<button class="btn btn-primary" data-action="continue-connection-encounter-enrollment" data-person-id="${escapeHtml(candidate?.personId || "")}">Continuar en Proceso de Formación</button>` : ""}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function getConnectionEncounterModalState_() {
+  const modal = state.ui.connectionEncounterModal;
+
+  if (!modal) {
+    return null;
+  }
+
+  const candidate = getEncounterCandidateByPersonId_(modal.personId);
+
+  if (!candidate) {
+    return null;
+  }
+
+  const seasonId = String(
+    modal.seasonId
+    || candidate?.seasonId
+    || resolveFormationOriginSeasonIdForPerson_(candidate?.personId || "")
+    || state.filters.participants.seasonId
+    || state.filters.formation.seasonId
+    || ""
+  ).trim();
+  const profile = String(state.formationProfile?.person?.id || "") === String(candidate?.personId || "")
+    ? state.formationProfile
+    : (getCachedFormationProfile_(candidate?.personId || "", seasonId)
+      || buildFormationProfileFromLoadedData_(candidate?.personId || "", seasonId)
+      || null);
+  const processId = String(
+    modal.processId
+    || state.filters.formationOps.processId
+    || state.formationProcesses[0]?.id
+    || ""
+  ).trim();
+  const eligibleOfferings = getAssignableFormationOfferings_(candidate?.personId || "")
+    .filter((offering) => !processId || String(offering?.processId || "") === processId);
+  const selectedProcess = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((process) => {
+    return String(process?.id || "") === processId;
+  }) || null;
+
+  return {
+    modal,
+    candidate,
+    seasonId,
+    profile,
+    processId,
+    selectedProcess,
+    eligibleOfferings,
+    canOpenFormation: canAccessView_("formation")
+  };
 }
 
 function renderWelcomeActionModal_() {
@@ -18174,7 +18456,22 @@ async function handleClick(event) {
     }
 
     if (action === "open-formation-profile") {
+      if (state.currentView === "participants") {
+        await openConnectionEncounterProfileModal_(button.dataset.personId || "");
+        return;
+      }
       await openFormationProfile_(button.dataset.personId || "");
+      return;
+    }
+
+    if (action === "close-connection-encounter-modal") {
+      state.ui.connectionEncounterModal = null;
+      renderApp();
+      return;
+    }
+
+    if (action === "open-connection-encounter-profile-full") {
+      await openConnectionEncounterProfileFull_(button.dataset.personId || "");
       return;
     }
 
@@ -18199,8 +18496,17 @@ async function handleClick(event) {
 
     if (action === "formation-register-encounter") {
       const candidate = getEncounterCandidateByPersonId_(button.dataset.personId || "");
+      if (state.currentView === "participants") {
+        await openConnectionEncounterEnrollmentModal_(candidate || null);
+        return;
+      }
       await registerFormationEncounter_(candidate || null);
       scrollToSection_("formation-operations-workspace");
+      return;
+    }
+
+    if (action === "continue-connection-encounter-enrollment") {
+      await continueConnectionEncounterEnrollment_();
       return;
     }
 
@@ -18967,6 +19273,27 @@ async function handleChange(event) {
     if (target.id === "formation-status-filter") {
       getFormationFilterDraft_().status = target.value;
       renderApp();
+      return;
+    }
+
+    if (target.id === "connection-encounter-process") {
+      if (state.ui.connectionEncounterModal?.kind === "enrollment") {
+        state.ui.connectionEncounterModal = {
+          ...state.ui.connectionEncounterModal,
+          processId: target.value || ""
+        };
+
+        await loadFormationOperationsData_({
+          force: false,
+          showLoading: false,
+          processId: target.value || "",
+          levelId: "",
+          offeringId: "",
+          sessionNumber: "1"
+        });
+
+        renderApp();
+      }
       return;
     }
 
@@ -20899,6 +21226,155 @@ async function ensureFormationViewData_(options = {}) {
       showLoading: false
     });
   }
+}
+
+async function openConnectionEncounterProfileModal_(personId) {
+  const candidate = getEncounterCandidateByPersonId_(personId);
+
+  if (!candidate?.personId) {
+    showToast("Perfil no disponible", "No fue posible ubicar al congregante dentro de la ruta a Encuentro.", "warning");
+    return;
+  }
+
+  const seasonId = String(
+    candidate.seasonId
+    || resolveFormationOriginSeasonIdForPerson_(candidate.personId)
+    || state.filters.participants.seasonId
+    || state.filters.formation.seasonId
+    || ""
+  ).trim();
+
+  state.ui.connectionEncounterModal = {
+    kind: "profile",
+    personId: candidate.personId,
+    seasonId
+  };
+  setFormationProfileLoading_(true, candidate.personId);
+  renderApp();
+
+  try {
+    await loadFormationProfile_(candidate.personId, {
+      seasonId,
+      showLoading: false
+    });
+  } finally {
+    setFormationProfileLoading_(false, "");
+    renderApp();
+  }
+}
+
+async function openConnectionEncounterEnrollmentModal_(candidate) {
+  if (!candidate?.personId) {
+    showToast("Selecciona una persona", "No fue posible preparar la inscripción porque falta el congregante.", "warning");
+    return;
+  }
+
+  await Promise.all([
+    loadFormationProcesses_({
+      showLoading: false
+    }),
+    loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  const preferredProcessId = String(
+    state.filters.formationOps.processId
+    || state.formationProcesses[0]?.id
+    || ""
+  ).trim();
+
+  if (preferredProcessId) {
+    await loadFormationOperationsData_({
+      force: false,
+      showLoading: false,
+      processId: preferredProcessId,
+      levelId: "",
+      offeringId: "",
+      sessionNumber: "1"
+    });
+  }
+
+  state.ui.connectionEncounterModal = {
+    kind: "enrollment",
+    personId: candidate.personId,
+    seasonId: String(candidate.seasonId || "").trim(),
+    processId: preferredProcessId
+  };
+  renderApp();
+}
+
+async function openConnectionEncounterProfileFull_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  if (!canAccessView_("formation")) {
+    showToast("Sin acceso a Formación", "Este usuario no tiene visible la ficha Proceso de Formación. Usa el perfil rápido desde este mismo flujo.", "warning");
+    return;
+  }
+
+  const seasonId = String(
+    state.ui.connectionEncounterModal?.seasonId
+    || resolveFormationOriginSeasonIdForPerson_(cleanPersonId)
+    || state.filters.participants.seasonId
+    || state.filters.formation.seasonId
+    || ""
+  ).trim();
+
+  state.ui.connectionEncounterModal = null;
+  state.currentView = "formation";
+  state.filters.formation.seasonId = seasonId || state.filters.formation.seasonId;
+  state.ui.formationSection = "route";
+  renderApp();
+
+  await ensureFormationViewData_({
+    showLoading: false,
+    force: false
+  });
+  await openFormationProfile_(cleanPersonId, {
+    seasonId,
+    showLoading: false
+  });
+}
+
+async function continueConnectionEncounterEnrollment_() {
+  const modalState = getConnectionEncounterModalState_();
+
+  if (!modalState?.candidate?.personId) {
+    showToast("Inscripción no disponible", "Vuelve a abrir la preparación de inscripción e intenta otra vez.", "warning");
+    return;
+  }
+
+  if (!modalState.processId) {
+    showToast("Selecciona un proceso", "Elige primero el Proceso de Formación para continuar.", "warning");
+    return;
+  }
+
+  if (!canAccessView_("formation")) {
+    showToast(
+      "Proceso listo para la siguiente etapa",
+      `Ya quedó seleccionado ${modalState.selectedProcess?.name || "el proceso formativo"} para ${modalState.candidate.personName || "el congregante"}. En la siguiente etapa continuamos la inscripción operativa.`,
+      "success"
+    );
+    return;
+  }
+
+  state.ui.connectionEncounterModal = null;
+  state.currentView = "formation";
+  state.ui.formationSection = "operations";
+  state.filters.formation.seasonId = modalState.seasonId || state.filters.formation.seasonId;
+  state.filters.formationOps.processId = modalState.processId;
+  renderApp();
+
+  await ensureFormationViewData_({
+    showLoading: false,
+    force: false
+  });
+  await registerFormationEncounter_(modalState.candidate);
+  scrollToSection_("formation-operations-workspace");
 }
 
 async function openFormationProfile_(personId, options = {}) {
@@ -28745,6 +29221,7 @@ function resetRuntimeState() {
     selectedWelcomeFollowupId: "",
     welcomeWorkbenchMode: "",
     welcomeModal: null,
+    connectionEncounterModal: null,
     selectedFormationPersonId: "",
     pendingFormationEnrollmentPersonId: "",
     selectedFormationOfferingId: "",
