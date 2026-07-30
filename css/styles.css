@@ -1619,15 +1619,25 @@ div {
 }
 
 .formation-portal-row-meta span {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(247, 245, 240, 0.92);
   color: var(--text-soft);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.42;
   overflow-wrap: anywhere;
 }
 
 .formation-portal-row-meta strong {
-  color: var(--text);
+  display: block;
+  color: var(--text-faint);
   font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .formation-portal-row-stats {
@@ -6631,6 +6641,10 @@ tbody tr:hover {
     gap: 8px;
   }
 
+  .formation-portal-row-meta span {
+    padding: 10px 11px;
+  }
+
   .formation-portal-row-stat strong {
     font-size: 17px;
   }
@@ -6688,6 +6702,11 @@ tbody tr:hover {
   .formation-portal-row-meta span {
     font-size: 11px;
     line-height: 1.38;
+    padding: 9px 10px;
+  }
+
+  .formation-portal-row-meta strong {
+    font-size: 9px;
   }
 
   .formation-portal-row-stats {
@@ -6707,6 +6726,11 @@ tbody tr:hover {
   .formation-portal-row-actions span {
     font-size: 11px;
     line-height: 1.35;
+  }
+
+  .formation-portal-row-actions span,
+  .formation-portal-row-stat span {
+    display: none;
   }
 
   .formation-portal-row-actions {
