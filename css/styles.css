@@ -1418,7 +1418,7 @@ div {
 .formation-ledger-head,
 .formation-ledger-row {
   display: grid;
-  grid-template-columns: minmax(0, 2.2fr) minmax(150px, 1fr) minmax(170px, 1fr) minmax(220px, 1.25fr) minmax(240px, 1.55fr);
+  grid-template-columns: minmax(0, 2.1fr) minmax(170px, 1fr) minmax(240px, 1.2fr) minmax(230px, 1.1fr);
   gap: 16px;
   align-items: center;
   padding: 18px 20px;
@@ -1478,7 +1478,12 @@ div {
   align-content: start;
 }
 
-.formation-ledger-actions .btn {
+.formation-ledger-actions-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.formation-ledger-actions-stack .btn {
   width: 100%;
 }
 
