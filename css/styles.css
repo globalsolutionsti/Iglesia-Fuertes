@@ -5040,7 +5040,7 @@ tbody tr:hover {
 }
 
 .credential-card {
-  padding: 24px 22px 20px;
+  padding: 18px 22px 20px;
   border-radius: 28px;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
@@ -5050,11 +5050,11 @@ tbody tr:hover {
 .credential-card-head {
   display: grid;
   justify-items: center;
-  gap: 12px;
+  gap: 0;
 }
 
 .credential-card-head img {
-  width: 240px;
+  width: 228px;
   max-width: 100%;
   display: block;
 }
@@ -5067,7 +5067,7 @@ tbody tr:hover {
 
 .credential-qr-shell {
   width: fit-content;
-  margin: 24px auto 0;
+  margin: 16px auto 0;
   padding: 14px;
   border-radius: 28px;
   background: #ffffff;
@@ -5083,8 +5083,8 @@ tbody tr:hover {
 
 .credential-identity {
   display: grid;
-  gap: 10px;
-  margin-top: 24px;
+  gap: 0;
+  margin-top: 20px;
   justify-items: center;
   text-align: center;
 }
@@ -5095,6 +5095,7 @@ tbody tr:hover {
   letter-spacing: -0.06em;
   text-transform: uppercase;
   max-width: 10ch;
+  overflow-wrap: anywhere;
 }
 
 .credential-type-copy {
@@ -5115,7 +5116,7 @@ tbody tr:hover {
   display: grid;
   justify-items: center;
   gap: 6px;
-  margin-top: 22px;
+  margin-top: 18px;
 }
 
 .credential-id-block label {
