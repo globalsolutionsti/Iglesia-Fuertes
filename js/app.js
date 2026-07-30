@@ -8348,6 +8348,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const scanResult = state.qrScanner.result;
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
   const attendanceYesCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "SI").length;
+  const attendanceNoCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "NO").length;
+  const attendancePendingCount = Math.max(attendanceParticipants.length - attendanceYesCount - attendanceNoCount, 0);
   const selectedSession = attendanceContext?.selectedSession
     || (selectedOffering?.sessionSchedule || []).find((session) => String(session.number || "") === String(currentSessionNumber || ""))
     || null;
@@ -8361,28 +8363,110 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
   const todaySession = getTodayFormationSession_(selectedOffering);
   const todaySessionMatches = Boolean(todaySession && String(todaySession.number || "") === String(currentSessionNumber || ""));
+  const modeMeta = mode === "manual"
+    ? {
+      title: "Captura manual",
+      copy: "Marca SI o NO en pantalla y guarda solo cuando ya revisaste a todo el grupo visible."
+    }
+    : (isKiosk
+      ? {
+        title: "Modo kiosko",
+        copy: "Ideal para recibir un QR tras otro. El panel responde en vivo y te deja seguir con la siguiente persona."
+      }
+      : {
+        title: "QR asistido",
+        copy: "Un operador escanea cada QR desde su dispositivo y el sistema confirma al instante si quedó registrado."
+      });
+  const operationStatus = captureEnabled
+    ? {
+      tone: "success",
+      label: "Sesión lista para capturar",
+      title: "Ya puedes registrar asistencia",
+      copy: "La sesión elegida ya está protegida y cualquier captura manual, QR o kiosko quedará guardada aquí."
+    }
+    : (todaySessionMatches
+      ? {
+        tone: "warning",
+        label: "Falta activación final",
+        title: "Hoy coincide con esta sesión",
+        copy: "Si todavía no quedó activa automáticamente, puedes activarla manualmente como respaldo antes de empezar."
+      }
+      : {
+        tone: "danger",
+        label: "Captura protegida",
+        title: "Primero activa la sesión correcta",
+        copy: "Hasta que la actives, el sistema bloquea manual, QR y kiosko para evitar registros en una fecha equivocada."
+      });
+  const activationButtonLabel = captureEnabled ? "Sesión activa y lista" : "Activar sesión seleccionada";
+  const selectedSessionLabel = selectedSession?.label || `Sesión ${currentSessionNumber}`;
+  const activeSessionLabel = activeSession?.label || "Todavía no activada";
 
   return `
-    <div class="summary-strip formation-attendance-mode-strip">
-      <span class="context-item"><strong>Nivel catálogo:</strong> ${escapeHtml(selectedOffering.levelName || "-")}</span>
-      <span class="context-item"><strong>Paso en operación:</strong> ${escapeHtml(selectedOffering.name || "-")}</span>
-      <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(selectedSession?.label || `Sesión ${currentSessionNumber}`)}</span>
-      <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSession?.label || "Todavía no activada")}</span>
-      <span class="context-item"><strong>Avance:</strong> ${escapeHtml(`${attendanceYesCount}/${attendanceParticipants.length} con asistencia SI`)}</span>
+    <div class="formation-attendance-summary-grid">
+      <article class="formation-attendance-summary-card">
+        <span class="status-chip neutral">Operación actual</span>
+        <strong>${escapeHtml(selectedOffering.name || "-")}</strong>
+        <p>${escapeHtml(`${selectedOffering.processName || "Sin proceso"} · ${selectedOffering.levelName || "Sin nivel"}`)}</p>
+        <div class="formation-attendance-summary-meta">
+          <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+          <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
+        </div>
+      </article>
+
+      <article class="formation-attendance-summary-card">
+        <span class="status-chip ${escapeHtml(operationStatus.tone)}">${escapeHtml(operationStatus.label)}</span>
+        <strong>${escapeHtml(operationStatus.title)}</strong>
+        <p>${escapeHtml(operationStatus.copy)}</p>
+        <div class="formation-attendance-summary-meta">
+          <span><strong>Acción:</strong> activa la sesión y luego captura.</span>
+        </div>
+      </article>
+
+      <article class="formation-attendance-summary-card">
+        <span class="status-chip neutral">Modo actual</span>
+        <strong>${escapeHtml(modeMeta.title)}</strong>
+        <p>${escapeHtml(modeMeta.copy)}</p>
+        <div class="formation-attendance-summary-meta">
+          <span><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
+          <span><strong>Protección:</strong> ${escapeHtml(captureEnabled ? "habilitada para registrar" : "bloqueada hasta activar sesión")}</span>
+        </div>
+      </article>
+
+      <article class="formation-attendance-summary-card is-stats">
+        <span class="status-chip neutral">Resumen de la sesión</span>
+        <div class="formation-attendance-stats">
+          <div>
+            <label>Inscritos visibles</label>
+            <strong>${escapeHtml(String(attendanceParticipants.length))}</strong>
+          </div>
+          <div>
+            <label>SI</label>
+            <strong>${escapeHtml(String(attendanceYesCount))}</strong>
+          </div>
+          <div>
+            <label>NO</label>
+            <strong>${escapeHtml(String(attendanceNoCount))}</strong>
+          </div>
+          <div>
+            <label>Pendientes</label>
+            <strong>${escapeHtml(String(attendancePendingCount))}</strong>
+          </div>
+        </div>
+      </article>
     </div>
 
-    <div class="summary-strip">
+    <div class="formation-attendance-steps">
       <span class="context-item"><strong>Paso 1:</strong> elige el paso en operación</span>
-      <span class="context-item"><strong>Paso 2:</strong> elige la sesión correcta</span>
-      <span class="context-item"><strong>Paso 3:</strong> si la fecha coincide con hoy, el sistema la activa automáticamente</span>
-      <span class="context-item"><strong>Paso 4:</strong> ahora sí captura asistencia</span>
+      <span class="context-item"><strong>Paso 2:</strong> confirma la sesión</span>
+      <span class="context-item"><strong>Paso 3:</strong> activa la sesión correcta</span>
+      <span class="context-item"><strong>Paso 4:</strong> captura asistencia en el modo que prefieras</span>
     </div>
 
-    <div class="actions-row" style="margin-top: 14px;">
+    <div class="formation-attendance-activation-row">
       <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}">
-        ${captureEnabled ? "Sesión ya activa" : "Activar sesión seleccionada"}
+        ${escapeHtml(activationButtonLabel)}
       </button>
-      <span class="footer-note">${escapeHtml(captureEnabled ? "La asistencia ya se guardará en esta sesión del paso." : (todaySessionMatches ? "Hoy coincide con esta sesión. Si aún no quedó activa, puedes activarla manualmente como respaldo." : "Hasta que actives la sesión, el sistema bloqueará manual, QR y kiosko para evitar errores."))}</span>
+      <span class="footer-note">${escapeHtml(operationStatus.copy)}</span>
     </div>
 
     <div class="toggle-group formation-attendance-toggle">
@@ -8390,6 +8474,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
       <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
     </div>
+    <div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>
 
     ${mode === "manual" ? `
       <form id="formation-level-attendance-form">
@@ -8399,6 +8484,11 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
         ${!captureEnabled ? `
           <div class="empty-state">Activa primero la sesión ${escapeHtml(selectedSession?.label || currentSessionNumber)} para habilitar el guardado manual.</div>
         ` : attendanceParticipants.length ? `
+          <div class="formation-attendance-manual-summary">
+            <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+            <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
+            <span><strong>Avance visible:</strong> ${escapeHtml(`${attendanceYesCount} SI · ${attendanceNoCount} NO · ${attendancePendingCount} pendientes`)}</span>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -8432,6 +8522,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           </div>
           <div class="actions-row" style="margin-top: 18px;">
             <button class="btn btn-primary" type="submit">Guardar asistencia del nivel</button>
+            <button class="btn btn-ghost" type="button" data-action="refresh-formation-operations">Actualizar contexto</button>
           </div>
         ` : `
           <div class="empty-state">No hay inscritos visibles para este nivel con los filtros actuales.</div>
@@ -8471,7 +8562,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           <div class="kiosk-scanner-meta">
             <span class="status-chip ${state.qrScanner.enabled ? "success" : "neutral"}">${state.qrScanner.enabled ? "Cámara activa" : "Cámara apagada"}</span>
             <span class="kiosk-camera-note">Vista actual: ${escapeHtml(activeCameraLabel)}</span>
-            <span class="footer-note">${escapeHtml(captureEnabled ? (isKiosk ? "El kiosko registra en la sesión activa del nivel." : "El operador valida un QR a la vez y el sistema responde al instante.") : "Mientras la sesión no esté activa, QR y kiosko quedan protegidos por el sistema.")}</span>
+            <span class="footer-note">${escapeHtml(captureEnabled ? (isKiosk ? "El kiosko registra en la sesión activa del paso y queda listo para el siguiente QR." : "El operador valida un QR a la vez y el sistema responde en vivo para evitar dobles lecturas.") : "Mientras la sesión no esté activa, QR y kiosko quedan protegidos por el sistema.")}</span>
           </div>
         </div>
 
@@ -8486,11 +8577,11 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
               <strong>${escapeHtml(scanResult?.name || "Esperando lectura")}</strong>
             </div>
             <div class="kiosk-result-item">
-              <label>Nivel en operación</label>
+              <label>Paso en operación</label>
               <strong>${escapeHtml(scanResult?.groupName || selectedOffering.name || selectedOffering.levelName || "Pendiente")}</strong>
             </div>
             <div class="kiosk-result-item">
-              <label>ID de inscripción</label>
+              <label>Folio de inscripción</label>
               <strong>${escapeHtml(scanResult?.participantId || "Pendiente")}</strong>
             </div>
             <div class="kiosk-result-item">
@@ -9031,6 +9122,7 @@ function buildScrapPreviewNotes_(preview, person, originView) {
     notes.push(`Bienvenida y bitácora: ${preview.modules?.welcome || 0} seguimiento(s)`);
     notes.push(`Grupos de conexión: ${preview.modules?.groups || 0} registro(s)`);
     notes.push(`Proceso de formación: ${preview.modules?.formation || 0} registro(s)`);
+    notes.push(`Detalle Formación: ${preview.footprint.formationEnrollments || 0} inscripción(es), ${preview.footprint.formationLevelAttendances || 0} asistencia(s) y ${preview.footprint.formationAccounts || 0} cuenta(s) portal`);
     notes.push(`Huella total: ${preview.footprint.totalFootprint || 0} registro(s)`);
   }
 
@@ -9187,8 +9279,14 @@ function renderAdminScrapCenter_() {
                 </div>
               </div>
 
+              <div class="summary-strip" style="margin-top: 16px;">
+                <span class="context-item"><strong>Inscripciones Formación:</strong> ${escapeHtml(String(preview.footprint?.formationEnrollments || 0))}</span>
+                <span class="context-item"><strong>Asistencias Formación:</strong> ${escapeHtml(String(preview.footprint?.formationLevelAttendances || 0))}</span>
+                <span class="context-item"><strong>Cuentas portal:</strong> ${escapeHtml(String(preview.footprint?.formationAccounts || 0))}</span>
+              </div>
+
               <div class="actions-row scrap-preview-actions">
-                <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-origin-view="admin-settings">Eliminar scrap total</button>
+                <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(selectedPerson.id || "")}" data-origin-view="admin-settings">Eliminar persona demo + todos sus registros</button>
                 <button class="btn btn-ghost" type="button" data-action="clear-scrap-preview">Limpiar selección</button>
               </div>
             ` : `
@@ -16138,21 +16236,25 @@ function buildFormationQrSuccessResult_(response, personId, source) {
   const programmedCourse = response?.programmedCourse || {};
   const sessionNumber = String(attendance.sessionNumber || state.filters.formationOps.sessionNumber || "1");
   const activeSession = response?.activeSession || programmedCourse?.activeSession || null;
+  const fallbackMeta = resolveFormationQrScanMeta_(attendance.personId || participant.personId || personId);
+  const registeredAtLabel = attendance.registeredAt
+    ? formatDateTime_(attendance.registeredAt)
+    : formatDateTime_(new Date());
 
   return {
     tone: "success",
-    badge: source === "scanner" ? "Registro aceptado" : "Registro confirmado",
-    title: source === "scanner" ? "Acceso autorizado" : "Asistencia guardada",
+    badge: source === "scanner" ? "Registro exitoso" : "Asistencia guardada",
+    title: source === "scanner" ? "Asistencia registrada" : "Asistencia guardada",
     message: source === "scanner"
-      ? "La persona fue validada correctamente. El lector ya puede recibir el siguiente QR."
-      : "La asistencia quedó registrada en el nivel en operación seleccionado.",
-    name: participant.name || attendance.name || "Sin nombre",
-    groupName: programmedCourse.name || "Nivel en operación",
-    participantId: participant.id || attendance.enrollmentId || "Sin inscripción",
-    personId: attendance.personId || personId,
+      ? `La asistencia de ${participant.name || attendance.name || fallbackMeta.name || "la persona"} ya quedó registrada. Puedes pasar al siguiente QR.`
+      : "La asistencia quedó registrada correctamente en el paso en operación seleccionado.",
+    name: participant.name || attendance.name || fallbackMeta.name || "Sin nombre",
+    groupName: programmedCourse.name || fallbackMeta.groupName || "Paso en operación",
+    participantId: participant.id || attendance.enrollmentId || fallbackMeta.participantId || "Sin inscripción",
+    personId: attendance.personId || fallbackMeta.personId || personId,
     sessionName: activeSession?.label || `Sesión ${sessionNumber}`,
-    timestampLabel: formatDateTime_(attendance.registeredAt || new Date()),
-    levelName: programmedCourse.levelName || "Nivel"
+    timestampLabel: registeredAtLabel,
+    levelName: programmedCourse.levelName || fallbackMeta.levelName || "Nivel"
   };
 }
 
@@ -16186,6 +16288,7 @@ function buildQrFailureResult_(error, personId) {
 function buildFormationQrFailureResult_(error, personId) {
   const normalizedCode = error instanceof ApiError ? String(error.code || "").toUpperCase() : "UNEXPECTED_ERROR";
   const tone = normalizedCode === "DUPLICATE_FORMATION_QR_ATTENDANCE" ? "warning" : "error";
+  const fallbackMeta = resolveFormationQrScanMeta_(personId);
   const titleMap = {
     DUPLICATE_FORMATION_QR_ATTENDANCE: "Asistencia ya registrada",
     FORMATION_ENROLLMENT_NOT_FOUND: "Persona fuera del curso",
@@ -16200,14 +16303,14 @@ function buildFormationQrFailureResult_(error, personId) {
     tone,
     badge: tone === "warning" ? "Revisar registro" : "Registro rechazado",
     title: titleMap[normalizedCode] || "No se pudo registrar",
-    message: error instanceof Error ? error.message : "Ocurrió un problema al registrar el QR del nivel.",
-    name: "Sin registro",
-    groupName: "Nivel en operación",
-    participantId: "Pendiente",
-    personId: personId || "Sin dato",
-    sessionName: "Formación",
+    message: translateFormationQrErrorMessage_(normalizedCode, error instanceof Error ? error.message : ""),
+    name: fallbackMeta.name || "Sin registro",
+    groupName: fallbackMeta.groupName || "Paso en operación",
+    participantId: fallbackMeta.participantId || "Pendiente",
+    personId: fallbackMeta.personId || personId || "Sin dato",
+    sessionName: fallbackMeta.sessionName || "Formación",
     timestampLabel: formatDateTime_(new Date()),
-    levelName: "Nivel"
+    levelName: fallbackMeta.levelName || "Nivel"
   };
 }
 
@@ -16215,6 +16318,76 @@ function buildActiveQrFailureResult_(error, personId) {
   return isFormationOperationsQrActive_()
     ? buildFormationQrFailureResult_(error, personId)
     : buildQrFailureResult_(error, personId);
+}
+
+function translateFormationQrErrorMessage_(code, fallbackMessage) {
+  const normalizedCode = String(code || "").toUpperCase();
+  const fallback = String(fallbackMessage || "").trim();
+  const messageMap = {
+    DUPLICATE_FORMATION_QR_ATTENDANCE: "La asistencia ya estaba registrada en esta sesión del paso.",
+    FORMATION_ENROLLMENT_NOT_FOUND: "La persona no está inscrita en este paso del Proceso de Formación.",
+    FORMATION_SESSION_NOT_ACTIVE: "Primero activa la sesión correcta del paso antes de seguir escaneando.",
+    MISSING_FORMATION_QR_CONTEXT: "Primero elige el paso y la sesión que vas a operar.",
+    INVALID_QR_VALUE: "El código leído no corresponde a un QR ID válido del sistema."
+  };
+
+  if (messageMap[normalizedCode]) {
+    return messageMap[normalizedCode];
+  }
+
+  return fallback || "Ocurrió un problema al registrar el QR del nivel.";
+}
+
+function resolveFormationQrScanMeta_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+  const selectedOffering = getSelectedFormationOffering_();
+  const lastResult = state.qrScanner?.result && String(state.qrScanner.result.personId || "").trim() === cleanPersonId
+    ? state.qrScanner.result
+    : null;
+  const directoryPerson = cleanPersonId
+    ? (state.peopleDirectory.find((item) => String(item?.id || "").trim() === cleanPersonId) || null)
+    : null;
+  const enrollment = cleanPersonId
+    ? (state.formationEnrollments.find((item) => {
+      const samePerson = String(item?.personId || "").trim() === cleanPersonId;
+      const sameOffering = !selectedOffering?.id || String(item?.offeringId || "").trim() === String(selectedOffering.id || "").trim();
+      return samePerson && sameOffering;
+    }) || null)
+    : null;
+  const attendanceParticipant = cleanPersonId && Array.isArray(state.formationAttendanceContext?.participants)
+    ? (state.formationAttendanceContext.participants.find((item) => String(item?.personId || "").trim() === cleanPersonId) || null)
+    : null;
+
+  return {
+    name: String(
+      lastResult?.name
+      || attendanceParticipant?.personName
+      || enrollment?.personName
+      || directoryPerson?.nombreCompleto
+      || directoryPerson?.nombre
+      || ""
+    ).trim(),
+    groupName: String(
+      lastResult?.groupName
+      || selectedOffering?.name
+      || enrollment?.offeringName
+      || ""
+    ).trim(),
+    participantId: String(
+      lastResult?.participantId
+      || attendanceParticipant?.id
+      || enrollment?.id
+      || ""
+    ).trim(),
+    personId: cleanPersonId,
+    sessionName: String(lastResult?.sessionName || "").trim(),
+    levelName: String(
+      lastResult?.levelName
+      || selectedOffering?.levelName
+      || enrollment?.levelName
+      || ""
+    ).trim()
+  };
 }
 
 function resolveGroupName_(groupId) {
@@ -17941,10 +18114,10 @@ async function handleClick(event) {
         kind: "scrap-delete-person",
         title: "Eliminar scrap total del sistema",
         copy: preview
-          ? "Se borrará toda la huella detectada de la persona en padrón base, Bienvenida, Grupos de Conexión y Proceso de Formación. Revisa el impacto antes de confirmar."
+          ? "Se borrará toda la huella detectada de la persona en padrón base, Bienvenida, Grupos de Conexión y Proceso de Formación, incluyendo inscripciones, asistencias y cuenta del portal. Revisa el impacto antes de confirmar."
           : "Se borrará por completo el congregante de prueba junto con su historial relacionado. Úsalo solo durante implementación.",
         badge: "Borrado total",
-        confirmLabel: "Eliminar definitivo",
+        confirmLabel: "Eliminar demo completo",
         tone: "danger",
         notes: buildScrapPreviewNotes_(preview, person, originView),
         payload: {
@@ -25751,6 +25924,7 @@ async function registerQrAttendance(personId, options = {}) {
         },
         ...state.formationQrActivity
       ].slice(0, 8);
+      qrScannerRuntime.pausedUntil = Date.now() + 4200;
       await loadFormationAttendanceContext_(formationContext.offeringId, {
         force: true,
         showLoading: false,
