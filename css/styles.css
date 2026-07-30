@@ -1612,6 +1612,49 @@ div {
   overflow-wrap: anywhere;
 }
 
+.formation-portal-row-identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.formation-portal-row-identity-card {
+  display: grid;
+  gap: 5px;
+  padding: 12px 13px;
+  border-radius: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 245, 240, 0.94) 100%);
+  min-width: 0;
+}
+
+.formation-portal-row-identity-card.is-qr {
+  border-color: rgba(193, 141, 32, 0.32);
+  background: linear-gradient(180deg, rgba(255, 249, 236, 0.98) 0%, rgba(252, 244, 224, 0.95) 100%);
+}
+
+.formation-portal-row-identity-card small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-portal-row-identity-card strong {
+  font-size: 18px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+.formation-portal-row-identity-card span {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .formation-portal-row-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1680,6 +1723,36 @@ div {
   display: grid;
   gap: 10px;
   align-content: start;
+}
+
+.formation-portal-row-actions-label {
+  display: grid;
+  gap: 4px;
+  padding: 12px 13px;
+  border-radius: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(247, 245, 240, 0.92);
+}
+
+.formation-portal-row-actions-label small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-portal-row-actions-label strong {
+  font-size: 18px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.formation-portal-row-actions-label p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .formation-portal-row-actions .btn {
@@ -6636,6 +6709,23 @@ tbody tr:hover {
     font-size: 11px;
   }
 
+  .formation-portal-row-identity {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .formation-portal-row-identity-card {
+    padding: 11px 12px;
+  }
+
+  .formation-portal-row-identity-card strong {
+    font-size: 16px;
+  }
+
+  .formation-portal-row-identity-card span {
+    font-size: 12px;
+  }
+
   .formation-portal-row-meta {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -6695,6 +6785,26 @@ tbody tr:hover {
     font-size: 10px;
   }
 
+  .formation-portal-row-identity {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .formation-portal-row-identity-card {
+    padding: 10px 11px;
+    border-radius: 14px;
+  }
+
+  .formation-portal-row-identity-card strong {
+    font-size: 17px;
+    line-height: 1.05;
+  }
+
+  .formation-portal-row-identity-card span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
   .formation-portal-row-meta {
     gap: 7px;
   }
@@ -6707,6 +6817,11 @@ tbody tr:hover {
 
   .formation-portal-row-meta strong {
     font-size: 9px;
+  }
+
+  .formation-portal-row-meta span:nth-child(3),
+  .formation-portal-row-meta span:nth-child(4) {
+    display: none;
   }
 
   .formation-portal-row-stats {
@@ -6735,6 +6850,21 @@ tbody tr:hover {
 
   .formation-portal-row-actions {
     gap: 8px;
+  }
+
+  .formation-portal-row-actions-label {
+    padding: 10px 11px;
+    border-radius: 14px;
+  }
+
+  .formation-portal-row-actions-label strong {
+    font-size: 16px;
+    line-height: 1.06;
+  }
+
+  .formation-portal-row-actions-label p {
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   .formation-portal-row-actions .btn {
