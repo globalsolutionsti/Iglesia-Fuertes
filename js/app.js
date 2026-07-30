@@ -1429,10 +1429,6 @@ function getFormationStructureSessionCount_(processId, node, offering) {
     return 0;
   }
 
-  if (String(node?.calendarMode || "").toUpperCase() === "SINGLE_DATE") {
-    return 1;
-  }
-
   const draft = getFormationStructureDraft_(processId, node);
   const rawValue = draft.sessions ?? offering?.totalSessions ?? node?.totalSessionsDefault ?? 1;
   return Math.max(Number(rawValue || 0), 1);
@@ -1453,7 +1449,7 @@ function getFormationNodeCalendarLabel_(node) {
     return "Bloque de subniveles";
   }
 
-  return "Fecha única";
+  return "Fechas manuales";
 }
 
 function getFormationNodeDateSummary_(dates, node, sessionCount) {
@@ -1557,6 +1553,144 @@ function buildFormationSundaySeries_(startDate, totalSessions) {
   }).filter(Boolean);
 }
 
+function getFormationPlannerSessionDates_(processId, node, offering) {
+  const sessionCount = getFormationStructureSessionCount_(processId, node, offering);
+  const key = getFormationPastoralNodeKey_(node?.code || "");
+  const draft = getFormationStructureDraft_(processId, key);
+  const storedDates = getFormationOfferingSessionDates_(offering).map((dateValue) => {
+    return formatDateForInput_(dateValue || "") || "";
+  });
+  const startDateValue = String(
+    draft.start
+    ?? (formatDateForInput_(offering?.startDate || "") || "")
+  ).trim();
+  const generatedSundayDates = String(node?.calendarMode || "").toUpperCase() === "WEEKLY_SUNDAY" && startDateValue
+    ? buildFormationSundaySeries_(startDateValue, sessionCount)
+    : [];
+
+  return Array.from({ length: sessionCount }, (_, index) => {
+    return String(
+      draft[`date_${index + 1}`]
+      ?? storedDates[index]
+      ?? generatedSundayDates[index]
+      ?? ""
+    ).trim();
+  });
+}
+
+function resolveFormationApprovalMode_(source) {
+  const directMode = String(
+    source?.approvalMode
+    || source?.offering?.approvalMode
+    || ""
+  ).trim().toUpperCase();
+
+  if (directMode) {
+    return directMode;
+  }
+
+  const levelCode = String(
+    source?.levelCode
+    || source?.offering?.levelCode
+    || ""
+  ).trim();
+
+  if (levelCode === "3") {
+    return "BAPTISM_CONFIRMATION";
+  }
+
+  const requiresExam = Boolean(source?.requiresExam || source?.examRequired || source?.offering?.requiresExam);
+  return requiresExam ? "EXAM" : "ATTENDANCE_ONLY";
+}
+
+function getFormationApprovalModeMeta_(source) {
+  const mode = resolveFormationApprovalMode_(source);
+
+  if (mode === "BAPTISM_CONFIRMATION") {
+    return {
+      mode,
+      title: "Confirmación de bautismo",
+      shortLabel: "Bautizado",
+      description: "Este paso se libera cuando el líder confirma si la persona ya fue bautizada en agua.",
+      followupPending: "Bautizado pendiente",
+      followupDone: "Bautizado confirmado"
+    };
+  }
+
+  if (mode === "ATTENDANCE_ONLY") {
+    return {
+      mode,
+      title: "Acreditación automática",
+      shortLabel: "Asistencia completa",
+      description: "Este paso se acredita automáticamente cuando la persona completa las asistencias requeridas.",
+      followupPending: "Acreditación automática pendiente",
+      followupDone: "Acreditado automáticamente"
+    };
+  }
+
+  return {
+    mode,
+    title: "Evaluación con examen",
+    shortLabel: "Examen",
+    description: "Este paso requiere asistencia completa y examen aprobado para desbloquear el siguiente.",
+    followupPending: "Evaluación pendiente",
+    followupDone: "Examen acreditado"
+  };
+}
+
+function getFormationEnrollmentFollowupSummary_(enrollment) {
+  const approvalMeta = getFormationApprovalModeMeta_(enrollment);
+  const attendance = enrollment?.attendance || {};
+  const attendedSessions = Number(attendance.attendedSessions || 0);
+  const totalSessions = Number(attendance.totalSessions || 0);
+  const completionCopy = totalSessions
+    ? `${attendedSessions}/${totalSessions} asistencias`
+    : "Sin sesiones programadas";
+  const normalizedStatus = String(enrollment?.status || "").trim().toUpperCase();
+
+  if (approvalMeta.mode === "ATTENDANCE_ONLY") {
+    const completed = Boolean(attendance.completed || normalizedStatus === "ACREDITADO");
+    return {
+      title: completed ? approvalMeta.followupDone : approvalMeta.followupPending,
+      detail: completed
+        ? "La asistencia ya quedó completa y este paso se acredita de forma automática."
+        : `${completionCopy}. Este paso no requiere examen.`
+    };
+  }
+
+  if (approvalMeta.mode === "BAPTISM_CONFIRMATION") {
+    const confirmed = enrollment?.baptismConfirmed === true;
+    return {
+      title: confirmed ? approvalMeta.followupDone : approvalMeta.followupPending,
+      detail: confirmed
+        ? "El líder confirmó Bautizado: Sí y el siguiente paso ya puede liberarse."
+        : "Aquí el líder debe registrar Bautizado: Sí o No."
+    };
+  }
+
+  const approved = Boolean(enrollment?.examApproved || normalizedStatus === "ACREDITADO");
+  return {
+    title: approved ? approvalMeta.followupDone : approvalMeta.followupPending,
+    detail: approved
+      ? (enrollment?.examScore ? `Calificación ${enrollment.examScore}. Siguiente paso listo.` : "Examen aprobado y ruta desbloqueada.")
+      : (enrollment?.examScore ? `Calificación ${enrollment.examScore}. Falta aprobar o cerrar evaluación.` : "Pendiente de examen o de asistencia completa.")
+  };
+}
+
+function getFormationEnrollmentActionLabel_(enrollment) {
+  const approvalMode = resolveFormationApprovalMode_(enrollment);
+
+  if (approvalMode === "ATTENDANCE_ONLY") {
+    return "Ver estado";
+  }
+
+  if (approvalMode === "BAPTISM_CONFIRMATION") {
+    return "Bautismo";
+  }
+
+  return "Evaluar";
+}
+
 function buildFormationProcessStructureItems_(formData, processId) {
   const nodes = getFormationPastoralCatalogNodes_();
   const items = [];
@@ -1566,38 +1700,37 @@ function buildFormationProcessStructureItems_(formData, processId) {
     const key = getFormationPastoralNodeKey_(node.code);
     const existingOffering = getFormationProcessOfferingByNode_(processId, node);
     const inputName = V(formData.get(`structure_${key}_name`));
-    const sessionCount = String(node.calendarMode || "").toUpperCase() === "SINGLE_DATE"
-      ? 1
-      : Math.max(
-        Number(
-          V(formData.get(`structure_${key}_sessions`))
-          || existingOffering?.totalSessions
-          || node.totalSessionsDefault
-          || 1
-        ),
-        1
-      );
+    const sessionCount = Math.max(
+      Number(
+        V(formData.get(`structure_${key}_sessions`))
+        || existingOffering?.totalSessions
+        || node.totalSessionsDefault
+        || 1
+      ),
+      1
+    );
     let startDate = "";
     let sessionDates = [];
+    const explicitDates = Array.from({ length: sessionCount }, (_, index) => {
+      return V(formData.get(`structure_${key}_date_${index + 1}`));
+    }).filter(Boolean);
 
-    if (node.calendarMode === "MANUAL_MULTI") {
-      for (let index = 1; index <= sessionCount; index += 1) {
-        const dateValue = V(formData.get(`structure_${key}_date_${index}`));
-        if (dateValue) {
-          sessionDates.push(dateValue);
-        }
-      }
+    if (node.calendarMode === "MANUAL_MULTI" || node.calendarMode === "SINGLE_DATE") {
+      sessionDates = explicitDates;
 
       if (sessionDates.length && sessionDates.length !== sessionCount) {
         errors.push(`Completa todas las fechas de ${node.name}.`);
       }
 
-      startDate = sessionDates[0] || V(existingOffering?.startDate);
+      startDate = sessionDates[0] || V(formData.get(`structure_${key}_start`)) || V(existingOffering?.startDate);
     } else if (node.calendarMode === "WEEKLY_SUNDAY") {
       startDate = V(formData.get(`structure_${key}_start`)) || V(existingOffering?.startDate);
-      sessionDates = startDate
-        ? buildFormationSundaySeries_(startDate, sessionCount)
-        : [];
+      if (explicitDates.length && explicitDates.length !== sessionCount) {
+        errors.push(`Completa todas las fechas de ${node.name}.`);
+      }
+      sessionDates = explicitDates.length
+        ? explicitDates
+        : (startDate ? buildFormationSundaySeries_(startDate, sessionCount) : []);
     } else {
       startDate = V(formData.get(`structure_${key}_start`)) || V(existingOffering?.startDate);
       sessionDates = startDate ? [startDate] : [];
@@ -4349,7 +4482,7 @@ function renderStudentPortalProfileScreen_(context) {
       <div class="student-portal-profile-tabs">
         ${renderStudentPortalProfileTabButton_("summary", "Resumen", profileTab)}
         ${renderStudentPortalProfileTabButton_("attendance", "Asistencia", profileTab)}
-        ${renderStudentPortalProfileTabButton_("exams", "Examenes", profileTab)}
+        ${renderStudentPortalProfileTabButton_("exams", "Evaluación", profileTab)}
       </div>
 
       ${tabContent}
@@ -4360,6 +4493,39 @@ function renderStudentPortalProfileScreen_(context) {
 function renderStudentPortalProfileSummaryTab_(context) {
   const { currentLevel, currentStageName, attendance, examApproved, leaderName, leaderPhone, supportUrl, materials, nextLevel } = context;
   const examScore = currentLevel?.enrollment?.examScore || "Pendiente";
+  const approvalMeta = getFormationApprovalModeMeta_(currentLevel || null);
+  const accredited = String(currentLevel?.status || "").trim().toUpperCase() === "ACREDITADO";
+  const baptismConfirmed = Boolean(currentLevel?.enrollment?.baptismConfirmed);
+  let middleMetric = renderStudentPortalMiniMetric_("Examen", escapeHtml(String(examScore)), examApproved ? "Aprobado" : "Pendiente", examApproved ? "success" : "warning");
+  let finalMetric = renderStudentPortalMiniMetric_("Calificación final", examApproved ? "Aprobado" : "En proceso", examApproved ? "Listo" : "Sin cierre", examApproved ? "success" : "slate");
+
+  if (approvalMeta.mode === "ATTENDANCE_ONLY") {
+    middleMetric = renderStudentPortalMiniMetric_(
+      "Acreditación",
+      accredited ? "Automática" : "Pendiente",
+      attendance.completed ? "Asistencia completa" : "Faltan sesiones",
+      accredited ? "success" : "warning"
+    );
+    finalMetric = renderStudentPortalMiniMetric_(
+      "Resultado",
+      accredited ? "Acreditado" : "En curso",
+      accredited ? "Siguiente paso listo" : "Esperando cierre de asistencia",
+      accredited ? "success" : "slate"
+    );
+  } else if (approvalMeta.mode === "BAPTISM_CONFIRMATION") {
+    middleMetric = renderStudentPortalMiniMetric_(
+      "Bautismo",
+      baptismConfirmed ? "Sí" : "Pendiente",
+      baptismConfirmed ? "Confirmado" : "Por confirmar",
+      baptismConfirmed ? "success" : "warning"
+    );
+    finalMetric = renderStudentPortalMiniMetric_(
+      "Resultado",
+      accredited ? "Acreditado" : "En revisión",
+      accredited ? "Siguiente paso listo" : "Esperando confirmación del líder",
+      accredited ? "success" : "slate"
+    );
+  }
 
   return `
     <div class="student-portal-profile-stack">
@@ -4376,8 +4542,8 @@ function renderStudentPortalProfileSummaryTab_(context) {
 
         <div class="student-portal-profile-metrics">
           ${renderStudentPortalMiniMetric_("Asistencia", `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0}`, attendance.totalSessions ? `${getStudentPortalAttendancePercent_(attendance)}%` : "Sin sesiones", attendance.completed ? "success" : "neutral")}
-          ${renderStudentPortalMiniMetric_("Examen", escapeHtml(String(examScore)), examApproved ? "Aprobado" : "Pendiente", examApproved ? "success" : "warning")}
-          ${renderStudentPortalMiniMetric_("Calificacion final", examApproved ? "Aprobado" : "En proceso", examApproved ? "Listo" : "Sin cierre", examApproved ? "success" : "slate")}
+          ${middleMetric}
+          ${finalMetric}
         </div>
       </article>
 
@@ -4464,24 +4630,51 @@ function renderStudentPortalProfileAttendanceTab_(context) {
 
 function renderStudentPortalProfileExamsTab_(context) {
   const { currentLevel, currentRecord } = context;
+  const approvalMeta = getFormationApprovalModeMeta_(currentLevel || null);
+  const accredited = String(currentLevel?.status || "").trim().toUpperCase() === "ACREDITADO";
+  const baptismConfirmed = Boolean(currentLevel?.enrollment?.baptismConfirmed);
   const examScore = String(currentLevel?.enrollment?.examScore || "").trim();
   const evaluatedAt = formatDate(currentLevel?.enrollment?.evaluatedAt || "") || "Pendiente";
   const evaluatedBy = currentLevel?.enrollment?.evaluatedBy || currentRecord?.reviewedBy || "Equipo formativo";
   const comments = currentLevel?.enrollment?.comments || currentRecord?.result || currentRecord?.notes || "Todavia no hay observaciones publicadas.";
+  const reviewBadgeStatus = accredited ? "ACREDITADO" : (approvalMeta.mode === "BAPTISM_CONFIRMATION" ? (baptismConfirmed ? "ACREDITADO" : "EN_CURSO") : "EN_CURSO");
+  let evaluationTitle = "Evaluacion del nivel";
+  let evaluationCopy = "Resultado visible para el asistente.";
+  let mainMetric = renderStudentPortalMiniMetric_("Calificacion", examScore || "Pendiente", currentLevel?.enrollment?.examApproved ? "Aprobado" : "En revision", currentLevel?.enrollment?.examApproved ? "success" : "warning");
+
+  if (approvalMeta.mode === "ATTENDANCE_ONLY") {
+    evaluationTitle = "Cierre del paso";
+    evaluationCopy = "Este paso se acredita automáticamente cuando completas la asistencia requerida.";
+    mainMetric = renderStudentPortalMiniMetric_(
+      "Acreditación",
+      accredited ? "Automática" : "Pendiente",
+      currentLevel?.attendance?.completed ? "Asistencia completa" : "Faltan sesiones",
+      accredited ? "success" : "warning"
+    );
+  } else if (approvalMeta.mode === "BAPTISM_CONFIRMATION") {
+    evaluationTitle = "Validación de bautismo";
+    evaluationCopy = "Aquí verás cuando el líder confirme si ya fuiste bautizado en agua.";
+    mainMetric = renderStudentPortalMiniMetric_(
+      "Bautizado",
+      baptismConfirmed ? "Sí" : "Pendiente",
+      baptismConfirmed ? "Confirmado por el líder" : "Pendiente de confirmación",
+      baptismConfirmed ? "success" : "warning"
+    );
+  }
 
   return `
     <div class="student-portal-profile-stack">
       <article class="student-portal-profile-stage-card">
         <div class="student-portal-section-head compact">
           <div>
-            <h3>Evaluacion del nivel</h3>
-            <p>Resultado visible para el asistente.</p>
+            <h3>${escapeHtml(evaluationTitle)}</h3>
+            <p>${escapeHtml(evaluationCopy)}</p>
           </div>
-          ${renderStudentPortalCompactStatusBadge_(currentLevel?.enrollment?.examApproved ? "ACREDITADO" : "EN_CURSO")}
+          ${renderStudentPortalCompactStatusBadge_(reviewBadgeStatus)}
         </div>
 
         <div class="student-portal-exam-grid">
-          ${renderStudentPortalMiniMetric_("Calificacion", examScore || "Pendiente", currentLevel?.enrollment?.examApproved ? "Aprobado" : "En revision", currentLevel?.enrollment?.examApproved ? "success" : "warning")}
+          ${mainMetric}
           ${renderStudentPortalMiniMetric_("Revision", evaluatedAt, `Por ${evaluatedBy}`, "neutral")}
         </div>
 
@@ -7275,6 +7468,7 @@ function renderFormationStructurePlannerNode_(node, processId, depth = 0) {
     ?? (formatDateForInput_(offering?.startDate || "") || "")
   ).trim();
   const sessionCount = getFormationStructureSessionCount_(processId, node, offering);
+  const plannerDates = getFormationPlannerSessionDates_(processId, node, offering);
   const isRequired = getFormationProcessStepIndex_(node) > 0 && getFormationProcessStepIndex_(node) <= 3;
   const statusLabel = offering ? "Configurado" : (isRequired ? "Obligatorio" : "Opcional");
   const statusKind = offering ? "success" : (isRequired ? "warning" : "neutral");
@@ -7320,60 +7514,50 @@ function renderFormationStructurePlannerNode_(node, processId, depth = 0) {
     `;
   }
 
-  const sessionCountField = node.calendarMode === "SINGLE_DATE"
+  const sessionCountField = `
+    <div class="field">
+      <label for="structure_${key}_sessions">Sesiones</label>
+      <input
+        id="structure_${key}_sessions"
+        name="structure_${key}_sessions"
+        type="number"
+        min="1"
+        value="${escapeHtml(String(sessionCount))}"
+      >
+    </div>
+  `;
+
+  const manualDateInputs = Array.from({ length: sessionCount }, (_, index) => {
+    const inputValue = formatDateForInput_(plannerDates[index] || "") || "";
+    return `
+      <div class="field">
+        <label for="structure_${key}_date_${index + 1}">Sesión ${index + 1}</label>
+        <input id="structure_${key}_date_${index + 1}" name="structure_${key}_date_${index + 1}" type="date" value="${escapeHtml(inputValue)}">
+      </div>
+    `;
+  }).join("");
+
+  const dateInputs = node.calendarMode === "WEEKLY_SUNDAY"
     ? `
       <div class="field">
-        <label>Sesiones</label>
-        <input value="1" disabled>
+        <label for="structure_${key}_start">Primer domingo</label>
+        <input id="structure_${key}_start" name="structure_${key}_start" type="date" value="${escapeHtml(startDateValue)}">
+      </div>
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>Sesiones generadas (editables)</label>
+        <div class="field-grid two">
+          ${manualDateInputs}
+        </div>
       </div>
     `
     : `
-      <div class="field">
-        <label for="structure_${key}_sessions">Sesiones</label>
-        <input
-          id="structure_${key}_sessions"
-          name="structure_${key}_sessions"
-          type="number"
-          min="1"
-          value="${escapeHtml(String(sessionCount))}"
-        >
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>Fechas del paso</label>
+        <div class="field-grid two">
+          ${manualDateInputs}
+        </div>
       </div>
     `;
-
-  const dateInputs = node.calendarMode === "MANUAL_MULTI"
-    ? Array.from({ length: sessionCount }, (_, index) => {
-      const draftValue = draft[`date_${index + 1}`];
-      const inputValue = formatDateForInput_(draftValue || dates[index] || "") || "";
-      return `
-        <div class="field">
-          <label for="structure_${key}_date_${index + 1}">Día ${index + 1}</label>
-          <input id="structure_${key}_date_${index + 1}" name="structure_${key}_date_${index + 1}" type="date" value="${escapeHtml(inputValue)}">
-        </div>
-      `;
-    }).join("")
-    : (node.calendarMode === "WEEKLY_SUNDAY"
-      ? `
-        <div class="field">
-          <label for="structure_${key}_start">Primer domingo</label>
-          <input id="structure_${key}_start" name="structure_${key}_start" type="date" value="${escapeHtml(startDateValue)}">
-        </div>
-        <div class="field" style="grid-column: 1 / -1;">
-          <label>Vista de sesiones</label>
-          <div class="summary-strip">
-            ${(startDateValue
-              ? buildFormationSundaySeries_(startDateValue, sessionCount)
-                .map((dateValue) => `<span class="context-item">${escapeHtml(formatDate(dateValue) || dateValue)}</span>`)
-                .join("")
-              : `<span class="context-item">Al elegir el primer domingo se generarán ${escapeHtml(String(sessionCount))} sesiones consecutivas.</span>`)}
-          </div>
-        </div>
-      `
-      : `
-        <div class="field">
-          <label for="structure_${key}_start">Fecha del nivel</label>
-          <input id="structure_${key}_start" name="structure_${key}_start" type="date" value="${escapeHtml(startDateValue)}">
-        </div>
-      `);
 
   return `
     <div class="formation-step-card ${expanded ? "is-expanded" : ""}" ${depth ? `style="margin-left:${Math.min(depth * 16, 36)}px;"` : ""}>
@@ -7722,6 +7906,14 @@ function renderFormationOperationsWorkspace_(context) {
     label: String(session.label || `Sesion ${session.number || session.value || ""}`)
   }));
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
+  const selectedApprovalMeta = getFormationApprovalModeMeta_(selectedEnrollment || selectedOffering || null);
+  const selectedApprovalMode = selectedApprovalMeta.mode;
+  const evaluationIntroCopy = selectedApprovalMode === "ATTENDANCE_ONLY"
+    ? "Este paso se acredita en automático cuando la persona completa la asistencia requerida. Aquí solo revisas el avance."
+    : selectedApprovalMode === "BAPTISM_CONFIRMATION"
+      ? "Aquí el líder confirma si la persona ya fue bautizada en agua. Si la respuesta es Sí, el siguiente paso se desbloquea."
+      : "Solo cuando la persona tenga todas sus asistencias y examen aprobado quedará acreditada y se desbloqueará el siguiente paso en su portal.";
+  const selectedEnrollmentFollowup = selectedEnrollment ? getFormationEnrollmentFollowupSummary_(selectedEnrollment) : null;
 
   return `
     <article class="panel-card module-section-anchor" id="formation-operations-workspace">
@@ -7750,7 +7942,7 @@ function renderFormationOperationsWorkspace_(context) {
         <article class="stat-card">
           <span class="status-chip success">Acreditados</span>
           <strong>${escapeHtml(String(summary.approved))}</strong>
-          <span>Ya cumplieron asistencia completa y evaluación aprobada.</span>
+          <span>Ya cumplieron la regla del paso y desbloquearon el siguiente dentro de su ruta.</span>
         </article>
         <article class="stat-card">
           <span class="status-chip dark">En curso</span>
@@ -7944,7 +8136,7 @@ function renderFormationOperationsWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Evaluación y desbloqueo</h2>
-          <p>Solo cuando la persona tenga todas sus asistencias y examen aprobado quedará acreditada y se desbloqueará el siguiente nivel en su portal.</p>
+          <p>${escapeHtml(evaluationIntroCopy)}</p>
         </div>
         ${selectedEnrollment ? renderWorkflowStatusPill_(selectedEnrollment.status || "EN_CURSO") : `<span class="pill dark">Selecciona inscrito</span>`}
       </div>
@@ -7967,7 +8159,11 @@ function renderFormationOperationsWorkspace_(context) {
                 <span>Seguimiento</span>
                 <span>Acciones</span>
               </div>
-              ${filteredEnrollments.map((enrollment) => `
+              ${filteredEnrollments.map((enrollment) => {
+                const followup = getFormationEnrollmentFollowupSummary_(enrollment);
+                const actionLabel = getFormationEnrollmentActionLabel_(enrollment);
+
+                return `
                 <article class="formation-ledger-row ${String(selectedEnrollment?.id || "") === String(enrollment.id || "") ? "is-active" : ""}">
                   <div class="formation-ledger-cell formation-ledger-cell-main">
                     <small>Congregante</small>
@@ -7982,18 +8178,19 @@ function renderFormationOperationsWorkspace_(context) {
                   </div>
                   <div class="formation-ledger-cell">
                     <small>Seguimiento</small>
-                    <strong>${escapeHtml(enrollment.examApproved ? "Examen acreditado" : "Evaluación pendiente")}</strong>
-                    <span>${escapeHtml(enrollment.examScore ? `Calificación ${enrollment.examScore}` : "Aún sin calificación")} · ${escapeHtml(resolveSeasonName_(enrollment.seasonId) || enrollment.seasonId || "Sin temporada origen")}</span>
+                    <strong>${escapeHtml(followup.title)}</strong>
+                    <span>${escapeHtml(followup.detail)} · ${escapeHtml(resolveSeasonName_(enrollment.seasonId) || enrollment.seasonId || "Sin temporada origen")}</span>
                   </div>
                   <div class="formation-ledger-cell formation-ledger-actions">
                     <small>Acciones</small>
                     <div class="formation-ledger-actions-stack">
                       <button class="btn btn-ghost" type="button" data-action="open-formation-profile" data-person-id="${escapeHtml(enrollment.personId || "")}">Perfil</button>
-                      <button class="btn btn-primary" type="button" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(enrollment.id || "")}">Evaluar</button>
+                      <button class="btn btn-primary" type="button" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(enrollment.id || "")}">${escapeHtml(actionLabel)}</button>
                     </div>
                   </div>
                 </article>
-              `).join("")}
+              `;
+              }).join("")}
             </div>
           ` : `
             <div class="empty-state">No hay inscritos que coincidan con el filtro actual.</div>
@@ -8001,8 +8198,7 @@ function renderFormationOperationsWorkspace_(context) {
         </div>
 
         ${selectedEnrollment ? `
-          <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
-            <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+          <div style="margin-top: 18px;">
             <div class="summary-stack dashboard-summary-grid">
               <div class="summary-box">
                 <span class="status-chip neutral">Congregante</span>
@@ -8015,40 +8211,72 @@ function renderFormationOperationsWorkspace_(context) {
                 <span>${escapeHtml(selectedEnrollment.attendance?.completed ? "Requisito completo" : "Aún faltan sesiones para acreditar")}</span>
               </div>
               <div class="summary-box">
-                <span class="status-chip neutral">Nivel en operación</span>
+                <span class="status-chip neutral">Paso en operación</span>
                 <strong>${escapeHtml(selectedEnrollment.offeringName || "-")}</strong>
                 <span>${escapeHtml(selectedEnrollment.levelName || "-")}</span>
               </div>
               <div class="summary-box">
                 <span class="status-chip neutral">Portal</span>
-                <strong>${escapeHtml(selectedEnrollment.status || "EN_CURSO")}</strong>
-                <span>Al acreditar, el siguiente nivel se libera en su cuenta.</span>
+                <strong>${escapeHtml(selectedEnrollmentFollowup?.title || selectedEnrollment.status || "EN_CURSO")}</strong>
+                <span>${escapeHtml(
+                  selectedApprovalMode === "ATTENDANCE_ONLY"
+                    ? "Cuando complete la asistencia, el siguiente paso se libera en automático."
+                    : selectedApprovalMode === "BAPTISM_CONFIRMATION"
+                      ? "Si marcas Bautizado: Sí, el siguiente paso se libera en su cuenta."
+                      : "Al acreditar, el siguiente paso se libera en su cuenta."
+                )}</span>
               </div>
             </div>
 
-            <div class="field-grid two" style="margin-top: 18px;">
-              <div class="field">
-                <label for="formation-evaluation-score">Calificación del examen</label>
-                <input id="formation-evaluation-score" name="examScore" value="${escapeHtml(selectedEnrollment.examScore || "")}" placeholder="Ej. 95">
+            ${selectedApprovalMode === "ATTENDANCE_ONLY" ? `
+              <div class="summary-box" style="margin-top: 18px;">
+                <span class="status-chip success">${escapeHtml(selectedApprovalMeta.title)}</span>
+                <strong>${escapeHtml(selectedEnrollmentFollowup?.title || "Seguimiento automático")}</strong>
+                <span>${escapeHtml(selectedEnrollmentFollowup?.detail || "Este paso no requiere examen ni confirmación manual del líder.")}</span>
               </div>
-              <div class="field">
-                <label for="formation-evaluation-approved">Examen aprobado</label>
-                <select id="formation-evaluation-approved" name="examApproved">
-                  <option value="">Selecciona</option>
-                  <option value="SI" ${selectedEnrollment.examApproved ? "selected" : ""}>SI</option>
-                  <option value="NO" ${selectedEnrollment.examApproved === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO" ? "selected" : ""}>NO</option>
-                </select>
-              </div>
-              <div class="field" style="grid-column: 1 / -1;">
-                <label for="formation-evaluation-comments">Comentarios</label>
-                <textarea id="formation-evaluation-comments" name="comments" rows="3" placeholder="Anota observaciones del líder, resultado del examen o si repetirá el nivel.">${escapeHtml(selectedEnrollment.comments || "")}</textarea>
-              </div>
-            </div>
+            ` : `
+              <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
+                <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+                <div class="field-grid two">
+                  ${selectedApprovalMode === "BAPTISM_CONFIRMATION" ? `
+                    <div class="field">
+                      <label for="formation-evaluation-approved">Bautizado</label>
+                      <select id="formation-evaluation-approved" name="examApproved">
+                        <option value="">Selecciona</option>
+                        <option value="SI" ${selectedEnrollment.baptismConfirmed ? "selected" : ""}>SI</option>
+                        <option value="NO" ${(selectedEnrollment.baptismConfirmed === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO") ? "selected" : ""}>NO</option>
+                      </select>
+                    </div>
+                  ` : `
+                    <div class="field">
+                      <label for="formation-evaluation-score">Calificación del examen</label>
+                      <input id="formation-evaluation-score" name="examScore" value="${escapeHtml(selectedEnrollment.examScore || "")}" placeholder="Ej. 95">
+                    </div>
+                    <div class="field">
+                      <label for="formation-evaluation-approved">Examen aprobado</label>
+                      <select id="formation-evaluation-approved" name="examApproved">
+                        <option value="">Selecciona</option>
+                        <option value="SI" ${selectedEnrollment.examApproved ? "selected" : ""}>SI</option>
+                        <option value="NO" ${selectedEnrollment.examApproved === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO" ? "selected" : ""}>NO</option>
+                      </select>
+                    </div>
+                  `}
+                  <div class="field" style="grid-column: 1 / -1;">
+                    <label for="formation-evaluation-comments">Comentarios</label>
+                    <textarea id="formation-evaluation-comments" name="comments" rows="3" placeholder="${escapeHtml(
+                      selectedApprovalMode === "BAPTISM_CONFIRMATION"
+                        ? "Anota si ya fue bautizado, observaciones pastorales o por qué aún no puede continuar."
+                        : "Anota observaciones del líder, resultado del examen o si repetirá el nivel."
+                    )}">${escapeHtml(selectedEnrollment.comments || "")}</textarea>
+                  </div>
+                </div>
 
-            <div class="actions-row" style="margin-top: 18px;">
-              <button class="btn btn-primary" type="submit">Guardar evaluación</button>
-            </div>
-          </form>
+                <div class="actions-row" style="margin-top: 18px;">
+                  <button class="btn btn-primary" type="submit">Guardar evaluación</button>
+                </div>
+              </form>
+            `}
+          </div>
         ` : `
           <div class="empty-state" style="margin-top: 18px;">Selecciona un inscrito para registrar su evaluación y desbloquear el siguiente nivel cuando cumpla todos los requisitos.</div>
         `}
@@ -20112,7 +20340,7 @@ async function handleChange(event) {
         const field = match[2].startsWith("date_") ? `date_${match[3]}` : match[2];
         setFormationStructureDraftValue_(processId, match[1], field, target.value);
 
-        if (field === "sessions") {
+        if (field === "sessions" || field === "start") {
           renderApp();
           scrollToSection_("formation-structure-panel");
         }
@@ -24565,11 +24793,26 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
   }
 
   renderApp();
+  const approvalMeta = getFormationApprovalModeMeta_({
+    approvalMode: response?.requirement?.approvalMode
+  });
+  const approvedByAttendance = approvalMeta.mode === "ATTENDANCE_ONLY";
+  const approvedByBaptism = approvalMeta.mode === "BAPTISM_CONFIRMATION";
   showToast(
-    response?.accredited ? "Nivel acreditado" : "Evaluación guardada",
     response?.accredited
-      ? "La persona acreditó el nivel y su siguiente paso ya quedó desbloqueado en el portal del asistente."
-      : "La evaluación quedó guardada. Recuerda que solo se acredita cuando tiene todas las asistencias y examen aprobado.",
+      ? (approvedByAttendance ? "Paso acreditado automáticamente" : (approvedByBaptism ? "Bautismo confirmado" : "Nivel acreditado"))
+      : "Evaluación guardada",
+    response?.accredited
+      ? (approvedByAttendance
+        ? "La asistencia quedó completa y el siguiente paso ya se desbloqueó en el portal del asistente."
+        : (approvedByBaptism
+          ? "Se confirmó Bautizado: Sí y el siguiente paso ya quedó desbloqueado en el portal del asistente."
+          : "La persona acreditó el nivel y su siguiente paso ya quedó desbloqueado en el portal del asistente."))
+      : (approvedByAttendance
+        ? "Este paso se acredita solo por asistencia. Todavía faltan sesiones por completar."
+        : (approvedByBaptism
+          ? "La confirmación quedó guardada. Mientras siga en NO, el siguiente paso permanecerá bloqueado."
+          : "La evaluación quedó guardada. Recuerda que solo se acredita cuando tiene todas las asistencias y examen aprobado.")),
     response?.accredited ? "success" : "warning"
   );
 }
