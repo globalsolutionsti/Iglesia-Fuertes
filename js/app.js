@@ -8238,12 +8238,12 @@ function renderFormationPortalEnrollmentRow_(enrollment) {
         <div class="formation-portal-row-actions-label">
           <small>Compartir credencial</small>
           <strong>QR de ${escapeHtml(personName)}</strong>
-          <p>Primero abre el chat correcto y después comparte el QR adjunto.</p>
+          <p>Primero abre el chat correcto y después descarga el QR para enviarlo.</p>
         </div>
         <button class="btn btn-primary" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(enrollment?.personId || "")}">Abrir chat correcto</button>
-        <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(enrollment?.personId || "")}">Compartir QR adjunto</button>
+        <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(enrollment?.personId || "")}">Descargar QR</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(enrollment?.personId || "")}">Gestionar</button>
-        <span>Orden recomendado: primero abre el chat correcto y después comparte el QR adjunto para evitar enviarlo a otra persona.</span>
+        <span>Orden recomendado: primero abre el chat correcto y después descarga el QR para evitar enviarlo a otra persona equivocada.</span>
       </div>
     </article>
   `;
@@ -8322,12 +8322,12 @@ function renderFormationPortalAdminModal_() {
                 <button class="btn btn-ghost" data-action="send-student-portal-access-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPin && hasPreviewPhone ? "" : "disabled"}>Enviar acceso</button>
                 <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>${hasPreviewPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
                 <button class="btn btn-ghost" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>Abrir chat correcto</button>
-                <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(person?.id || "")}">Compartir QR adjunto</button>
+                <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(person?.id || "")}">Descargar QR</button>
                 <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar vista</button>
               </div>
 
               <div class="footer-note">
-                ${escapeHtml("Flujo sugerido para mañana: 1) Abrir chat correcto. 2) Compartir QR adjunto. En iPad o celular se abrirá el menú compartir; en computadora se descargará el PNG como respaldo.")}
+                ${escapeHtml("Flujo sugerido para hoy: 1) Abrir chat correcto. 2) Descargar QR. En celular o iPad quedará listo para adjuntarlo desde el WhatsApp correcto.")}
               </div>
             </div>
 
@@ -17008,7 +17008,7 @@ function renderCredentialCard_(person) {
   return `
     <article class="credential-card">
       <div class="credential-card-head">
-        <img src="assets/logo-conexion.png" alt="Conexion">
+        <img src="assets/logo-fuertes.png" alt="Iglesia Fuertes">
         <span class="credential-card-caption">Credencial Digital</span>
       </div>
 
@@ -17290,7 +17290,7 @@ async function handleClick(event) {
         return;
       }
 
-      await shareCredentialPng_(person);
+      await downloadCredentialPng_(person);
       return;
     }
 
@@ -28462,8 +28462,8 @@ function openCredentialWhatsappChat_(person) {
   showToast(
     isLikelyMobileDevice_() ? "WhatsApp del celular listo" : "WhatsApp listo",
     isLikelyMobileDevice_()
-      ? "Se abrió el chat correcto del congregante en tu WhatsApp. Ahora usa Compartir QR adjunto para enviar la credencial."
-      : "Se abrió el chat correcto del congregante. Ahora comparte el QR adjunto para completar el envío.",
+      ? "Se abrió el chat correcto del congregante en tu WhatsApp. Ahora descarga el QR para adjuntarlo."
+      : "Se abrió el chat correcto del congregante. Ahora descarga el QR para completar el envío.",
     "success"
   );
 }
@@ -28887,7 +28887,7 @@ function printCredentialCards_(people, title) {
     return `
       <article class="print-credential-card">
         <div class="print-credential-head">
-          <img src="${logoUrl}" alt="Conexion">
+          <img src="${logoUrl}" alt="Iglesia Fuertes">
           <span class="print-credential-caption">Credencial Digital</span>
         </div>
         <div class="print-credential-body">
@@ -29047,7 +29047,7 @@ function printCredentialCards_(people, title) {
 }
 
 function getCredentialLogoAssetUrl_() {
-  return new URL("./assets/logo-conexion.png", window.location.href).href;
+  return new URL("./assets/logo-fuertes.png", window.location.href).href;
 }
 
 function normalizePhone_(value) {
