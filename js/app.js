@@ -6948,13 +6948,16 @@ function renderFormationRouteWorkspace_(context) {
     profile,
     activePersonId
   } = context;
+  const appliedGroupId = String(state.filters.formation.groupId || "");
+  const groupedCandidates = !appliedGroupId ? buildFormationRouteGroups_(candidates) : [];
+  const showGroupedRoute = !appliedGroupId && groupedCandidates.length > 1;
 
   return `
     <article class="panel-card module-section-anchor" id="formation-route-workspace">
       <div class="panel-head">
         <div>
           <h2>Filtro operativo</h2>
-          <p>Elige temporada y grupo; luego usa un solo botón para actualizar únicamente ese grupo y ver los casos que debes trabajar ahora.</p>
+          <p>Elige temporada y, si quieres, enfócate en un grupo específico. También puedes dejar Todos los grupos para revisar la ruta completa agrupada por liderazgo.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral formation-filter-status">
@@ -7004,7 +7007,7 @@ function renderFormationRouteWorkspace_(context) {
         </div>
       </div>
 
-      <p class="footer-note">Para obtener respuesta rápida, primero selecciona el grupo y luego pulsa Aplicar y actualizar.</p>
+      <p class="footer-note">Puedes trabajar un solo grupo o dejar Todos los grupos. El sistema ocultará automáticamente a quienes ya estén inscritos en algún Proceso de Formación.</p>
       ${formationFilterFeedback}
     </article>
 
@@ -7036,15 +7039,21 @@ function renderFormationRouteWorkspace_(context) {
         </div>
 
         ${candidates.length ? `
-          <div class="formation-ledger">
-            <div class="formation-ledger-head formation-ledger-head-route" aria-hidden="true">
-              <span>Congregante</span>
-              <span>Ruta y avance</span>
-              <span>Seguimiento</span>
-              <span>Acciones</span>
+          ${showGroupedRoute ? `
+            <div class="formation-route-groups">
+              ${groupedCandidates.map((groupBlock) => renderFormationRouteGroupBlock_(groupBlock, activePersonId)).join("")}
             </div>
-            ${candidates.map((candidate) => renderFormationRouteResultRow_(candidate, activePersonId)).join("")}
-          </div>
+          ` : `
+            <div class="formation-ledger">
+              <div class="formation-ledger-head formation-ledger-head-route" aria-hidden="true">
+                <span>Congregante</span>
+                <span>Ruta y avance</span>
+                <span>Seguimiento</span>
+                <span>Acciones</span>
+              </div>
+              ${candidates.map((candidate) => renderFormationRouteResultRow_(candidate, activePersonId)).join("")}
+            </div>
+          `}
         ` : `
           <div class="empty-state">Todavía no hay personas con 3 asistencias consecutivas dentro del filtro actual.</div>
         `}
@@ -19400,7 +19409,7 @@ async function handleClick(event) {
     if (action === "refresh-formation") {
       await applyFormationFilters_({
         syncCandidates: true,
-        requireGroup: true
+        requireGroup: false
       });
       return;
     }
@@ -19408,7 +19417,7 @@ async function handleClick(event) {
     if (action === "apply-formation-filters") {
       await applyFormationFilters_({
         syncCandidates: true,
-        requireGroup: true
+        requireGroup: false
       });
       return;
     }
@@ -28472,7 +28481,26 @@ function renderFormationRouteContext_(candidates) {
   const effectiveGroupId = appliedGroupId || (uniqueGroupIds.length === 1 ? uniqueGroupIds[0] : "");
 
   if (!effectiveGroupId) {
-    return "";
+    if (!uniqueGroupIds.length) {
+      return "";
+    }
+
+    return `
+      <div class="formation-route-context">
+        <div class="formation-route-context-head">
+          <div>
+            <small>Vista agrupada</small>
+            <strong>Todos los grupos</strong>
+            <span>El listado se organiza por grupo para que puedas revisar la ruta completa sin mezclar liderazgos.</span>
+          </div>
+          <span class="pill neutral">${escapeHtml(`${uniqueGroupIds.length} grupos`)}</span>
+        </div>
+        <div class="formation-route-context-meta">
+          <span class="context-item">${escapeHtml(`${candidates.length} personas en ruta a Encuentro`)}</span>
+          <span class="context-item">Solo aparecen personas que aún no están inscritas en un Proceso de Formación.</span>
+        </div>
+      </div>
+    `;
   }
 
   const group = state.catalogs.groups.find((item) => String(item.id) === effectiveGroupId);
@@ -28500,6 +28528,70 @@ function renderFormationRouteContext_(candidates) {
           : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
       </div>
     </div>
+  `;
+}
+
+function buildFormationRouteGroups_(candidates) {
+  const grouped = new Map();
+
+  (Array.isArray(candidates) ? candidates : []).forEach((candidate) => {
+    const normalizedGroupId = String(candidate?.groupId || "").trim() || "__SIN_GRUPO__";
+
+    if (!grouped.has(normalizedGroupId)) {
+      const catalogGroup = state.catalogs.groups.find((item) => String(item.id) === normalizedGroupId) || null;
+      grouped.set(normalizedGroupId, {
+        groupId: normalizedGroupId,
+        groupName: getFormationRouteGroupName_(candidate),
+        contacts: getFormationRouteLeaderContacts_(catalogGroup),
+        items: []
+      });
+    }
+
+    grouped.get(normalizedGroupId).items.push(candidate);
+  });
+
+  return Array.from(grouped.values()).sort((left, right) => (
+    String(left.groupName || "").localeCompare(String(right.groupName || ""), "es", { sensitivity: "base" })
+  ));
+}
+
+function renderFormationRouteGroupBlock_(groupBlock, activePersonId) {
+  const countLabel = groupBlock.items.length === 1
+    ? "1 persona en ruta"
+    : `${groupBlock.items.length} personas en ruta`;
+
+  return `
+    <section class="formation-route-group-block">
+      <div class="formation-route-context">
+        <div class="formation-route-context-head">
+          <div>
+            <small>Grupo</small>
+            <strong>${escapeHtml(groupBlock.groupName || "Sin grupo")}</strong>
+            <span>Trabaja este bloque y luego continúa con el siguiente grupo.</span>
+          </div>
+          <span class="pill neutral">${escapeHtml(countLabel)}</span>
+        </div>
+        <div class="formation-route-context-meta">
+          ${groupBlock.contacts.length
+            ? groupBlock.contacts.map((contact) => `
+                <span class="context-item">
+                  <strong>${escapeHtml(contact.label)}:</strong> ${escapeHtml(contact.value)}
+                </span>
+              `).join("")
+            : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
+        </div>
+      </div>
+
+      <div class="formation-ledger">
+        <div class="formation-ledger-head formation-ledger-head-route" aria-hidden="true">
+          <span>Congregante</span>
+          <span>Ruta y avance</span>
+          <span>Seguimiento</span>
+          <span>Acciones</span>
+        </div>
+        ${groupBlock.items.map((candidate) => renderFormationRouteResultRow_(candidate, activePersonId)).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -30119,6 +30211,9 @@ async function applyFormationFilters_(options = {}) {
   const nextGroupId = String(draft.groupId || "");
   const shouldSyncCandidates = Boolean(options.syncCandidates);
   const shouldLoadRecords = getActiveFormationSection_() === "cases";
+  const syncMessage = shouldSyncCandidates
+    ? (nextGroupId ? "Actualizando grupo..." : "Actualizando todos los grupos...")
+    : "Aplicando filtro...";
 
   if (shouldSyncCandidates && options.requireGroup && !nextGroupId) {
     showToast("Selecciona un grupo", "Primero elige el grupo que deseas actualizar para que la validación sea rápida.", "warning");
@@ -30141,7 +30236,7 @@ async function applyFormationFilters_(options = {}) {
       });
     }
 
-    await runFormationFilterTask_(shouldSyncCandidates ? "Actualizando grupo..." : "Aplicando temporada...", async () => {
+    await runFormationFilterTask_(shouldSyncCandidates ? syncMessage : "Aplicando temporada...", async () => {
       await loadFormationData_({
         force: true,
         showLoading: false,
@@ -30161,7 +30256,7 @@ async function applyFormationFilters_(options = {}) {
     return;
   }
 
-  await runFormationFilterTask_(shouldSyncCandidates ? "Actualizando grupo..." : "Aplicando filtro...", async () => {
+  await runFormationFilterTask_(syncMessage, async () => {
     if (shouldSyncCandidates) {
       clearFormationProfileCache_("", state.filters.formation.seasonId);
       await loadFormationData_({
