@@ -16,7 +16,47 @@ const root = document.getElementById("app-root");
 const toastRoot = document.getElementById("toast-root");
 const loadingOverlay = document.getElementById("loading-overlay");
 const loadingMessage = document.getElementById("loading-message");
-const initialStoredUser = getStoredUser();
+const initialLaunchContext = readInitialLaunchContext_();
+const rawInitialStoredUser = getStoredUser();
+const initialStoredUser = initialLaunchContext.forceStudentPortal
+  && rawInitialStoredUser
+  && rawInitialStoredUser.sessionType !== "student"
+  ? null
+  : rawInitialStoredUser;
+
+function readInitialLaunchContext_() {
+  if (typeof window === "undefined" || !window.location) {
+    return {
+      forceStudentPortal: false,
+      portalUsername: ""
+    };
+  }
+
+  try {
+    const url = new URL(window.location.href);
+    const portalMode = String(
+      url.searchParams.get("portal")
+      || url.searchParams.get("access")
+      || url.searchParams.get("mode")
+      || ""
+    ).trim().toLowerCase();
+    const portalUsername = String(
+      url.searchParams.get("username")
+      || url.searchParams.get("user")
+      || ""
+    ).trim();
+
+    return {
+      forceStudentPortal: ["student", "assistant", "portal"].includes(portalMode),
+      portalUsername
+    };
+  } catch (error) {
+    return {
+      forceStudentPortal: false,
+      portalUsername: ""
+    };
+  }
+}
 
 const VIEW_META = {
   dashboard: {
@@ -187,7 +227,9 @@ const state = {
   apiUrl: getStoredApiUrl(),
   globalApiUrl: APP_CONFIG.defaultApiUrl,
   globalWebUrl: "",
-  currentView: initialStoredUser
+  currentView: initialLaunchContext.forceStudentPortal
+    ? "login"
+    : initialStoredUser
     ? (initialStoredUser.sessionType === "student" ? "student-portal" : "dashboard")
     : "login",
   connectionStatus: null,
@@ -341,7 +383,7 @@ const state = {
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
     adminLeaderAccountEmail: "",
-    loginMode: "admin",
+    loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
   },
   filters: {
@@ -1959,9 +2001,15 @@ function buildEncounterInviteWhatsappUrlClient_(candidate) {
   return `https://wa.me/${encodeURIComponent(phone)}?text=${encodeURIComponent(message)}`;
 }
 
-function getStudentPortalEntryUrl_() {
+function resolveStudentPortalBaseUrl_() {
   if (typeof window === "undefined" || !window.location) {
-    return "";
+    return String(state.globalWebUrl || "").trim();
+  }
+
+  const configuredGlobalWebUrl = String(state.globalWebUrl || "").trim();
+
+  if (configuredGlobalWebUrl) {
+    return configuredGlobalWebUrl;
   }
 
   const origin = String(window.location.origin || "").trim();
@@ -1970,13 +2018,41 @@ function getStudentPortalEntryUrl_() {
   return `${origin}${pathname}`;
 }
 
+function getStudentPortalEntryUrl_(account) {
+  const baseUrl = resolveStudentPortalBaseUrl_();
+
+  if (!baseUrl) {
+    return "";
+  }
+
+  try {
+    const baseOrigin = typeof window !== "undefined" && window.location
+      ? window.location.origin
+      : undefined;
+    const url = baseOrigin ? new URL(baseUrl, baseOrigin) : new URL(baseUrl);
+    const username = String(account?.username || "").trim();
+
+    url.searchParams.set("portal", "student");
+
+    if (username) {
+      url.searchParams.set("username", username);
+    } else {
+      url.searchParams.delete("username");
+    }
+
+    return url.toString();
+  } catch (error) {
+    return baseUrl;
+  }
+}
+
 function buildStudentPortalAccessWhatsappUrl_(profile, account) {
   const person = profile?.person || {};
   const cleanPhone = normalizeWhatsappPhone_(person.telefono);
   const username = String(account?.username || person.id || "").trim();
   const temporaryPin = String(account?.temporaryPin || "").trim();
   const fullName = String(person.nombreCompleto || person.nombre || "asistente").trim();
-  const portalUrl = getStudentPortalEntryUrl_();
+  const portalUrl = getStudentPortalEntryUrl_(account);
 
   if (!cleanPhone || !username || !temporaryPin) {
     return "";
@@ -3559,6 +3635,7 @@ function renderLoginView() {
 
 function renderStudentPortalLoginView_() {
   const deviceTimeLabel = getStudentPortalDeviceTimeLabel_();
+  const prefilledUsername = escapeHtml(initialLaunchContext.portalUsername || "");
 
   return `
     <div class="student-portal-access-shell">
@@ -3587,7 +3664,7 @@ function renderStudentPortalLoginView_() {
           <form id="student-login-form-mobile" class="student-portal-auth-card student-portal-auth-card-mobile">
             <div class="field">
               <label for="student-login-username-mobile">QR / Usuario</label>
-              <input id="student-login-username-mobile" name="username" type="text" placeholder="Ingresa tu QR o usuario" required>
+              <input id="student-login-username-mobile" name="username" type="text" placeholder="Ingresa tu QR o usuario" value="${prefilledUsername}" required>
             </div>
 
             <div class="field">
@@ -3660,7 +3737,7 @@ function renderStudentPortalLoginView_() {
                 <form id="student-login-form" class="student-portal-auth-card">
                   <div class="field">
                     <label for="student-login-username">Correo electronico o QR</label>
-                    <input id="student-login-username" name="username" type="text" placeholder="Ingresa tu correo o tu QR" required>
+                    <input id="student-login-username" name="username" type="text" placeholder="Ingresa tu correo o tu QR" value="${prefilledUsername}" required>
                   </div>
 
                   <div class="field">
@@ -30319,7 +30396,7 @@ function resetRuntimeState() {
     studentPortalTab: "home",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
-    loginMode: "admin",
+    loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
   };
   state.filters.assistants = {
