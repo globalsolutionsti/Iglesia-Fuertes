@@ -326,6 +326,7 @@ const state = {
     selectedFormationOfferingId: "",
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
+    formationPortalModal: null,
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
@@ -2415,6 +2416,7 @@ function renderApp() {
     ${renderConnectionEncounterActionModal_()}
     ${renderWelcomeActionModal_()}
     ${renderAdminLeaderAccountModal_()}
+    ${renderFormationPortalAdminModal_()}
   `;
 
   schedulePostRenderSync_();
@@ -7979,28 +7981,47 @@ function renderFormationOperationsWorkspace_(context) {
   `;
 }
 
+function getFormationPortalEnrollmentPerson_(enrollment) {
+  const cleanPersonId = String(enrollment?.personId || "").trim();
+  const directoryPerson = cleanPersonId
+    ? state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId)
+      || state.people.find((item) => String(item.id || "") === cleanPersonId)
+    : null;
+
+  if (directoryPerson) {
+    return directoryPerson;
+  }
+
+  return {
+    id: cleanPersonId,
+    numero: String(enrollment?.personNumber || "").trim(),
+    nombre: String(enrollment?.personName || "").trim(),
+    nombreCompleto: String(enrollment?.personName || "").trim(),
+    telefono: String(enrollment?.personPhone || "").trim(),
+    grupo: String(enrollment?.groupId || "").trim(),
+    tipoPersona: "CONGREGANTE"
+  };
+}
+
+function getFormationPortalBatchPeople_(roster) {
+  return (Array.isArray(roster) ? roster : [])
+    .map((enrollment) => getFormationPortalEnrollmentPerson_(enrollment))
+    .filter((person) => String(person?.id || "").trim());
+}
+
 function renderFormationPortalWorkspace_(context) {
   const selectedOffering = getSelectedFormationOffering_();
   const filteredOfferings = getFilteredFormationOfferings_();
   const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
-  const previewPersonId = String(state.ui.selectedFormationPortalPersonId || state.studentPortal?.person?.id || "").trim();
-  const previewPortal = previewPersonId && String(state.studentPortal?.person?.id || "") === previewPersonId
-    ? state.studentPortal
-    : null;
-  const previewProfile = previewPersonId && String(state.formationProfile?.person?.id || "") === previewPersonId
-    ? state.formationProfile
-    : null;
-  const previewAccount = previewPortal?.account || previewProfile?.portalAccount || null;
-  const hasPreviewPhone = Boolean(String(previewProfile?.person?.telefono || previewPortal?.person?.telefono || "").trim());
-  const hasPreviewPin = Boolean(String(previewAccount?.temporaryPin || "").trim());
-  const currentStageName = previewPortal?.currentLevel?.levelName || previewPortal?.summary?.currentLevelName || previewProfile?.person?.nivelFormacionActual || "Sin etapa";
+  const directEnrollmentPeople = getFormationEnrollmentSearchResults_(selectedOffering);
+  const directSearch = String(state.filters.formationOps.personSearch || "");
 
   return `
     <article class="panel-card module-section-anchor" id="formation-portal-workspace">
       <div class="panel-head">
-          <div>
-            <h2>Inscritos y portal del asistente</h2>
-            <p>Desde esta ficha el usuario administrativo ve quién ya está inscrito a Encuentro o a otros niveles, abre el portal espejo del asistente y consulta su avance real, asistencias y exámenes.</p>
+        <div>
+          <h2>Inscritos y portal del asistente</h2>
+          <p>Desde aquí revisas a todos los inscritos del paso seleccionado, abres su cuenta en un modal limpio y compartes acceso o QR sin quitar espacio al listado.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral">${escapeHtml(String(roster.length))} inscritos visibles</span>
@@ -8009,8 +8030,8 @@ function renderFormationPortalWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Uso recomendado:</strong> selecciona primero el paso en operación del proceso.</span>
-        <span class="context-item"><strong>Vista espejo:</strong> aquí ves prácticamente la misma experiencia que el asistente consulta desde su portal.</span>
+        <span class="context-item"><strong>Modo ideal:</strong> selecciona primero el paso en operación y luego abre cada inscrito desde “Gestionar”.</span>
+        <span class="context-item"><strong>Vista espejo:</strong> el detalle del portal ahora se abre en modal para que el listado quede más limpio y legible.</span>
       </div>
 
       <div class="field-grid two formation-ops-toolbar">
@@ -8058,113 +8079,240 @@ function renderFormationPortalWorkspace_(context) {
       </div>
     </article>
 
-    <div class="view-grid columns-2">
-      <article class="detail-card">
-        <div class="panel-head">
-          <div>
-            <h2>Listado de inscritos</h2>
-            <p>Abre el portal espejo o el perfil formativo sin salir de Proceso de Formación.</p>
-          </div>
-          ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.name || "Nivel")}</span>` : `<span class="pill dark">Sin nivel seleccionado</span>`}
+    <article class="detail-card formation-portal-direct-card">
+      <div class="panel-head">
+        <div>
+          <h2>Inscripción directa excepcional</h2>
+          <p>Usa esta vía solo durante la implementación para inscribir personas directamente al paso seleccionado sin pasar por Ruta a Encuentro.</p>
+        </div>
+        <span class="pill warning">Solo implementación</span>
+      </div>
+
+      ${selectedOffering ? `
+        <div class="summary-strip">
+          <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedOffering.processName || "Sin proceso")}</span>
+          <span class="context-item"><strong>Paso destino:</strong> ${escapeHtml(selectedOffering.name || selectedOffering.levelName || "Sin paso")}</span>
+          <span class="context-item"><strong>Regla:</strong> si aquí lo inscribes, ya no debe volver a aparecer en Ruta a Encuentro.</span>
         </div>
 
-        ${selectedOffering ? `
-          <div class="summary-strip">
-            <span class="context-item"><strong>Nivel:</strong> ${escapeHtml(selectedOffering.levelName || "Sin nivel")}</span>
-            <span class="context-item"><strong>Líder:</strong> ${escapeHtml(selectedOffering.leaderName || "Sin líder")}</span>
-            <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(selectedOffering.totalSessions || 0))}</span>
+        <div class="field-grid two formation-portal-direct-grid">
+          <div class="field">
+            <label for="formation-ops-person-search">Buscar congregante para inscripción directa</label>
+            <input
+              id="formation-ops-person-search"
+              value="${escapeHtml(directSearch)}"
+              placeholder="Nombre, QR ID, número o teléfono"
+            >
           </div>
+          <div class="summary-box tone-neutral formation-portal-direct-note">
+            <span class="status-chip neutral">Mañana operativo</span>
+            <strong>Primero inscríbelo, después comparte su QR</strong>
+            <span>El flujo recomendado para mañana es: inscribir → abrir QR por WhatsApp → usar QR asistido o kiosko en la sesión activa.</span>
+          </div>
+        </div>
 
-          ${roster.length ? `
-            <div class="formation-ledger" style="margin-top: 16px;">
-              <div class="formation-ledger-head" aria-hidden="true">
-                <span>Congregante</span>
-                <span>Proceso / nivel</span>
-                <span>Estatus</span>
-                <span>Evaluación</span>
-                <span>Acción</span>
+        <div class="formation-portal-direct-list">
+          ${directEnrollmentPeople.length ? directEnrollmentPeople.map((person) => `
+            <article class="formation-portal-direct-item">
+              <div class="formation-portal-direct-copy">
+                <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Congregante")}</strong>
+                <span>${escapeHtml(person.numero || "-")} · QR ${escapeHtml(person.id || "-")}</span>
+                <span>${escapeHtml(person.telefono || "Sin teléfono")} · ${escapeHtml(getPersonTypeDisplayLabel_(person.tipoPersona || person.type || "CONGREGANTE"))}</span>
               </div>
-              ${roster.map((enrollment) => renderFormationPortalEnrollmentRow_(enrollment, previewPersonId)).join("")}
+              <button
+                class="btn btn-primary"
+                type="button"
+                data-action="assign-formation-person"
+                data-person-id="${escapeHtml(person.id || "")}"
+              >
+                Inscribir directo
+              </button>
+            </article>
+          `).join("") : `
+            <div class="empty-state">
+              ${directSearch
+                ? "No encontramos personas disponibles con esa búsqueda o ya quedaron inscritas en este paso."
+                : "Escribe el nombre, QR ID, número o teléfono para empezar a inscribir de forma directa."}
             </div>
-          ` : `
-            <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este paso en operación.</div>
           `}
-        ` : `
-          <div class="empty-state">Selecciona primero un paso en operación para ver el listado de inscritos.</div>
-        `}
-      </article>
+        </div>
+      ` : `
+        <div class="empty-state">Primero selecciona el paso en operación. En cuanto lo elijas, aquí se habilitará la inscripción directa especial.</div>
+      `}
+    </article>
 
-      <article class="detail-card module-section-anchor" id="formation-portal-preview">
-        <div class="panel-head">
-          <div>
-            <h2>${previewPortal?.person ? "Vista del portal del asistente" : "Selecciona un inscrito"}</h2>
-            <p>${previewPortal?.person ? "Esta vista replica el avance, materiales, asistencia y exámenes del asistente tal como los consulta desde su portal." : "Pulsa Abrir portal dentro del listado para cargar aquí el espejo administrativo del portal del asistente."}</p>
-          </div>
-          ${previewPortal?.person ? `<span class="pill dark">${escapeHtml(currentStageName)}</span>` : `<span class="pill neutral">Sin vista</span>`}
+    <article class="detail-card formation-portal-roster-card">
+      <div class="panel-head">
+        <div>
+          <h2>Listado de inscritos</h2>
+          <p>Consulta el estado del inscrito y entra a un modal con cuenta, PIN, portal espejo y QR.</p>
+        </div>
+        ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.name || "Nivel")}</span>` : `<span class="pill dark">Sin nivel seleccionado</span>`}
+      </div>
+
+      ${selectedOffering ? `
+        <div class="summary-strip">
+          <span class="context-item"><strong>Paso:</strong> ${escapeHtml(selectedOffering.name || "Sin paso")}</span>
+          <span class="context-item"><strong>Nivel catálogo:</strong> ${escapeHtml(selectedOffering.levelName || "Sin nivel")}</span>
+          <span class="context-item"><strong>Líder:</strong> ${escapeHtml(selectedOffering.leaderName || "Sin líder")}</span>
+          <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(selectedOffering.totalSessions || 0))}</span>
         </div>
 
-        ${previewPortal?.person ? `
-          <div class="summary-strip">
-            <span class="context-item"><strong>Portal:</strong> ${escapeHtml(previewAccount?.username || previewPortal?.person?.id || "-")}</span>
-            <span class="context-item"><strong>Último acceso:</strong> ${escapeHtml(previewAccount?.lastAccessAt ? formatDateTime_(previewAccount.lastAccessAt) : "Sin acceso todavía")}</span>
-            <span class="context-item"><strong>Estado:</strong> ${escapeHtml(previewAccount?.status || "ACTIVO")}</span>
-            <span class="context-item"><strong>Niveles acreditados:</strong> ${escapeHtml(String(previewPortal?.summary?.approvedLevels || 0))}/${escapeHtml(String(previewPortal?.summary?.totalLevels || 0))}</span>
+        <div class="actions-row formation-portal-roster-toolbar">
+          <button class="btn btn-secondary" data-action="download-formation-portal-qr-batch" ${roster.length ? "" : "disabled"}>Preparar QR masivos</button>
+          <span class="footer-note">Salida rápida para mañana: genera un ZIP con todos los QR y un manifiesto de apoyo para compartirlos por WhatsApp.</span>
+        </div>
+
+        ${roster.length ? `
+          <div class="formation-portal-roster">
+            ${roster.map((enrollment) => renderFormationPortalEnrollmentRow_(enrollment)).join("")}
           </div>
-
-          ${previewProfile?.person ? `
-            <div class="actions-row" style="margin-top: 14px;">
-              <button class="btn btn-secondary" data-action="reset-student-portal-pin" data-person-id="${escapeHtml(previewProfile.person.id || "")}">Generar nuevo PIN</button>
-              <button class="btn btn-ghost" data-action="send-student-portal-access-whatsapp" data-person-id="${escapeHtml(previewProfile.person.id || "")}" ${hasPreviewPin && hasPreviewPhone ? "" : "disabled"}>Enviar acceso por WhatsApp</button>
-              <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(previewProfile.person.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>${hasPreviewPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
-            </div>
-          ` : ""}
-
-          ${renderAdminFormationStudentPortalPreview_(previewPortal)}
         ` : `
-          <div class="empty-state">Cuando abras un inscrito, aquí verás su ruta, su perfil, sus asistencias, sus materiales y sus exámenes en formato tipo app.</div>
+          <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este paso en operación.</div>
         `}
-      </article>
-    </div>
-
-    ${previewProfile?.person ? renderFormationProfileSection_(previewProfile) : ""}
+      ` : `
+        <div class="empty-state">Selecciona primero un paso en operación para ver el listado de inscritos.</div>
+      `}
+    </article>
   `;
 }
 
-function renderFormationPortalEnrollmentRow_(enrollment, activePersonId) {
-  const isActive = String(enrollment?.personId || "") === String(activePersonId || "");
+function renderFormationPortalEnrollmentRow_(enrollment) {
   const attendance = enrollment?.attendance || {};
   const attendanceSummary = `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} sesiones`;
   const examLabel = enrollment?.examScore ? `${enrollment.examScore} pts` : (enrollment?.examApproved ? "Aprobado" : "Pendiente");
   const originSeason = resolveSeasonName_(enrollment?.seasonId) || enrollment?.seasonId || "Sin temporada";
 
   return `
-    <article class="formation-ledger-row ${isActive ? "is-active" : ""}">
-      <div class="formation-ledger-cell formation-ledger-cell-main">
-        <small>Congregante</small>
-        <strong>${escapeHtml(enrollment?.personName || "Congregante")}</strong>
-        <span>${escapeHtml(enrollment?.personNumber || "-")} | QR ${escapeHtml(enrollment?.personId || "-")} | ${escapeHtml(enrollment?.personPhone || "Sin teléfono")}</span>
+    <article class="formation-portal-row">
+      <div class="formation-portal-row-main">
+        <div class="formation-portal-row-head">
+          <div>
+            <strong>${escapeHtml(enrollment?.personName || "Congregante")}</strong>
+            <span>${escapeHtml(enrollment?.personNumber || "-")} · QR ${escapeHtml(enrollment?.personId || "-")} · ${escapeHtml(enrollment?.personPhone || "Sin teléfono")}</span>
+          </div>
+          <div>${renderWorkflowStatusPill_(enrollment?.status || "EN_CURSO")}</div>
+        </div>
+        <div class="formation-portal-row-meta">
+          <span><strong>Proceso:</strong> ${escapeHtml(enrollment?.processName || "Sin proceso")}</span>
+          <span><strong>Paso:</strong> ${escapeHtml(enrollment?.offeringName || enrollment?.levelName || "Sin paso")}</span>
+          <span><strong>Temporada origen:</strong> ${escapeHtml(originSeason)}</span>
+          <span><strong>Evaluación:</strong> ${escapeHtml(examLabel)}</span>
+        </div>
       </div>
-      <div class="formation-ledger-cell">
-        <small>Proceso / nivel</small>
-        <strong>${escapeHtml(enrollment?.offeringName || "Nivel en operación")}</strong>
-        <span>${escapeHtml(enrollment?.processName || "Sin proceso")} | ${escapeHtml(enrollment?.levelName || "Sin nivel")} | ${escapeHtml(originSeason)}</span>
+
+      <div class="formation-portal-row-stats">
+        <article class="formation-portal-row-stat">
+          <small>Asistencia</small>
+          <strong>${escapeHtml(attendanceSummary)}</strong>
+          <span>${escapeHtml(attendance.completed ? "Cumple la regla de asistencia" : "Sigue en avance")}</span>
+        </article>
+        <article class="formation-portal-row-stat">
+          <small>Examen</small>
+          <strong>${escapeHtml(examLabel)}</strong>
+          <span>${escapeHtml(enrollment?.evaluatedAt ? `Revisado ${formatDate(enrollment.evaluatedAt)}` : "Sin evaluación todavía")}</span>
+        </article>
       </div>
-      <div class="formation-ledger-cell">
-        <small>Estatus</small>
-        <div>${renderWorkflowStatusPill_(enrollment?.status || "EN_CURSO")}</div>
-        <span>${escapeHtml(attendanceSummary)}</span>
-      </div>
-      <div class="formation-ledger-cell">
-        <small>Evaluación</small>
-        <strong>${escapeHtml(examLabel)}</strong>
-        <span>${escapeHtml(enrollment?.evaluatedAt ? `Revisado ${formatDate(enrollment.evaluatedAt)}` : "Sin evaluación todavía")}</span>
-      </div>
-      <div class="formation-ledger-cell formation-ledger-actions">
-        <small>Acción</small>
-        <button class="btn btn-primary" data-action="open-formation-portal-preview" data-person-id="${escapeHtml(enrollment?.personId || "")}">Abrir portal</button>
-        <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(enrollment?.personId || "")}">Ver perfil</button>
+
+      <div class="formation-portal-row-actions">
+        <button class="btn btn-primary" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(enrollment?.personId || "")}">QR por WhatsApp</button>
+        <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(enrollment?.personId || "")}">Gestionar</button>
+        <span>Desde celular abre primero el QR por WhatsApp. Si necesitas usuario, PIN o revisar el portal, entra en Gestionar.</span>
       </div>
     </article>
+  `;
+}
+
+function renderFormationPortalAdminModal_() {
+  const modal = state.ui.formationPortalModal;
+
+  if (!modal?.personId) {
+    return "";
+  }
+
+  const personId = String(modal.personId || "").trim();
+  const previewPortal = personId && String(state.studentPortal?.person?.id || "") === personId
+    ? state.studentPortal
+    : null;
+  const previewProfile = personId && String(state.formationProfile?.person?.id || "") === personId
+    ? state.formationProfile
+    : null;
+  const previewAccount = previewPortal?.account || previewProfile?.portalAccount || null;
+  const person = previewProfile?.person || previewPortal?.person || getFormationPortalEnrollmentPerson_({
+    personId
+  });
+  const currentStageName = previewPortal?.currentLevel?.levelName || previewPortal?.summary?.currentLevelName || previewProfile?.person?.nivelFormacionActual || "Sin etapa";
+  const hasPreviewPhone = Boolean(String(person?.telefono || "").trim());
+  const hasPreviewPin = Boolean(String(previewAccount?.temporaryPin || "").trim());
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card formation-portal-modal" role="dialog" aria-modal="true" aria-labelledby="formation-portal-modal-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="formation-portal-modal-title">Cuenta y portal del asistente</h2>
+            <p>Consulta el acceso del inscrito, comparte su cuenta o su QR y revisa cómo se ve su portal personal sin salir del módulo.</p>
+          </div>
+          <div class="actions-row">
+            <span class="pill dark">${escapeHtml(currentStageName)}</span>
+            <button class="btn btn-ghost" data-action="close-formation-enrollment-modal">Cerrar</button>
+          </div>
+        </div>
+
+        ${modal.loading && !previewPortal && !previewProfile ? `
+          <div class="formation-profile-loading">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <strong>Cargando cuenta y portal...</strong>
+            <span>En un momento verás el usuario, el PIN, el QR y la vista espejo del asistente.</span>
+          </div>
+        ` : `
+          <div class="formation-portal-modal-grid">
+            <div class="formation-portal-modal-sidebar">
+              <div class="summary-stack">
+                <div class="summary-box">
+                  <span class="status-chip neutral">Inscrito</span>
+                  <strong>${escapeHtml(person?.nombreCompleto || person?.nombre || "Asistente")}</strong>
+                  <span>${escapeHtml(person?.numero || "-")} | QR ${escapeHtml(person?.id || "-")}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Cuenta</span>
+                  <strong>${escapeHtml(previewAccount?.username || person?.id || "-")}</strong>
+                  <span>${escapeHtml(previewAccount?.status || "ACTIVO")} · ${escapeHtml(previewAccount?.lastAccessAt ? formatDateTime_(previewAccount.lastAccessAt) : "Sin acceso todavía")}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip ${hasPreviewPin ? "warning" : "neutral"}">Contraseña temporal</span>
+                  <strong>${escapeHtml(hasPreviewPin ? previewAccount.temporaryPin : "No visible")}</strong>
+                  <span>${escapeHtml(hasPreviewPin ? "Lista para enviarse por WhatsApp." : "Genera un nuevo PIN para volver a compartir el acceso.")}</span>
+                </div>
+                <div class="summary-box">
+                  <span class="status-chip ${hasPreviewPhone ? "success" : "warning"}">Contacto</span>
+                  <strong>${escapeHtml(person?.telefono || "Sin teléfono")}</strong>
+                  <span>${escapeHtml(hasPreviewPhone ? "Disponible para compartir acceso y QR." : "No se puede preparar WhatsApp hasta capturar teléfono.")}</span>
+                </div>
+              </div>
+
+              <div class="actions-row formation-portal-modal-actions">
+                <button class="btn btn-secondary" data-action="reset-student-portal-pin" data-person-id="${escapeHtml(person?.id || "")}">Generar nuevo PIN</button>
+                <button class="btn btn-ghost" data-action="send-student-portal-access-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPin && hasPreviewPhone ? "" : "disabled"}>Enviar acceso</button>
+                <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>${hasPreviewPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
+                <button class="btn btn-ghost" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(person?.id || "")}">Enviar QR por WhatsApp</button>
+                <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar vista</button>
+              </div>
+
+              <div class="footer-note">
+                ${escapeHtml("En iPad o celular el botón de QR intentará abrir el menú compartir para enviarlo por WhatsApp. En computadora descargará el PNG como respaldo para enviarlo manualmente.")}
+              </div>
+            </div>
+
+            <div class="formation-portal-modal-preview">
+              ${previewPortal?.person
+                ? renderAdminFormationStudentPortalPreview_(previewPortal)
+                : `<div class="empty-state">No encontramos la vista del portal todavía. Pulsa Actualizar vista para volver a cargarla.</div>`}
+            </div>
+          </div>
+        `}
+      </section>
+    </div>
   `;
 }
 
@@ -17040,6 +17188,26 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "send-formation-portal-qr-whatsapp") {
+      const personId = String(button.dataset.personId || "");
+      const person = state.peopleDirectory.find((item) => String(item.id || "") === personId)
+        || state.people.find((item) => String(item.id || "") === personId)
+        || getFormationPortalEnrollmentPerson_({
+          personId,
+          personNumber: state.formationProfile?.person?.numero,
+          personName: state.formationProfile?.person?.nombreCompleto || state.formationProfile?.person?.nombre,
+          personPhone: state.formationProfile?.person?.telefono
+        });
+
+      if (!personId || !person?.id) {
+        showToast("QR no disponible", "No fue posible ubicar al inscrito para preparar su credencial QR.", "warning");
+        return;
+      }
+
+      await shareCredentialPng_(person);
+      return;
+    }
+
     if (action === "reset-student-portal-pin-whatsapp") {
       const personId = String(button.dataset.personId || "");
       const profile = state.formationProfile;
@@ -17087,6 +17255,20 @@ async function handleClick(event) {
       }
 
       showToast("PIN y WhatsApp listos", `Se generó el PIN ${account.temporaryPin} y se abrió el mensaje para ${refreshedProfile?.person?.nombreCompleto || "el asistente"}.`, "success");
+      return;
+    }
+
+    if (action === "download-formation-portal-qr-batch") {
+      const selectedOffering = getSelectedFormationOffering_();
+      const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
+      const people = getFormationPortalBatchPeople_(roster);
+
+      if (!people.length) {
+        showToast("Sin inscritos", "No hay inscritos visibles para preparar el lote de credenciales QR.", "warning");
+        return;
+      }
+
+      await downloadCredentialBatchZip_(people, `Credenciales QR - ${selectedOffering?.name || "Proceso de Formación"}`);
       return;
     }
 
@@ -18675,7 +18857,24 @@ async function handleClick(event) {
         await openConnectionEncounterProfileModal_(button.dataset.personId || "");
         return;
       }
+      if (state.ui.formationPortalModal?.personId) {
+        await openFormationPortalAdminModal_(button.dataset.personId || state.ui.formationPortalModal.personId, {
+          force: true
+        });
+        return;
+      }
       await openFormationProfile_(button.dataset.personId || "");
+      return;
+    }
+
+    if (action === "open-formation-enrollment-modal") {
+      await openFormationPortalAdminModal_(button.dataset.personId || "");
+      return;
+    }
+
+    if (action === "close-formation-enrollment-modal") {
+      state.ui.formationPortalModal = null;
+      renderApp();
       return;
     }
 
@@ -18691,7 +18890,20 @@ async function handleClick(event) {
     }
 
     if (action === "open-formation-portal-preview") {
+      if (state.ui.formationPortalModal?.personId) {
+        await openFormationPortalAdminModal_(button.dataset.personId || state.ui.formationPortalModal.personId, {
+          force: true
+        });
+        return;
+      }
       await openFormationPortalPreview_(button.dataset.personId || "");
+      return;
+    }
+
+    if (action === "refresh-formation-enrollment-modal") {
+      await openFormationPortalAdminModal_(button.dataset.personId || state.ui.formationPortalModal?.personId || "", {
+        force: true
+      });
       return;
     }
 
@@ -21819,6 +22031,43 @@ async function openFormationPortalPreview_(personId, options = {}) {
   scrollToSection_("formation-portal-preview");
 }
 
+async function openFormationPortalAdminModal_(personId, options = {}) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    showToast("Inscrito no disponible", "No fue posible ubicar a la persona para abrir su cuenta y portal.", "warning");
+    return;
+  }
+
+  const force = Boolean(options.force);
+  state.ui.selectedFormationPortalPersonId = cleanPersonId;
+  state.ui.formationPortalModal = {
+    personId: cleanPersonId,
+    loading: true
+  };
+  renderApp();
+
+  try {
+    await Promise.all([
+      loadFormationProfile_(cleanPersonId, {
+        force,
+        seasonId: state.filters.formation.seasonId,
+        showLoading: false
+      }),
+      loadStudentPortalByPersonId_(cleanPersonId, {
+        force,
+        showLoading: false
+      })
+    ]);
+  } finally {
+    state.ui.formationPortalModal = {
+      personId: cleanPersonId,
+      loading: false
+    };
+    renderApp();
+  }
+}
+
 function warmDashboardExecutiveInBackground_() {
   if (!state.user || state.currentView !== "dashboard") {
     return;
@@ -23761,7 +24010,11 @@ async function assignFormationEnrollment_(personId) {
   const selectedOffering = getSelectedFormationOffering_();
   const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || null;
   const pendingCandidate = getFormationPendingEnrollmentCandidate_();
-  const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId);
+  const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId)
+    || state.filters.formation.seasonId
+    || state.filters.participants.seasonId
+    || getLatestSeason()?.id
+    || "";
   let response = null;
 
   if (!cleanPersonId || !person) {
@@ -29604,6 +29857,7 @@ function resetRuntimeState() {
     selectedFormationOfferingId: "",
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
+    formationPortalModal: null,
     formationProfileLoading: false,
     formationProfileLoadingPersonId: "",
     formationFilterBusy: false,
