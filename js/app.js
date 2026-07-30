@@ -7881,10 +7881,9 @@ function renderFormationOperationsWorkspace_(context) {
             <div class="formation-ledger">
               <div class="formation-ledger-head" aria-hidden="true">
                 <span>Congregante</span>
-                <span>Nivel</span>
                 <span>Estatus</span>
                 <span>Seguimiento</span>
-                <span>Acción</span>
+                <span>Acciones</span>
               </div>
               ${filteredEnrollments.map((enrollment) => `
                 <article class="formation-ledger-row ${String(selectedEnrollment?.id || "") === String(enrollment.id || "") ? "is-active" : ""}">
@@ -7893,26 +7892,23 @@ function renderFormationOperationsWorkspace_(context) {
                     <strong>${escapeHtml(enrollment.personName || "Congregante")}</strong>
                     <span>${escapeHtml(enrollment.personNumber || "-")} | QR ${escapeHtml(enrollment.personId || "-")}</span>
                     <span>${escapeHtml(enrollment.personPhone || "Sin teléfono")}</span>
-                    <span>${escapeHtml(`Temporada origen: ${resolveSeasonName_(enrollment.seasonId) || enrollment.seasonId || "Sin referencia"}`)}</span>
-                  </div>
-                  <div class="formation-ledger-cell">
-                    <small>Nivel</small>
-                    <strong>${escapeHtml(enrollment.levelName || "-")}</strong>
-                    <span>${escapeHtml(enrollment.offeringName || selectedOffering.name || "-")}</span>
                   </div>
                   <div class="formation-ledger-cell">
                     <small>Estatus</small>
                     <div>${renderWorkflowStatusPill_(enrollment.status || "EN_CURSO")}</div>
-                    <span>${escapeHtml(`${enrollment.attendance?.attendedSessions || 0}/${enrollment.attendance?.totalSessions || 0} asistencias`)}</span>
+                    <span>${escapeHtml(`${enrollment.attendance?.attendedSessions || 0}/${enrollment.attendance?.totalSessions || 0} asistencias en ${enrollment.offeringName || selectedOffering.name || "este paso"}`)}</span>
                   </div>
                   <div class="formation-ledger-cell">
                     <small>Seguimiento</small>
                     <strong>${escapeHtml(enrollment.examApproved ? "Examen acreditado" : "Evaluación pendiente")}</strong>
-                    <span>${escapeHtml(enrollment.examScore ? `Calificación ${enrollment.examScore}` : "Aún sin calificación")}</span>
+                    <span>${escapeHtml(enrollment.examScore ? `Calificación ${enrollment.examScore}` : "Aún sin calificación")} · ${escapeHtml(resolveSeasonName_(enrollment.seasonId) || enrollment.seasonId || "Sin temporada origen")}</span>
                   </div>
                   <div class="formation-ledger-cell formation-ledger-actions">
-                    <small>Acción</small>
-                    <button class="btn btn-primary" type="button" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(enrollment.id || "")}">Evaluar</button>
+                    <small>Acciones</small>
+                    <div class="formation-ledger-actions-stack">
+                      <button class="btn btn-ghost" type="button" data-action="open-formation-profile" data-person-id="${escapeHtml(enrollment.personId || "")}">Perfil</button>
+                      <button class="btn btn-primary" type="button" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(enrollment.id || "")}">Evaluar</button>
+                    </div>
                   </div>
                 </article>
               `).join("")}
