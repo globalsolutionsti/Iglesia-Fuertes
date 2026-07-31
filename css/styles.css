@@ -5959,6 +5959,48 @@ tbody tr:hover {
   animation: scan-sweep 2.4s linear infinite;
 }
 
+.kiosk-scanner-frame.kiosk-state-success {
+  border-color: rgba(74, 222, 128, 0.96);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.24), 0 0 34px rgba(74, 222, 128, 0.18);
+}
+
+.kiosk-scanner-frame.kiosk-state-warning {
+  border-color: rgba(245, 158, 11, 0.94);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.22), 0 0 30px rgba(245, 158, 11, 0.16);
+}
+
+.kiosk-scanner-frame.kiosk-state-error {
+  border-color: rgba(239, 68, 68, 0.94);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), 0 0 30px rgba(239, 68, 68, 0.16);
+}
+
+.kiosk-scanner-frame.kiosk-state-success .kiosk-corner,
+.kiosk-scanner-frame.kiosk-state-success .kiosk-scan-line {
+  border-color: rgba(74, 222, 128, 0.98);
+}
+
+.kiosk-scanner-frame.kiosk-state-warning .kiosk-corner,
+.kiosk-scanner-frame.kiosk-state-warning .kiosk-scan-line {
+  border-color: rgba(245, 158, 11, 0.96);
+  filter: drop-shadow(0 0 18px rgba(245, 158, 11, 0.34));
+}
+
+.kiosk-scanner-frame.kiosk-state-error .kiosk-corner,
+.kiosk-scanner-frame.kiosk-state-error .kiosk-scan-line {
+  border-color: rgba(239, 68, 68, 0.96);
+  filter: drop-shadow(0 0 18px rgba(239, 68, 68, 0.28));
+}
+
+.kiosk-scanner-frame.kiosk-state-warning .kiosk-scan-line {
+  background: linear-gradient(90deg, transparent 0%, rgba(245, 158, 11, 0.96) 12%, rgba(245, 158, 11, 0.96) 88%, transparent 100%);
+  box-shadow: 0 0 22px rgba(245, 158, 11, 0.4);
+}
+
+.kiosk-scanner-frame.kiosk-state-error .kiosk-scan-line {
+  background: linear-gradient(90deg, transparent 0%, rgba(239, 68, 68, 0.96) 12%, rgba(239, 68, 68, 0.96) 88%, transparent 100%);
+  box-shadow: 0 0 22px rgba(239, 68, 68, 0.38);
+}
+
 .kiosk-scan-copy {
   position: absolute;
   left: 0;
