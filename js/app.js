@@ -1924,6 +1924,9 @@ function getFormationAttendanceQuickEnrollCandidates_(selectedOffering) {
   const previousLevel = getPreviousFormationLevel_(selectedOffering?.levelId || "");
   const search = normalizeText(state.filters.formationOps.personSearch);
   const previousRoster = Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : [];
+  const liveAttendanceContext = String(state.formationAttendanceContext?.offering?.id || "").trim() === cleanOfferingId
+    ? state.formationAttendanceContext
+    : null;
   const currentOfferingEnrollments = Array.isArray(state.formationEnrollments)
     ? state.formationEnrollments.filter((enrollment) => String(enrollment?.offeringId || "").trim() === cleanOfferingId)
     : [];
@@ -1940,6 +1943,13 @@ function getFormationAttendanceQuickEnrollCandidates_(selectedOffering) {
       enrolledByPersonId.set(personId, enrollment);
     }
   });
+  const attendedByPersonId = new Set(
+    Array.isArray(liveAttendanceContext?.participants)
+      ? liveAttendanceContext.participants
+        .map((participant) => String(participant?.personId || "").trim())
+        .filter(Boolean)
+      : []
+  );
   const latestPreviousByPerson = {};
 
   previousRoster
@@ -1981,15 +1991,16 @@ function getFormationAttendanceQuickEnrollCandidates_(selectedOffering) {
     .map((enrollment) => {
       const personId = String(enrollment?.personId || "").trim();
       const currentEnrollment = enrolledByPersonId.get(personId) || null;
+      const hasAttendanceInTarget = attendedByPersonId.has(personId);
       const status = String(enrollment?.status || "").trim().toUpperCase();
       const attendanceCompleted = Boolean(enrollment?.attendance?.completed);
 
       return {
         ...enrollment,
         readyForAdvance: status === "ACREDITADO" || attendanceCompleted,
-        alreadyEnrolled: Boolean(currentEnrollment),
+        alreadyEnrolled: Boolean(currentEnrollment) || hasAttendanceInTarget,
         currentEnrollmentId: String(currentEnrollment?.id || "").trim(),
-        currentEnrollmentStatus: String(currentEnrollment?.status || "").trim(),
+        currentEnrollmentStatus: String(currentEnrollment?.status || "").trim() || (hasAttendanceInTarget ? "EN_CURSO" : ""),
         currentOfferingName: String(currentEnrollment?.offeringName || selectedOffering?.name || "").trim()
       };
     })
@@ -9007,6 +9018,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const isScanMode = mode !== "manual";
   const isKiosk = mode === "kiosk";
   const scanResult = state.qrScanner.result;
+  const scannerTone = scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
   const attendanceYesCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "SI").length;
   const attendanceNoCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "NO").length;
@@ -9226,7 +9238,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             <button class="btn btn-secondary" type="button" data-action="clear-kiosk-result">Limpiar resultado</button>
           </div>
 
-          <div class="kiosk-scanner-frame">
+          <div class="kiosk-scanner-frame kiosk-state-${escapeHtml(scannerTone)}">
             <video id="qr-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
             <div class="kiosk-video-placeholder ${state.qrScanner.enabled ? "hidden" : ""}">
               <strong>${escapeHtml(captureEnabled ? "Cámara en espera" : "Sesión aún no activada")}</strong>
