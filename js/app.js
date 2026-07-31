@@ -351,7 +351,7 @@ const state = {
     editingFormationOfferingId: "",
     formationProcessSaving: false,
     formationProcessSavingMessage: "",
-    formationSection: "route",
+    formationSection: "operations",
     formationStructureDrafts: {},
     formationStructureExpanded: {},
     formationProfileLoading: false,
@@ -870,7 +870,7 @@ function renderModuleTabButton_(tab) {
 
 function normalizeFormationSection_(value) {
   const cleanValue = String(value || "").trim().toLowerCase();
-  return ["route", "cases", "operations", "portal", "levels"].includes(cleanValue) ? cleanValue : "route";
+  return ["route", "cases", "operations", "portal", "levels"].includes(cleanValue) ? cleanValue : "operations";
 }
 
 function getActiveFormationSection_() {
@@ -6763,17 +6763,18 @@ function renderWelcomeProspectsView_() {
 
 function renderFormationView_() {
   const activeSection = getActiveFormationSection_();
-  const formationDraft = getFormationFilterDraft_();
-  const formationFilterDirty = isFormationFilterDirty_();
-  const candidates = getFilteredFormationCandidates_();
   const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
+  const needsRouteData = activeSection === "route" || activeSection === "cases";
+  const formationDraft = needsRouteData ? getFormationFilterDraft_() : {};
+  const formationFilterDirty = needsRouteData ? isFormationFilterDirty_() : false;
+  const candidates = needsRouteData ? getFilteredFormationCandidates_() : [];
   const recordsReady = state.loaded.formationRecords && String(state.cacheKeys.formationRecords || "") === String(seasonId || "");
-  const allRecords = recordsReady ? state.formationRecords : [];
-  const formationFilterFeedback = renderFormationFilterFeedback_(candidates);
-  const formationRouteContext = renderFormationRouteContext_(candidates);
-  const profile = state.formationProfile;
-  const selectedPersonId = state.ui.selectedFormationPersonId;
-  const selectedCandidate = (selectedPersonId
+  const allRecords = activeSection === "cases" && recordsReady ? state.formationRecords : [];
+  const formationFilterFeedback = activeSection === "route" ? renderFormationFilterFeedback_(candidates) : "";
+  const formationRouteContext = activeSection === "route" ? renderFormationRouteContext_(candidates) : "";
+  const profile = needsRouteData ? state.formationProfile : null;
+  const selectedPersonId = needsRouteData ? state.ui.selectedFormationPersonId : "";
+  const selectedCandidate = !needsRouteData ? null : ((selectedPersonId
     ? (candidates.find((item) => String(item.personId) === String(selectedPersonId || ""))
       || state.formationCandidates.find((item) => String(item.personId) === String(selectedPersonId || "")))
     : null)
@@ -6787,7 +6788,7 @@ function renderFormationView_() {
       seasonId: state.filters.formation.seasonId || "",
       formationStatus: profile.person.estatusFormacion || "",
       currentLevel: profile.person.nivelFormacionActual || ""
-    } : null);
+    } : null));
   const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
   const editingRecord = allRecords.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || profile?.records?.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || null;
   const summary = buildFormationSummary_();
@@ -6797,8 +6798,10 @@ function renderFormationView_() {
       ${renderModuleMobileHero_({
         tone: "participants",
         eyebrow: "Proceso de Formación",
-        title: "Ruta simple hacia Encuentro",
-        copy: "Aquí controlas la ruta a Encuentro, la cuenta del asistente, sus niveles, asistencias por nivel y la evaluación para desbloquear el siguiente paso.",
+        title: "Camino Proceso de Formación",
+        copy: activeSection === "operations"
+          ? "Consulta inscritos, confirma su avance al siguiente paso y captura asistencia manual, QR o kiosko para la sesión activa de hoy."
+          : "Aquí controlas la ruta a Encuentro, la cuenta del asistente, sus niveles, asistencias por nivel y la evaluación para desbloquear el siguiente paso.",
         badge: {
           label: `${summary.pending} por validar`,
           kind: summary.pending ? "warning" : "dark"
@@ -6881,6 +6884,16 @@ function renderFormationView_() {
 function renderFormationWorkspaceTabs_(activeSection, counts) {
   const tabs = [
     {
+      key: "operations",
+      label: "Camino Proceso de Formación",
+      description: `${counts.portalCount || 0} inscritos`
+    },
+    {
+      key: "portal",
+      label: "Inscritos y portal",
+      description: `${counts.portalCount || 0} inscritos`
+    },
+    {
       key: "route",
       label: "Ruta a Encuentro",
       description: `${counts.routeCount || 0} en ruta`
@@ -6889,16 +6902,6 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
       key: "cases",
       label: "Casos formativos",
       description: counts.recordsReady ? `${counts.recordsCount || 0} registros` : "carga al abrir"
-    },
-    {
-      key: "operations",
-      label: "Discipulado",
-      description: `${counts.portalCount || 0} inscritos`
-    },
-    {
-      key: "portal",
-      label: "Inscritos y portal",
-      description: `${counts.portalCount || 0} inscritos`
     },
     {
       key: "levels",
@@ -7916,11 +7919,11 @@ function renderFormationOperationsWorkspace_(context) {
     <article class="panel-card module-section-anchor" id="formation-operations-workspace">
       <div class="panel-head">
         <div>
-          <h2>Discipulado</h2>
-          <p>Aquí operas el proceso ya creado: eliges el Proceso de Formación, seleccionas el paso correspondiente e inscribes al congregante en sus sesiones.</p>
+          <h2>Camino Proceso de Formación</h2>
+          <p>Aquí operas el proceso ya creado: eliges el Proceso de Formación, seleccionas el paso correspondiente, revisas inscritos y capturas la asistencia de la sesión activa.</p>
         </div>
         <div class="actions-row">
-          <span class="status-chip neutral">Inscripción → Asistencia → Evaluación → Portal</span>
+          <span class="status-chip neutral">Inscripción → Siguiente paso → Asistencia → Portal</span>
           <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar operación</button>
         </div>
       </div>
@@ -7950,8 +7953,8 @@ function renderFormationOperationsWorkspace_(context) {
 
       <div class="summary-strip">
         <span class="context-item"><strong>Antes de operar:</strong> crea procesos y niveles desde la ficha Catálogos.</span>
-        <span class="context-item"><strong>Aquí en Discipulado:</strong> solo eliges proceso, nivel y trabajas congregantes.</span>
-        <span class="context-item"><strong>Inscripción guiada:</strong> el congregante nuevo solo puede entrar al primer nivel; los demás se desbloquean al acreditar.</span>
+        <span class="context-item"><strong>Aquí en Camino Proceso de Formación:</strong> eliges proceso, paso, revisas inscritos y tomas asistencia.</span>
+        <span class="context-item"><strong>Inscripción guiada:</strong> el congregante nuevo solo puede entrar al primer paso; los demás se desbloquean al acreditar.</span>
         <span class="context-item"><strong>Temporada de origen:</strong> queda guardada solo como referencia pastoral e histórica.</span>
       </div>
 
@@ -21989,7 +21992,7 @@ async function loadFormationOperationsData_(options = {}) {
   const requestedOfferingId = String(options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""));
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
   const offeringsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}`;
-  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "ALL"}`;
+  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "AUTO"}::${requestedSessionNumber || "1"}`;
 
   if (
     !options.force
@@ -22012,33 +22015,24 @@ async function loadFormationOperationsData_(options = {}) {
 
   const task = async () => {
     const offeringsParams = {};
-    const enrollmentsParams = {};
+    let enrollmentsParams = {};
 
     if (requestedProcessId) {
       offeringsParams.processId = requestedProcessId;
-      enrollmentsParams.processId = requestedProcessId;
     }
 
     if (requestedLevelId) {
       offeringsParams.levelId = requestedLevelId;
     }
 
-    if (requestedOfferingId) {
-      enrollmentsParams.offeringId = requestedOfferingId;
-    } else if (requestedLevelId) {
-      enrollmentsParams.levelId = requestedLevelId;
-    }
-
     let offerings;
     let enrollments;
+    let effectiveOfferingId = requestedOfferingId;
 
     try {
-      [offerings, enrollments] = await Promise.all([
-        apiGet("formation.offerings.list", offeringsParams),
-        apiGet("formation.enrollments.list", enrollmentsParams)
-      ]);
+      offerings = await apiGet("formation.offerings.list", offeringsParams);
     } catch (error) {
-      if (isUnknownActionError_(error, "formation.offerings.list") || isUnknownActionError_(error, "formation.enrollments.list")) {
+      if (isUnknownActionError_(error, "formation.offerings.list")) {
         throw buildBackendRouteMissingError_("formation.offerings.list", "las rutas de operación de Proceso de Formación");
       }
 
@@ -22056,11 +22050,8 @@ async function loadFormationOperationsData_(options = {}) {
     }
 
     state.formationOfferings = Array.isArray(offerings) ? offerings : [];
-    state.formationEnrollments = Array.isArray(enrollments) ? enrollments : [];
     state.loaded.formationOfferings = true;
-    state.loaded.formationEnrollments = true;
     state.cacheKeys.formationOfferings = offeringsKey;
-    state.cacheKeys.formationEnrollments = enrollmentsKey;
     state.filters.formationOps.processId = requestedProcessId || state.filters.formationOps.processId;
 
     if (requestedOfferingId) {
@@ -22069,9 +22060,48 @@ async function loadFormationOperationsData_(options = {}) {
     }
 
     syncFormationOperationsSelection_();
+    effectiveOfferingId = String(state.filters.formationOps.offeringId || requestedOfferingId || "").trim();
 
-    if (state.filters.formationOps.offeringId) {
-      await loadFormationAttendanceContext_(state.filters.formationOps.offeringId, {
+    if (effectiveOfferingId) {
+      enrollmentsParams = {
+        offeringId: effectiveOfferingId
+      };
+    } else if (requestedLevelId) {
+      enrollmentsParams = {
+        levelId: requestedLevelId
+      };
+    } else if (requestedProcessId) {
+      enrollmentsParams = {
+        processId: requestedProcessId
+      };
+    }
+
+    try {
+      enrollments = await apiGet("formation.enrollments.list", enrollmentsParams);
+    } catch (error) {
+      if (isUnknownActionError_(error, "formation.enrollments.list")) {
+        throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de operación de Proceso de Formación");
+      }
+
+      if (isFormationPortalRepositoryMissingError_(error)) {
+        throw new ApiError(
+          "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+          "BACKEND_OUTDATED",
+          {
+            file: "V2_44_FormationPortalRepository.gs"
+          }
+        );
+      }
+
+      throw error;
+    }
+
+    state.formationEnrollments = Array.isArray(enrollments) ? enrollments : [];
+    state.loaded.formationEnrollments = true;
+    state.cacheKeys.formationEnrollments = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${effectiveOfferingId || "ALL"}::${requestedSessionNumber || "1"}`;
+
+    if (effectiveOfferingId) {
+      await loadFormationAttendanceContext_(effectiveOfferingId, {
         force: options.force,
         showLoading: false,
         sessionNumber: requestedSessionNumber
@@ -22341,6 +22371,25 @@ async function ensureFormationViewData_(options = {}) {
   const activeSection = getActiveFormationSection_();
   const requestedSeasonId = ensureValidSeasonId(state.filters.formation.seasonId) || getLatestSeason()?.id || "";
   const shouldLoadRecords = activeSection === "cases";
+
+  if (activeSection === "operations" || activeSection === "portal") {
+    await Promise.all([
+      state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+        showLoading: false
+      }),
+      state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+        showLoading: false
+      })
+    ]);
+
+    await ensureFormationOperationsViewData_({
+      force: options.force,
+      showLoading: false,
+      offeringId: options.offeringId,
+      sessionNumber: options.sessionNumber
+    });
+    return;
+  }
 
   if (activeSection === "levels") {
     await Promise.all([
@@ -30691,7 +30740,7 @@ function resetRuntimeState() {
     editingFormationOfferingId: "",
     formationProcessSaving: false,
     formationProcessSavingMessage: "",
-    formationSection: "route",
+    formationSection: "operations",
     formationStructureDrafts: {},
     formationStructureExpanded: {},
     welcomeNewRefreshing: false,
