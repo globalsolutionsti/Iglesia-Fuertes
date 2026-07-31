@@ -22377,7 +22377,8 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
   const task = async () => {
     let context = await apiGet("formation.levelAttendance.context", {
       offeringId: cleanOfferingId,
-      sessionNumber
+      sessionNumber,
+      skipSync: "1"
     });
     const todaySession = getTodayFormationSession_(context?.offering || {});
     const activeSessionNumber = String(
@@ -22463,7 +22464,10 @@ async function loadFormationProcessRoster_(processId, options = {}) {
     let roster;
 
     try {
-      roster = await apiGet("formation.enrollments.list", requestParams);
+      roster = await apiGet("formation.enrollments.list", {
+        ...requestParams,
+        skipSync: "1"
+      });
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
         throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de operación de Proceso de Formación");
@@ -22619,7 +22623,10 @@ async function loadFormationOperationsData_(options = {}) {
     }
 
     try {
-      enrollments = await apiGet("formation.enrollments.list", enrollmentsParams);
+      enrollments = await apiGet("formation.enrollments.list", {
+        ...enrollmentsParams,
+        skipSync: getActiveFormationSection_() === "attendance" ? "1" : ""
+      });
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
         throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de operación de Proceso de Formación");
