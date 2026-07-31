@@ -5700,7 +5700,7 @@ function resolveFormationAttendanceMode_() {
 
 function isFormationOperationsQrActive_() {
   return state.currentView === "formation"
-    && getActiveFormationSection_() === "operations"
+    && getActiveFormationSection_() === "attendance"
     && resolveFormationAttendanceMode_() !== "manual";
 }
 
@@ -9004,6 +9004,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
     ? state.formationAttendanceContext
     : null;
   const mode = resolveFormationAttendanceMode_();
+  const isScanMode = mode !== "manual";
   const isKiosk = mode === "kiosk";
   const scanResult = state.qrScanner.result;
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
@@ -9060,83 +9061,105 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const activationButtonLabel = captureEnabled ? "Sesión activa y lista" : "Activar sesión seleccionada";
   const selectedSessionLabel = selectedSession?.label || `Sesión ${currentSessionNumber}`;
   const activeSessionLabel = activeSession?.label || "Todavía no activada";
+  const mobileHeroMarkup = isScanMode ? `
+    <section class="formation-attendance-mobile-hero">
+      <div class="formation-attendance-mobile-hero-head">
+        <div>
+          <span class="status-chip dark">${escapeHtml(modeMeta.title)}</span>
+          <strong>${escapeHtml(selectedOffering.name || selectedOffering.levelName || "Paso en operación")}</strong>
+          <p>${escapeHtml(captureEnabled
+            ? `Sesión lista: ${selectedSessionLabel}. Escanea un QR a la vez y espera el panel verde antes de pasar a la siguiente persona.`
+            : `Primero activa ${selectedSessionLabel} para habilitar el escaneo y proteger los registros.`)}</p>
+        </div>
+        <span class="status-chip ${captureEnabled ? "success" : "warning"}">${escapeHtml(captureEnabled ? "Listo" : "Pendiente")}</span>
+      </div>
+      <div class="formation-attendance-mobile-strip">
+        <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+        <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
+        <span><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
+      </div>
+    </section>
+  ` : "";
 
   return `
-    <div class="formation-attendance-summary-grid">
-      <article class="formation-attendance-summary-card">
-        <span class="status-chip neutral">Operación actual</span>
-        <strong>${escapeHtml(selectedOffering.name || "-")}</strong>
-        <p>${escapeHtml(`${selectedOffering.processName || "Sin proceso"} · ${selectedOffering.levelName || "Sin nivel"}`)}</p>
-        <div class="formation-attendance-summary-meta">
-          <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
-          <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
-        </div>
-      </article>
+    <div class="formation-attendance-panel ${isScanMode ? "is-scan-mode" : "is-manual-mode"}">
+      ${mobileHeroMarkup}
 
-      <article class="formation-attendance-summary-card">
-        <span class="status-chip ${escapeHtml(operationStatus.tone)}">${escapeHtml(operationStatus.label)}</span>
-        <strong>${escapeHtml(operationStatus.title)}</strong>
-        <p>${escapeHtml(operationStatus.copy)}</p>
-        <div class="formation-attendance-summary-meta">
-          <span><strong>Acción:</strong> activa la sesión y luego captura.</span>
-        </div>
-      </article>
-
-      <article class="formation-attendance-summary-card">
-        <span class="status-chip neutral">Modo actual</span>
-        <strong>${escapeHtml(modeMeta.title)}</strong>
-        <p>${escapeHtml(modeMeta.copy)}</p>
-        <div class="formation-attendance-summary-meta">
-          <span><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
-          <span><strong>Protección:</strong> ${escapeHtml(captureEnabled ? "habilitada para registrar" : "bloqueada hasta activar sesión")}</span>
-        </div>
-      </article>
-
-      <article class="formation-attendance-summary-card is-stats">
-        <span class="status-chip neutral">Resumen de la sesión</span>
-        <div class="formation-attendance-stats">
-          <div>
-            <label>Inscritos visibles</label>
-            <strong>${escapeHtml(String(attendanceParticipants.length))}</strong>
+      <div class="formation-attendance-summary-grid">
+        <article class="formation-attendance-summary-card">
+          <span class="status-chip neutral">Operación actual</span>
+          <strong>${escapeHtml(selectedOffering.name || "-")}</strong>
+          <p>${escapeHtml(`${selectedOffering.processName || "Sin proceso"} · ${selectedOffering.levelName || "Sin nivel"}`)}</p>
+          <div class="formation-attendance-summary-meta">
+            <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+            <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
           </div>
-          <div>
-            <label>SI</label>
-            <strong>${escapeHtml(String(attendanceYesCount))}</strong>
+        </article>
+
+        <article class="formation-attendance-summary-card">
+          <span class="status-chip ${escapeHtml(operationStatus.tone)}">${escapeHtml(operationStatus.label)}</span>
+          <strong>${escapeHtml(operationStatus.title)}</strong>
+          <p>${escapeHtml(operationStatus.copy)}</p>
+          <div class="formation-attendance-summary-meta">
+            <span><strong>Acción:</strong> activa la sesión y luego captura.</span>
           </div>
-          <div>
-            <label>NO</label>
-            <strong>${escapeHtml(String(attendanceNoCount))}</strong>
+        </article>
+
+        <article class="formation-attendance-summary-card">
+          <span class="status-chip neutral">Modo actual</span>
+          <strong>${escapeHtml(modeMeta.title)}</strong>
+          <p>${escapeHtml(modeMeta.copy)}</p>
+          <div class="formation-attendance-summary-meta">
+            <span><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
+            <span><strong>Protección:</strong> ${escapeHtml(captureEnabled ? "habilitada para registrar" : "bloqueada hasta activar sesión")}</span>
           </div>
-          <div>
-            <label>Pendientes</label>
-            <strong>${escapeHtml(String(attendancePendingCount))}</strong>
+        </article>
+
+        <article class="formation-attendance-summary-card is-stats">
+          <span class="status-chip neutral">Resumen de la sesión</span>
+          <div class="formation-attendance-stats">
+            <div>
+              <label>Inscritos visibles</label>
+              <strong>${escapeHtml(String(attendanceParticipants.length))}</strong>
+            </div>
+            <div>
+              <label>SI</label>
+              <strong>${escapeHtml(String(attendanceYesCount))}</strong>
+            </div>
+            <div>
+              <label>NO</label>
+              <strong>${escapeHtml(String(attendanceNoCount))}</strong>
+            </div>
+            <div>
+              <label>Pendientes</label>
+              <strong>${escapeHtml(String(attendancePendingCount))}</strong>
+            </div>
           </div>
-        </div>
-      </article>
-    </div>
+        </article>
+      </div>
 
-    <div class="formation-attendance-steps">
-      <span class="context-item"><strong>Paso 1:</strong> elige el paso en operación</span>
-      <span class="context-item"><strong>Paso 2:</strong> confirma la sesión</span>
-      <span class="context-item"><strong>Paso 3:</strong> activa la sesión correcta</span>
-      <span class="context-item"><strong>Paso 4:</strong> captura asistencia en el modo que prefieras</span>
-    </div>
+      <div class="formation-attendance-steps">
+        <span class="context-item"><strong>Paso 1:</strong> elige el paso en operación</span>
+        <span class="context-item"><strong>Paso 2:</strong> confirma la sesión</span>
+        <span class="context-item"><strong>Paso 3:</strong> activa la sesión correcta</span>
+        <span class="context-item"><strong>Paso 4:</strong> captura asistencia en el modo que prefieras</span>
+      </div>
 
-    <div class="formation-attendance-activation-row">
-      <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}">
-        ${escapeHtml(activationButtonLabel)}
-      </button>
-      <span class="footer-note">${escapeHtml(operationStatus.copy)}</span>
-    </div>
+      <div class="formation-attendance-activation-row">
+        <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}">
+          ${escapeHtml(activationButtonLabel)}
+        </button>
+        <span class="footer-note">${escapeHtml(operationStatus.copy)}</span>
+      </div>
 
-    <div class="toggle-group formation-attendance-toggle">
-      <button class="toggle-button ${mode === "manual" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="manual">Manual</button>
-      <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
-      <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
-    </div>
-    <div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>
+      <div class="toggle-group formation-attendance-toggle">
+        <button class="toggle-button ${mode === "manual" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="manual">Manual</button>
+        <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
+        <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
+      </div>
+      <div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>
 
-    ${mode === "manual" ? `
+      ${mode === "manual" ? `
       <form id="formation-level-attendance-form">
         <input type="hidden" name="offeringId" value="${escapeHtml(selectedOffering.id || "")}">
         <input type="hidden" name="sessionNumber" value="${escapeHtml(currentSessionNumber)}">
@@ -9188,8 +9211,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           <div class="empty-state">No hay inscritos visibles para este nivel con los filtros actuales.</div>
         `}
       </form>
-    ` : `
-      <div class="formation-scan-layout">
+      ` : `
+      <div class="formation-scan-layout ${isKiosk ? "is-kiosk" : "is-assisted"}">
         <div class="kiosk-scanner-shell formation-scan-shell">
           <div class="kiosk-head-actions formation-scan-actions">
             <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" type="button" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}" ${captureEnabled ? "" : "disabled"}>
@@ -9280,7 +9303,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           <div class="empty-state">Todavía no hay lecturas recientes en este paso en operación.</div>
         `}
       </div>
-    `}
+      `}
+    </div>
   `;
 }
 
