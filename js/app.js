@@ -2197,7 +2197,7 @@ function buildStudentPortalAccessWhatsappUrl_(profile, account) {
     `Usuario: ${username}`,
     `PIN temporal: ${temporaryPin}`,
     portalUrl ? `Ingresa aquí: ${portalUrl}` : "Ingresa al Portal del Asistente desde el sistema.",
-    "Ahí podrás revisar tu proceso de formación, materiales y avance."
+    "Ahí podrás revisar tu proceso de formación, asistencia y avance."
   ].join("\n");
 
   return buildWhatsappTextShareUrl_(message, cleanPhone);
@@ -3685,7 +3685,7 @@ function renderLoginView() {
           <div class="login-access-top">
             <div>
               <span class="eyebrow">Acceso seguro</span>
-              <h2 class="login-access-title">${loginMode === "student" ? "Portal del asistente" : "Ingresar al sistema"}</h2>
+              <h2 class="login-access-title">${loginMode === "student" ? "Tu proceso de formacion" : "Ingresar al sistema"}</h2>
               <p class="section-copy">
                 ${loginMode === "student"
                   ? "Ingresa con tu QR o usuario y tu PIN para revisar tu avance dentro del proceso de formacion."
@@ -3784,7 +3784,7 @@ function renderStudentPortalLoginView_() {
 
         <div class="student-portal-access-copy">
           <span class="eyebrow">IGLESIA FUERTES V2</span>
-          <h1>PORTAL DEL ASISTENTE</h1>
+          <h1>TU PROCESO DE FORMACION</h1>
           <p>Tu camino de formacion, paso a paso.</p>
         </div>
 
@@ -3864,7 +3864,7 @@ function renderStudentPortalLoginView_() {
                   <img class="brand-logo student-portal-login-logo" src="assets/logo-fuertes.png" alt="Fuertes">
                   <span class="student-portal-login-divider">+</span>
                   <h2>Tu proceso de formacion</h2>
-                  <p>Consulta tu avance, proximos pasos, materiales y asistencia en cada nivel de tu formacion.</p>
+                  <p>Consulta tu avance, proximos pasos y asistencia en cada nivel de tu formacion.</p>
                 </div>
 
                 <form id="student-login-form" class="student-portal-auth-card">
@@ -3992,10 +3992,6 @@ function renderStudentPortalScreenContent_(portalContext) {
     return renderStudentPortalPathScreen_(portalContext);
   }
 
-  if (activeTab === "materials") {
-    return renderStudentPortalMaterialsScreen_(portalContext);
-  }
-
   if (activeTab === "profile") {
     return renderStudentPortalProfileScreen_(portalContext);
   }
@@ -4016,9 +4012,9 @@ function renderStudentPortalView_() {
         <div class="student-portal-stage-copy">
           <img class="brand-logo student-portal-stage-logo" src="assets/logo-fuertes.png" alt="Fuertes">
           <div>
-            <span class="eyebrow">Portal del asistente</span>
+            <span class="eyebrow">TU PROCESO DE FORMACION</span>
             <h1>Tu proceso de formacion</h1>
-            <p>Una experiencia tipo app para seguir tu avance, ver materiales, revisar tu asistencia y consultar lo que sigue dentro de tu ruta.</p>
+            <p>Una experiencia tipo app para seguir tu avance, revisar tu asistencia y consultar claramente lo que sigue dentro de tu ruta.</p>
           </div>
         </div>
 
@@ -4162,7 +4158,6 @@ function renderStudentPortalQuickMenu_(context) {
   const items = [
     { id: "home", label: "Inicio", note: "Resumen general", icon: "home" },
     { id: "path", label: "Mi camino", note: "Ruta de formación", icon: "path" },
-    { id: "materials", label: "Materiales", note: "Archivos del nivel", icon: "materials" },
     { id: "profile", label: "Mi perfil", note: "Asistencia y evaluación", icon: "profile" }
   ];
 
@@ -4182,7 +4177,7 @@ function renderStudentPortalQuickMenu_(context) {
         <div class="student-portal-quick-menu-profile">
           <div class="student-portal-quick-menu-avatar">${escapeHtml(assistantInitials)}</div>
           <div class="student-portal-quick-menu-profile-copy">
-            <small>Portal del asistente</small>
+            <small>Tu proceso de formación</small>
             <strong>${escapeHtml(assistantName)}</strong>
             <span>${escapeHtml(portalUsername)}</span>
           </div>
@@ -4271,7 +4266,6 @@ function renderStudentPortalBottomNav_(activeTab) {
   const items = [
     { id: "home", label: "Inicio", icon: "home" },
     { id: "path", label: "Mi camino", icon: "path" },
-    { id: "materials", label: "Materiales", icon: "materials" },
     { id: "profile", label: "Perfil", icon: "profile" }
   ];
 
@@ -4301,7 +4295,6 @@ function renderStudentPortalHomeScreen_(context) {
     attendancePercent,
     leaderName,
     payment,
-    nextSession,
     levels,
     supportUrl
   } = context;
@@ -4346,14 +4339,6 @@ function renderStudentPortalHomeScreen_(context) {
           </div>
         </div>
 
-        <button class="student-portal-next-session" type="button" data-action="set-student-portal-tab" data-tab="profile">
-          <div class="student-portal-next-session-copy">
-            <span class="status-chip neutral">${escapeHtml(nextSession.eyebrow)}</span>
-            <strong>${escapeHtml(nextSession.title)}</strong>
-            <span>${escapeHtml(nextSession.copy)}</span>
-          </div>
-          <span class="student-portal-next-session-icon">${renderStudentPortalIcon_("arrow-right")}</span>
-        </button>
       </article>
 
       <section class="student-portal-card-list">
@@ -4475,7 +4460,7 @@ function renderStudentPortalProfileScreen_(context) {
         <div class="student-portal-profile-hero-copy">
           <span>Mi progreso general</span>
           <strong>${escapeHtml(context.profileMessage)}</strong>
-          <p>${escapeHtml(context.currentLevel?.status === "ACREDITADO" ? "Tu siguiente nivel ya puede prepararse contigo." : "Sigue asi, vas por buen camino.")}</p>
+          <p>${escapeHtml(context.currentLevel?.status === "ACREDITADO" ? "Tu siguiente paso ya quedo listo dentro de tu ruta." : "Sigue asi, vas por buen camino.")}</p>
         </div>
       </article>
 
@@ -4491,11 +4476,18 @@ function renderStudentPortalProfileScreen_(context) {
 }
 
 function renderStudentPortalProfileSummaryTab_(context) {
-  const { currentLevel, currentStageName, attendance, examApproved, leaderName, leaderPhone, supportUrl, materials, nextLevel } = context;
+  const { currentLevel, currentStageName, attendance, examApproved, leaderName, leaderPhone, supportUrl, nextLevel, person } = context;
   const examScore = currentLevel?.enrollment?.examScore || "Pendiente";
   const approvalMeta = getFormationApprovalModeMeta_(currentLevel || null);
   const accredited = String(currentLevel?.status || "").trim().toUpperCase() === "ACREDITADO";
   const baptismConfirmed = Boolean(currentLevel?.enrollment?.baptismConfirmed);
+  const ministries = [
+    person?.ministerio1,
+    person?.ministerio2,
+    person?.ministerio3,
+    person?.ministerio4
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const groupName = resolveGroupName_(person?.grupo || "") || String(person?.grupo || "").trim() || "Sin grupo asignado";
   let middleMetric = renderStudentPortalMiniMetric_("Examen", escapeHtml(String(examScore)), examApproved ? "Aprobado" : "Pendiente", examApproved ? "success" : "warning");
   let finalMetric = renderStudentPortalMiniMetric_("Calificación final", examApproved ? "Aprobado" : "En proceso", examApproved ? "Listo" : "Sin cierre", examApproved ? "success" : "slate");
 
@@ -4531,7 +4523,7 @@ function renderStudentPortalProfileSummaryTab_(context) {
     <div class="student-portal-profile-stack">
       <article class="student-portal-profile-stage-card">
         <div class="student-portal-profile-stage-head">
-          <div class="student-portal-profile-stage-icon">${renderStudentPortalIcon_("materials")}</div>
+          <div class="student-portal-profile-stage-icon">${renderStudentPortalIcon_("profile")}</div>
           <div class="student-portal-profile-stage-copy">
             <span>Etapa actual</span>
             <strong>${escapeHtml(currentStageName)}</strong>
@@ -4561,30 +4553,27 @@ function renderStudentPortalProfileSummaryTab_(context) {
         ` : ""}
       </article>
 
-      <article class="student-portal-profile-material-card">
+      <article class="student-portal-profile-stage-card">
         <div class="student-portal-section-head compact">
           <div>
-            <h3>Materiales del nivel</h3>
-            <p>Contenido visible para el asistente.</p>
+            <h3>Datos del participante</h3>
+            <p>Tu información general dentro del sistema.</p>
           </div>
         </div>
 
-        ${materials.length ? `
-          <div class="student-portal-material-inline-list">
-            ${materials.slice(0, 2).map((item, index) => renderStudentPortalMaterialItem_(item, index, true)).join("")}
-          </div>
-        ` : `<div class="empty-state">Todavia no hay materiales publicados para este nivel.</div>`}
-
-        <button class="student-portal-inline-link" type="button" data-action="set-student-portal-tab" data-tab="materials">
-          Ver todos los materiales (${escapeHtml(String(materials.length))})
-        </button>
+        <div class="student-portal-profile-metrics">
+          ${renderStudentPortalMiniMetric_("QR ID", String(person?.id || "-"), person?.numero ? `Folio ${String(person.numero)}` : "Identificador principal", "neutral")}
+          ${renderStudentPortalMiniMetric_("Teléfono", String(person?.telefono || "Sin teléfono"), person?.email ? String(person.email) : "Sin correo registrado", "neutral")}
+          ${renderStudentPortalMiniMetric_("Estado civil", String(person?.estadoCivil || "Sin dato"), person?.fechaNacimiento ? `Nacimiento ${formatDate(person.fechaNacimiento) || ""}` : "Nacimiento pendiente", "neutral")}
+          ${renderStudentPortalMiniMetric_("Ministerios", ministries.length ? ministries.join(", ") : "Sin ministerio", `Grupo ${groupName}`, "neutral")}
+        </div>
       </article>
 
       <article class="student-portal-alert-card">
         <span class="student-portal-alert-icon">${renderStudentPortalIcon_("target")}</span>
         <div>
           <strong>${escapeHtml(nextLevel ? `${nextLevel.levelName} disponible` : "Sigue avanzando")}</strong>
-          <p>${escapeHtml(nextLevel ? `Inicia cuando tu lider te lo indique.` : "Tu siguiente paso aparecera aqui cuando el equipo lo habilite.")}</p>
+          <p>${escapeHtml(nextLevel ? "Ya puedes continuar con este paso dentro de tu proceso." : "Tu siguiente paso aparecera aqui en cuanto completes el actual.")}</p>
         </div>
       </article>
 
@@ -4756,8 +4745,7 @@ function renderStudentPortalJourneyCard_(level, options = {}) {
 
         ${(isCurrent || isNext || status === "ACREDITADO") ? `
           <div class="student-portal-journey-actions">
-            <button class="btn btn-primary" type="button" data-action="set-student-portal-tab" data-tab="materials">Ver materiales</button>
-            <button class="btn btn-ghost" type="button" data-action="set-student-portal-tab" data-tab="profile">Ver detalle</button>
+            <button class="btn btn-primary" type="button" data-action="set-student-portal-tab" data-tab="profile">Ver perfil</button>
           </div>
         ` : ""}
       </article>
@@ -4859,7 +4847,7 @@ function getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, f
     return description;
   }
 
-  return `Sigue pendiente de ${fallbackName}. Tu lider ira compartiendo materiales e indicaciones conforme avances.`;
+  return `Sigue pendiente de ${fallbackName}. Tu lider ira compartiendo contigo las indicaciones conforme avances.`;
 }
 
 function buildStudentPortalMaterials_(portal, currentLevel, currentRecord) {
