@@ -1961,14 +1961,8 @@ function getFormationAttendanceQuickEnrollCandidates_(selectedOffering) {
   return Object.values(latestPreviousByPerson)
     .filter((enrollment) => {
       const personId = String(enrollment?.personId || "").trim();
-      const status = String(enrollment?.status || "").trim().toUpperCase();
-      const attendanceCompleted = Boolean(enrollment?.attendance?.completed);
 
       if (!personId) {
-        return false;
-      }
-
-      if (!(status === "ACREDITADO" || attendanceCompleted)) {
         return false;
       }
 
@@ -1987,9 +1981,12 @@ function getFormationAttendanceQuickEnrollCandidates_(selectedOffering) {
     .map((enrollment) => {
       const personId = String(enrollment?.personId || "").trim();
       const currentEnrollment = enrolledByPersonId.get(personId) || null;
+      const status = String(enrollment?.status || "").trim().toUpperCase();
+      const attendanceCompleted = Boolean(enrollment?.attendance?.completed);
 
       return {
         ...enrollment,
+        readyForAdvance: status === "ACREDITADO" || attendanceCompleted,
         alreadyEnrolled: Boolean(currentEnrollment),
         currentEnrollmentId: String(currentEnrollment?.id || "").trim(),
         currentEnrollmentStatus: String(currentEnrollment?.status || "").trim(),
@@ -7215,7 +7212,7 @@ function renderFormationAttendanceWorkspace_(context) {
             const attendance = enrollment?.attendance || {};
             const completedLabel = String(enrollment?.status || "").trim().toUpperCase() === "ACREDITADO"
               ? "Paso previo acreditado"
-              : "Listo por asistencia";
+              : (enrollment?.readyForAdvance ? "Listo por asistencia" : "Revisar paso previo");
             const targetStatusLabel = enrollment?.alreadyEnrolled
               ? (String(enrollment?.currentEnrollmentStatus || "").trim().toUpperCase() === "ACREDITADO" ? "Ya inscrito y acreditado" : "Ya inscrito en este paso")
               : "Pendiente por inscribir";
@@ -19763,12 +19760,20 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-formation-operations") {
-      await ensureFormationOperationsViewData_({
-        force: true,
-        message: state.ui.formationSection === "attendance" ? "Actualizando asistencias del proceso..." : "Actualizando operación formativa...",
-        includeProcessRoster: false,
-        includePeopleDirectory: state.ui.formationSection !== "attendance"
-      });
+      if (state.ui.formationSection === "attendance") {
+        await loadFormationAttendanceSectionData_({
+          force: true,
+          processId: state.filters.formationOps.processId || "",
+          sessionNumber: state.filters.formationOps.sessionNumber || "1"
+        });
+      } else {
+        await ensureFormationOperationsViewData_({
+          force: true,
+          message: "Actualizando operación formativa...",
+          includeProcessRoster: false,
+          includePeopleDirectory: true
+        });
+      }
       if (state.ui.formationSection === "portal") {
         ensureFormationPortalDefaultOffering_();
       }
@@ -20712,19 +20717,21 @@ async function handleChange(event) {
         showLoading: false,
         processId: state.filters.formationOps.processId
       });
-      const selectedOffering = getSelectedFormationOffering_();
-      await loadFormationOperationsData_({
-        force: true,
-        showLoading: false,
-        processId: state.filters.formationOps.processId,
-        levelId: state.filters.formationOps.levelId,
-        offeringId: selectedOffering?.id || "",
-        sessionNumber: "1"
-      });
       if (getActiveFormationSection_() === "attendance") {
-        await loadFormationAttendanceTransitionRoster_({
+        await loadFormationAttendanceSectionData_({
           force: true,
-          showLoading: false
+          processId: state.filters.formationOps.processId,
+          sessionNumber: "1"
+        });
+      } else {
+        const selectedOffering = getSelectedFormationOffering_();
+        await loadFormationOperationsData_({
+          force: true,
+          showLoading: false,
+          processId: state.filters.formationOps.processId,
+          levelId: state.filters.formationOps.levelId,
+          offeringId: selectedOffering?.id || "",
+          sessionNumber: "1"
         });
       }
       renderApp();
@@ -20753,18 +20760,20 @@ async function handleChange(event) {
         showLoading: false,
         processId: state.filters.formationOps.processId
       });
-      const selectedOffering = getSelectedFormationOffering_();
-      await loadFormationOperationsData_({
-        force: false,
-        showLoading: false,
-        levelId: state.filters.formationOps.levelId,
-        offeringId: selectedOffering?.id || "",
-        sessionNumber: state.filters.formationOps.sessionNumber
-      });
       if (getActiveFormationSection_() === "attendance") {
-        await loadFormationAttendanceTransitionRoster_({
+        await loadFormationAttendanceSectionData_({
+          force: true,
+          processId: state.filters.formationOps.processId,
+          sessionNumber: state.filters.formationOps.sessionNumber
+        });
+      } else {
+        const selectedOffering = getSelectedFormationOffering_();
+        await loadFormationOperationsData_({
           force: false,
-          showLoading: false
+          showLoading: false,
+          levelId: state.filters.formationOps.levelId,
+          offeringId: selectedOffering?.id || "",
+          sessionNumber: state.filters.formationOps.sessionNumber
         });
       }
 
@@ -20777,16 +20786,18 @@ async function handleChange(event) {
       state.ui.selectedFormationOfferingId = target.value;
       state.qrScanner.result = null;
       state.formationQrActivity = [];
-      await loadFormationOperationsData_({
-        force: false,
-        showLoading: false,
-        offeringId: state.filters.formationOps.offeringId,
-        sessionNumber: state.filters.formationOps.sessionNumber
-      });
       if (getActiveFormationSection_() === "attendance") {
-        await loadFormationAttendanceTransitionRoster_({
+        await loadFormationAttendanceSectionData_({
+          force: true,
+          processId: state.filters.formationOps.processId,
+          sessionNumber: state.filters.formationOps.sessionNumber
+        });
+      } else {
+        await loadFormationOperationsData_({
           force: false,
-          showLoading: false
+          showLoading: false,
+          offeringId: state.filters.formationOps.offeringId,
+          sessionNumber: state.filters.formationOps.sessionNumber
         });
       }
 
@@ -22432,6 +22443,48 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
   return withLoading(sharedTask, options.message || "Cargando asistencia del nivel...");
 }
 
+async function loadFormationAttendanceSectionData_(options = {}) {
+  await loadFormationAttendanceBootstrap_({
+    force: options.force,
+    showLoading: false,
+    processId: options.processId !== undefined
+      ? options.processId
+      : (state.filters.formationOps.processId || "")
+  });
+
+  const selectedOffering = getSelectedFormationOffering_();
+
+  if (!selectedOffering?.id) {
+    state.formationEnrollments = [];
+    state.loaded.formationEnrollments = false;
+    state.cacheKeys.formationEnrollments = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
+    state.formationProcessRoster = [];
+    state.loaded.formationProcessRoster = false;
+    state.cacheKeys.formationProcessRoster = "";
+    return;
+  }
+
+  await loadFormationAttendanceContext_(selectedOffering.id, {
+    force: options.force,
+    showLoading: false,
+    sessionNumber: options.sessionNumber || state.filters.formationOps.sessionNumber || "1"
+  });
+
+  state.formationEnrollments = Array.isArray(state.formationAttendanceContext?.participants)
+    ? state.formationAttendanceContext.participants
+    : [];
+  state.loaded.formationEnrollments = true;
+  state.cacheKeys.formationEnrollments = `ATTENDANCE::${selectedOffering.id}::${state.filters.formationOps.sessionNumber || "1"}`;
+
+  await loadFormationAttendanceTransitionRoster_({
+    force: options.force,
+    showLoading: false
+  });
+}
+
 async function loadFormationProcessRoster_(processId, options = {}) {
   const cleanOfferingId = String(options.offeringId || "").trim();
   const cleanLevelId = String(options.levelId || "").trim();
@@ -22503,20 +22556,50 @@ async function loadFormationProcessRoster_(processId, options = {}) {
 
 async function loadFormationAttendanceTransitionRoster_(options = {}) {
   const selectedOffering = getSelectedFormationOffering_();
-  const previousOffering = getPreviousFormationOffering_(selectedOffering);
+  const cacheKey = `ATTENDANCE_TRANSITION::${String(selectedOffering?.id || "").trim()}`;
 
-  if (!selectedOffering?.id || !previousOffering?.id) {
+  if (!selectedOffering?.id) {
     state.formationProcessRoster = [];
     state.loaded.formationProcessRoster = false;
     state.cacheKeys.formationProcessRoster = "";
     return [];
   }
 
-  return loadFormationProcessRoster_("", {
-    ...options,
-    offeringId: previousOffering.id,
-    message: options.message || "Cargando paso previo para inscripción..."
-  });
+  if (
+    !options.force
+    && state.loaded.formationProcessRoster
+    && String(state.cacheKeys.formationProcessRoster || "") === cacheKey
+  ) {
+    return state.formationProcessRoster;
+  }
+
+  const task = async () => {
+    let response = null;
+
+    try {
+      response = await apiGet("formation.levelAttendance.transitionList", {
+        offeringId: selectedOffering.id
+      });
+    } catch (error) {
+      if (isUnknownActionError_(error, "formation.levelAttendance.transitionList")) {
+        throw buildBackendRouteMissingError_("formation.levelAttendance.transitionList", "la inscripción rápida de asistencia en Proceso de Formación");
+      }
+      throw error;
+    }
+
+    state.formationProcessRoster = Array.isArray(response?.rows) ? response.rows : [];
+    state.loaded.formationProcessRoster = true;
+    state.cacheKeys.formationProcessRoster = cacheKey;
+    return state.formationProcessRoster;
+  };
+
+  const sharedTask = () => runSharedLoad_(`formationAttendanceTransition::${cacheKey}`, task);
+
+  if (options.showLoading === false) {
+    return sharedTask();
+  }
+
+  return withLoading(sharedTask, options.message || "Cargando paso previo para inscripción...");
 }
 
 async function loadFormationOperationsData_(options = {}) {
@@ -22933,38 +23016,11 @@ async function ensureFormationViewData_(options = {}) {
   const shouldLoadRecords = activeSection === "cases";
 
   if (activeSection === "attendance") {
-    await loadFormationAttendanceBootstrap_({
-      showLoading: false,
+    await loadFormationAttendanceSectionData_({
+      force: options.force,
       processId: state.filters.formationOps.processId || "",
-      force: options.force
+      sessionNumber: state.filters.formationOps.sessionNumber || "1"
     });
-
-    const selectedOffering = getSelectedFormationOffering_();
-
-    if (selectedOffering?.id) {
-      await loadFormationOperationsData_({
-        force: options.force,
-        showLoading: false,
-        processId: state.filters.formationOps.processId,
-        levelId: state.filters.formationOps.levelId,
-        offeringId: selectedOffering.id,
-        sessionNumber: state.filters.formationOps.sessionNumber
-      });
-      await loadFormationAttendanceTransitionRoster_({
-        force: options.force,
-        showLoading: false
-      });
-    } else {
-      state.formationEnrollments = [];
-      state.loaded.formationEnrollments = false;
-      state.cacheKeys.formationEnrollments = "";
-      state.formationAttendanceContext = null;
-      state.loaded.formationAttendanceContext = false;
-      state.cacheKeys.formationAttendanceContext = "";
-      state.formationProcessRoster = [];
-      state.loaded.formationProcessRoster = false;
-      state.cacheKeys.formationProcessRoster = "";
-    }
     return;
   }
 
@@ -25254,7 +25310,8 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
 async function assignFormationEnrollment_(personId) {
   const cleanPersonId = String(personId || "").trim();
   const selectedOffering = getSelectedFormationOffering_();
-  const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || null;
+  const rosterPerson = (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : []).find((item) => String(item?.personId || "") === cleanPersonId) || null;
+  const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || rosterPerson || null;
   const pendingCandidate = getFormationPendingEnrollmentCandidate_();
   const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId)
     || state.filters.formation.seasonId
@@ -25264,7 +25321,7 @@ async function assignFormationEnrollment_(personId) {
   const previousLevel = getPreviousFormationLevel_(selectedOffering?.levelId || "");
   let response = null;
 
-  if (!cleanPersonId || !person) {
+  if (!cleanPersonId) {
     showToast("Congregante no disponible", "Recarga el módulo y vuelve a intentar inscribir a la persona.", "warning");
     return;
   }
@@ -25320,16 +25377,24 @@ async function assignFormationEnrollment_(personId) {
 
   state.filters.formationOps.personSearch = "";
   state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || "";
-  await loadFormationOperationsData_({
-    force: true,
-    showLoading: false,
-    offeringId: selectedOffering.id,
-    sessionNumber: state.filters.formationOps.sessionNumber
-  });
-  await loadFormationAttendanceTransitionRoster_({
-    force: true,
-    showLoading: false
-  });
+  if (getActiveFormationSection_() === "attendance") {
+    await loadFormationAttendanceSectionData_({
+      force: true,
+      processId: state.filters.formationOps.processId || "",
+      sessionNumber: state.filters.formationOps.sessionNumber
+    });
+  } else {
+    await loadFormationOperationsData_({
+      force: true,
+      showLoading: false,
+      offeringId: selectedOffering.id,
+      sessionNumber: state.filters.formationOps.sessionNumber
+    });
+    await loadFormationAttendanceTransitionRoster_({
+      force: true,
+      showLoading: false
+    });
+  }
 
   if (String(state.formationProfile?.person?.id || "") === cleanPersonId) {
     await loadFormationProfile_(cleanPersonId, {
@@ -25363,7 +25428,7 @@ async function assignFormationEnrollment_(personId) {
     response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción guardada",
     response?.account?.temporaryPin
       ? `La persona quedó inscrita. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya puedes abrir Inscritos y portal para enviarlo por WhatsApp.`
-      : `${person.nombreCompleto || person.nombre || "La persona"} ya quedó inscrita a ${selectedOffering.levelName || "este nivel"}.`,
+      : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita a ${selectedOffering.levelName || "este nivel"}.`,
     "success"
   );
 }
