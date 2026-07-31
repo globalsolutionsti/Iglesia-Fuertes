@@ -1800,6 +1800,59 @@ function getPreviousFormationLevel_(levelId) {
   return levels[currentIndex - 1] || null;
 }
 
+function isFormationEncounterLevel_(value) {
+  const normalized = normalizeText(typeof value === "string"
+    ? value
+    : (value?.name || value?.levelName || ""));
+
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized === "encuentro" || (normalized.includes("encuentro") && !normalized.includes("conquistadores"));
+}
+
+function getPreferredFormationAttendanceOffering_(processId = "") {
+  const cleanProcessId = String(processId || state.filters.formationOps.processId || "").trim();
+  const offerings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
+    .filter((offering) => !cleanProcessId || String(offering?.processId || "").trim() === cleanProcessId)
+    .sort((left, right) => {
+      if (Number(left.levelOrder || 0) !== Number(right.levelOrder || 0)) {
+        return Number(left.levelOrder || 0) - Number(right.levelOrder || 0);
+      }
+
+      return String(right.startDate || "").localeCompare(String(left.startDate || ""));
+    });
+
+  const encounterToday = offerings.find((offering) => {
+    return isFormationEncounterLevel_(offering)
+      && Boolean(getTodayFormationSession_(offering) || offering?.activeSessionNumber);
+  }) || null;
+  const encounterAny = offerings.find((offering) => isFormationEncounterLevel_(offering)) || null;
+  const anyToday = offerings.find((offering) => Boolean(getTodayFormationSession_(offering) || offering?.activeSessionNumber)) || null;
+
+  return encounterToday || encounterAny || anyToday || offerings[0] || null;
+}
+
+function getPreviousFormationOffering_(offering) {
+  const previousLevel = getPreviousFormationLevel_(offering?.levelId || "");
+  const cleanProcessId = String(offering?.processId || "").trim();
+
+  if (!previousLevel?.id) {
+    return null;
+  }
+
+  return (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
+    .filter((item) => {
+      if (cleanProcessId && String(item?.processId || "").trim() !== cleanProcessId) {
+        return false;
+      }
+
+      return String(item?.levelId || "").trim() === String(previousLevel.id || "").trim();
+    })
+    .sort((left, right) => String(right.startDate || "").localeCompare(String(left.startDate || "")))[0] || null;
+}
+
 function getLatestFormationEnrollmentByPersonLevel_(personId, levelId) {
   const cleanPersonId = String(personId || "").trim();
   const cleanLevelId = String(levelId || "").trim();
@@ -21919,6 +21972,21 @@ async function loadFormationAttendanceBootstrap_(options = {}) {
     state.formationOfferings = Array.isArray(offerings) ? offerings : [];
     state.loaded.formationOfferings = true;
     state.cacheKeys.formationOfferings = `ATTENDANCE::${processId || "ALL"}`;
+    const preferredOffering = getPreferredFormationAttendanceOffering_(processId);
+
+    if (preferredOffering?.id) {
+      state.filters.formationOps.levelId = String(preferredOffering.levelId || "");
+      state.filters.formationOps.offeringId = String(preferredOffering.id || "");
+      state.ui.selectedFormationOfferingId = String(preferredOffering.id || "");
+      const todaySession = getTodayFormationSession_(preferredOffering);
+      state.filters.formationOps.sessionNumber = String(
+        todaySession?.number
+        || preferredOffering.activeSessionNumber
+        || state.filters.formationOps.sessionNumber
+        || "1"
+      );
+    }
+
     syncFormationOperationsSelection_();
     return state.formationOfferings;
   };
@@ -22239,9 +22307,7 @@ function syncFormationOperationsSelection_() {
 
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "");
   const preferredTodayOffering = !currentOfferingId
-    ? availableOfferings.find((item) => {
-      return Boolean(getTodayFormationSession_(item) || item?.activeSessionNumber);
-    }) || null
+    ? getPreferredFormationAttendanceOffering_(state.filters.formationOps.processId || "")
     : null;
   const nextOffering = availableOfferings.find((item) => String(item.id || "") === currentOfferingId)
     || preferredTodayOffering
@@ -22250,6 +22316,9 @@ function syncFormationOperationsSelection_() {
 
   state.filters.formationOps.offeringId = nextOffering ? String(nextOffering.id || "") : "";
   state.ui.selectedFormationOfferingId = state.filters.formationOps.offeringId;
+  if (nextOffering?.levelId) {
+    state.filters.formationOps.levelId = String(nextOffering.levelId || "");
+  }
 
   if (!nextOffering) {
     state.formationAttendanceContext = null;
@@ -22363,12 +22432,17 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
 }
 
 async function loadFormationProcessRoster_(processId, options = {}) {
+  const cleanOfferingId = String(options.offeringId || "").trim();
   const cleanLevelId = String(options.levelId || "").trim();
-  const cleanProcessId = cleanLevelId ? "" : String(processId || state.filters.formationOps.processId || "").trim();
-  const cacheKey = cleanLevelId ? `LEVEL::${cleanLevelId}` : `PROCESS::${cleanProcessId}`;
-  const requestParams = cleanLevelId
+  const cleanProcessId = (cleanLevelId || cleanOfferingId) ? "" : String(processId || state.filters.formationOps.processId || "").trim();
+  const cacheKey = cleanOfferingId
+    ? `OFFERING::${cleanOfferingId}`
+    : (cleanLevelId ? `LEVEL::${cleanLevelId}` : `PROCESS::${cleanProcessId}`);
+  const requestParams = cleanOfferingId
+    ? { offeringId: cleanOfferingId }
+    : (cleanLevelId
     ? { levelId: cleanLevelId }
-    : (cleanProcessId ? { processId: cleanProcessId } : null);
+    : (cleanProcessId ? { processId: cleanProcessId } : null));
 
   if (!requestParams) {
     state.formationProcessRoster = [];
@@ -22425,9 +22499,9 @@ async function loadFormationProcessRoster_(processId, options = {}) {
 
 async function loadFormationAttendanceTransitionRoster_(options = {}) {
   const selectedOffering = getSelectedFormationOffering_();
-  const previousLevel = getPreviousFormationLevel_(selectedOffering?.levelId || "");
+  const previousOffering = getPreviousFormationOffering_(selectedOffering);
 
-  if (!selectedOffering?.id || !previousLevel?.id) {
+  if (!selectedOffering?.id || !previousOffering?.id) {
     state.formationProcessRoster = [];
     state.loaded.formationProcessRoster = false;
     state.cacheKeys.formationProcessRoster = "";
@@ -22436,7 +22510,7 @@ async function loadFormationAttendanceTransitionRoster_(options = {}) {
 
   return loadFormationProcessRoster_("", {
     ...options,
-    levelId: previousLevel.id,
+    offeringId: previousOffering.id,
     message: options.message || "Cargando paso previo para inscripción..."
   });
 }
