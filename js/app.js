@@ -18177,7 +18177,7 @@ async function handleClick(event) {
       if (state.ui.formationSection === "attendance" || state.ui.formationSection === "operations" || state.ui.formationSection === "portal") {
         await ensureFormationOperationsViewData_({
           message: state.ui.formationSection === "attendance" ? "Preparando asistencias del proceso..." : "Preparando operación formativa...",
-          includeProcessRoster: state.ui.formationSection === "attendance",
+          includeProcessRoster: false,
           includePeopleDirectory: state.ui.formationSection !== "attendance"
         });
         if (state.ui.formationSection === "portal") {
@@ -18216,8 +18216,12 @@ async function handleClick(event) {
         state.ui.selectedWelcomeFollowupId = "";
       }
       if (state.currentView === "formation") {
-        state.ui.formationSection = "route";
+        state.ui.formationSection = "attendance";
         clearFormationProfileSelection_();
+        state.filters.formationOps.personSearch = "";
+        state.formationProcessRoster = [];
+        state.loaded.formationProcessRoster = false;
+        state.cacheKeys.formationProcessRoster = "";
       }
       state.ui.mobileNavOpen = false;
       renderApp();
@@ -19688,7 +19692,7 @@ async function handleClick(event) {
       await ensureFormationOperationsViewData_({
         force: true,
         message: state.ui.formationSection === "attendance" ? "Actualizando asistencias del proceso..." : "Actualizando operación formativa...",
-        includeProcessRoster: state.ui.formationSection === "attendance",
+        includeProcessRoster: false,
         includePeopleDirectory: state.ui.formationSection !== "attendance"
       });
       if (state.ui.formationSection === "portal") {
@@ -22159,7 +22163,13 @@ function syncFormationOperationsSelection_() {
     ? getAssignableFormationOfferings_(pendingCandidate.personId)
     : getFilteredFormationOfferings_();
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "");
+  const preferredTodayOffering = !currentOfferingId
+    ? availableOfferings.find((item) => {
+      return Boolean(getTodayFormationSession_(item) || item?.activeSessionNumber);
+    }) || null
+    : null;
   const nextOffering = availableOfferings.find((item) => String(item.id || "") === currentOfferingId)
+    || preferredTodayOffering
     || availableOfferings[0]
     || null;
 
@@ -22357,7 +22367,10 @@ async function loadFormationAttendanceTransitionRoster_(options = {}) {
 }
 
 async function loadFormationOperationsData_(options = {}) {
-  const requestedProcessId = String(options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""));
+  const fallbackProcessId = !state.filters.formationOps.processId && state.formationProcesses.length
+    ? String(state.formationProcesses[0]?.id || "")
+    : String(state.filters.formationOps.processId || "");
+  const requestedProcessId = String(options.processId !== undefined ? options.processId : fallbackProcessId);
   const requestedLevelId = String(options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""));
   const requestedOfferingId = String(options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""));
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
@@ -22768,7 +22781,7 @@ async function ensureFormationViewData_(options = {}) {
       showLoading: false,
       offeringId: options.offeringId,
       sessionNumber: options.sessionNumber,
-      includeProcessRoster: activeSection === "attendance",
+      includeProcessRoster: false,
       includePeopleDirectory: activeSection !== "attendance"
     });
     return;
