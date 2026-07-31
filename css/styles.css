@@ -2058,6 +2058,70 @@ div {
   margin-bottom: 18px;
 }
 
+.formation-attendance-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.formation-attendance-panel .formation-attendance-summary-grid,
+.formation-attendance-panel .formation-attendance-steps,
+.formation-attendance-panel .formation-attendance-activation-row,
+.formation-attendance-panel .formation-attendance-toggle,
+.formation-attendance-panel .formation-attendance-mode-copy,
+.formation-attendance-panel .formation-scan-layout,
+.formation-attendance-panel .formation-scan-activity {
+  margin-bottom: 0;
+}
+
+.formation-attendance-mobile-hero {
+  display: none;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 246, 246, 0.98) 100%);
+}
+
+.formation-attendance-mobile-hero-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.formation-attendance-mobile-hero-head strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.formation-attendance-mobile-hero-head p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.formation-attendance-mobile-strip {
+  display: grid;
+  gap: 8px;
+}
+
+.formation-attendance-mobile-strip span {
+  padding: 11px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.formation-attendance-mobile-strip strong {
+  color: var(--text);
+}
+
 .formation-attendance-toggle {
   margin-bottom: 18px;
 }
@@ -2229,6 +2293,140 @@ div {
 .formation-scan-activity-item span {
   color: var(--text-soft);
   line-height: 1.4;
+}
+
+@media (max-width: 900px) {
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode {
+    gap: 12px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-mobile-hero {
+    display: grid;
+    order: 1;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-summary-grid,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-steps,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-mode-copy {
+    display: none;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row {
+    order: 2;
+    margin-top: 0;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-toggle {
+    order: 3;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-toggle .toggle-button {
+    min-height: 48px;
+    padding: 0 10px;
+    font-size: 13px;
+    line-height: 1.2;
+    border-radius: 16px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-layout {
+    order: 4;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-shell,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-activity {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn {
+    width: 100%;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-toggle-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-toggle-group .toggle-button {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 360px;
+    border-radius: 24px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder strong {
+    font-size: 20px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder span,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-meta .footer-note,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-camera-note {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-meta {
+    display: grid;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-card {
+    padding: 16px;
+    border-radius: 22px;
+    gap: 12px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-card h3 {
+    font-size: 24px;
+    line-height: 1.02;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-item {
+    padding: 12px 14px;
+    border-radius: 16px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-item strong {
+    font-size: 18px;
+    line-height: 1.1;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-activity {
+    order: 5;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-activity .panel-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-activity-item {
+    padding: 12px 14px;
+  }
 }
 
 .formation-payment-strip {
