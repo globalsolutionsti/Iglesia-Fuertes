@@ -20636,7 +20636,7 @@ async function handleChange(event) {
         sessionNumber: "1"
       });
       if (getActiveFormationSection_() === "attendance") {
-        await loadFormationProcessRoster_(state.filters.formationOps.processId, {
+        await loadFormationAttendanceTransitionRoster_({
           force: true,
           showLoading: false
         });
@@ -20669,7 +20669,7 @@ async function handleChange(event) {
         sessionNumber: state.filters.formationOps.sessionNumber
       });
       if (getActiveFormationSection_() === "attendance") {
-        await loadFormationProcessRoster_(state.filters.formationOps.processId, {
+        await loadFormationAttendanceTransitionRoster_({
           force: false,
           showLoading: false
         });
@@ -20691,7 +20691,7 @@ async function handleChange(event) {
         sessionNumber: state.filters.formationOps.sessionNumber
       });
       if (getActiveFormationSection_() === "attendance") {
-        await loadFormationProcessRoster_(state.filters.formationOps.processId, {
+        await loadFormationAttendanceTransitionRoster_({
           force: false,
           showLoading: false
         });
@@ -22278,9 +22278,14 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
 }
 
 async function loadFormationProcessRoster_(processId, options = {}) {
-  const cleanProcessId = String(processId || state.filters.formationOps.processId || "").trim();
+  const cleanLevelId = String(options.levelId || "").trim();
+  const cleanProcessId = cleanLevelId ? "" : String(processId || state.filters.formationOps.processId || "").trim();
+  const cacheKey = cleanLevelId ? `LEVEL::${cleanLevelId}` : `PROCESS::${cleanProcessId}`;
+  const requestParams = cleanLevelId
+    ? { levelId: cleanLevelId }
+    : (cleanProcessId ? { processId: cleanProcessId } : null);
 
-  if (!cleanProcessId) {
+  if (!requestParams) {
     state.formationProcessRoster = [];
     state.loaded.formationProcessRoster = false;
     state.cacheKeys.formationProcessRoster = "";
@@ -22290,7 +22295,7 @@ async function loadFormationProcessRoster_(processId, options = {}) {
   if (
     !options.force
     && state.loaded.formationProcessRoster
-    && String(state.cacheKeys.formationProcessRoster || "") === cleanProcessId
+    && String(state.cacheKeys.formationProcessRoster || "") === cacheKey
   ) {
     return state.formationProcessRoster;
   }
@@ -22299,9 +22304,7 @@ async function loadFormationProcessRoster_(processId, options = {}) {
     let roster;
 
     try {
-      roster = await apiGet("formation.enrollments.list", {
-        processId: cleanProcessId
-      });
+      roster = await apiGet("formation.enrollments.list", requestParams);
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
         throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de operación de Proceso de Formación");
@@ -22322,17 +22325,35 @@ async function loadFormationProcessRoster_(processId, options = {}) {
 
     state.formationProcessRoster = Array.isArray(roster) ? roster : [];
     state.loaded.formationProcessRoster = true;
-    state.cacheKeys.formationProcessRoster = cleanProcessId;
+    state.cacheKeys.formationProcessRoster = cacheKey;
     return state.formationProcessRoster;
   };
 
-  const sharedTask = () => runSharedLoad_(`formationProcessRoster::${cleanProcessId}`, task);
+  const sharedTask = () => runSharedLoad_(`formationProcessRoster::${cacheKey}`, task);
 
   if (options.showLoading === false) {
     return sharedTask();
   }
 
   return withLoading(sharedTask, options.message || "Cargando inscritos del proceso...");
+}
+
+async function loadFormationAttendanceTransitionRoster_(options = {}) {
+  const selectedOffering = getSelectedFormationOffering_();
+  const previousLevel = getPreviousFormationLevel_(selectedOffering?.levelId || "");
+
+  if (!selectedOffering?.id || !previousLevel?.id) {
+    state.formationProcessRoster = [];
+    state.loaded.formationProcessRoster = false;
+    state.cacheKeys.formationProcessRoster = "";
+    return [];
+  }
+
+  return loadFormationProcessRoster_("", {
+    ...options,
+    levelId: previousLevel.id,
+    message: options.message || "Cargando paso previo para inscripción..."
+  });
 }
 
 async function loadFormationOperationsData_(options = {}) {
@@ -22713,7 +22734,7 @@ async function ensureFormationOperationsViewData_(options = {}) {
     });
 
     if (options.includeProcessRoster) {
-      await loadFormationProcessRoster_(state.filters.formationOps.processId, {
+      await loadFormationAttendanceTransitionRoster_({
         force: options.force,
         showLoading: false
       });
@@ -25090,7 +25111,7 @@ async function assignFormationEnrollment_(personId) {
     offeringId: selectedOffering.id,
     sessionNumber: state.filters.formationOps.sessionNumber
   });
-  await loadFormationProcessRoster_(selectedOffering.processId || state.filters.formationOps.processId, {
+  await loadFormationAttendanceTransitionRoster_({
     force: true,
     showLoading: false
   });
