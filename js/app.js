@@ -7102,6 +7102,7 @@ function renderFormationAttendanceWorkspace_(context) {
   const filteredEnrollments = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
   const quickCandidates = getFormationAttendanceQuickEnrollCandidates_(selectedOffering);
+  const pendingQuickCandidates = quickCandidates.filter((item) => !item?.alreadyEnrolled && item?.readyForAdvance);
   const activeSessionLabel = attendanceContext?.activeSession?.label || "Sin sesión activa";
   const activeSessionStatus = attendanceContext?.activeSession?.status || "Pendiente";
   const targetLevelName = selectedOffering?.levelName || selectedOffering?.name || "Paso";
@@ -7189,6 +7190,15 @@ function renderFormationAttendanceWorkspace_(context) {
           <span class="context-item"><strong>Destino:</strong> ${escapeHtml(targetLevelName)}</span>
           <span class="context-item"><strong>Regla:</strong> solo muestra personas del paso anterior que ya cumplen para avanzar.</span>
           <span class="context-item"><strong>Listado:</strong> ${escapeHtml(String(quickCandidates.length))} listos para inscribir</span>
+        </div>
+
+        <div class="actions-row" style="margin: 0 0 1rem 0;">
+          <span class="status-chip neutral">${escapeHtml(String(pendingQuickCandidates.length))} pendientes por inscribir</span>
+          ${pendingQuickCandidates.length ? `
+            <button class="btn btn-primary" type="button" data-action="assign-formation-bulk">
+              Inscribir todos al ${escapeHtml(targetLevelName)}
+            </button>
+          ` : ""}
         </div>
 
         <div class="field-grid two formation-portal-direct-grid">
@@ -20089,6 +20099,11 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "assign-formation-bulk") {
+      await assignFormationEnrollmentsBulk_();
+      return;
+    }
+
     if (action === "activate-formation-session") {
       await activateFormationAttendanceSession_(
         button.dataset.offeringId || "",
@@ -25291,12 +25306,20 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     state.filters.formationOps.offeringId = cleanOfferingId;
     state.ui.selectedFormationOfferingId = cleanOfferingId;
     state.filters.formationOps.sessionNumber = String(response?.context?.sessionNumber || cleanSessionNumber || "1");
-    await loadFormationOperationsData_({
-      force: true,
-      showLoading: false,
-      offeringId: cleanOfferingId,
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
+    if (getActiveFormationSection_() === "attendance") {
+      await loadFormationAttendanceSectionData_({
+        force: true,
+        processId: state.filters.formationOps.processId || "",
+        sessionNumber: state.filters.formationOps.sessionNumber
+      });
+    } else {
+      await loadFormationOperationsData_({
+        force: true,
+        showLoading: false,
+        offeringId: cleanOfferingId,
+        sessionNumber: state.filters.formationOps.sessionNumber
+      });
+    }
   }, "Activando sesión del paso...");
 
   renderApp();
@@ -25357,7 +25380,9 @@ async function assignFormationEnrollment_(personId) {
         personId: cleanPersonId,
         offeringId: selectedOffering.id,
         seasonId: originSeasonId,
-        enrolledBy: state.user?.name || ""
+        enrolledBy: state.user?.name || "",
+        skipSync: "1",
+        skipPortal: "1"
       });
     }, "Inscribiendo al paso...");
   } catch (error) {
@@ -25430,6 +25455,60 @@ async function assignFormationEnrollment_(personId) {
       ? `La persona quedó inscrita. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya puedes abrir Inscritos y portal para enviarlo por WhatsApp.`
       : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita a ${selectedOffering.levelName || "este nivel"}.`,
     "success"
+  );
+}
+
+async function assignFormationEnrollmentsBulk_() {
+  const selectedOffering = getSelectedFormationOffering_();
+  const pendingCandidates = getFormationAttendanceQuickEnrollCandidates_(selectedOffering)
+    .filter((item) => !item?.alreadyEnrolled && item?.readyForAdvance);
+  const personIds = pendingCandidates.map((item) => String(item?.personId || "").trim()).filter(Boolean);
+  const seasonId = state.filters.formation.seasonId
+    || state.filters.participants.seasonId
+    || getLatestSeason()?.id
+    || "";
+  let response = null;
+
+  if (!selectedOffering?.id) {
+    showToast("Selecciona un paso", "Primero elige el paso en operación donde vas a inscribir congregantes.", "warning");
+    return;
+  }
+
+  if (!personIds.length) {
+    showToast("Sin pendientes", "No hay personas listas para inscribir al paso seleccionado.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("formation.enrollment.assignBulk", {
+      offeringId: selectedOffering.id,
+      personIds,
+      seasonId,
+      enrolledBy: state.user?.name || ""
+    });
+
+    await loadFormationAttendanceSectionData_({
+      force: true,
+      processId: state.filters.formationOps.processId || "",
+      sessionNumber: state.filters.formationOps.sessionNumber || "1"
+    });
+
+    const refreshedContext = state.formationAttendanceContext || null;
+    const alreadyActive = Boolean(
+      refreshedContext?.captureEnabled
+      || String(refreshedContext?.activeSession?.number || "") === String(state.filters.formationOps.sessionNumber || "")
+    );
+
+    if (!alreadyActive && selectedOffering?.id) {
+      await activateFormationAttendanceSession_(selectedOffering.id, state.filters.formationOps.sessionNumber || "1");
+    }
+  }, `Inscribiendo ${personIds.length} participantes al paso...`);
+
+  renderApp();
+  showToast(
+    "Inscripción masiva completada",
+    `${response?.created || 0} nuevos, ${response?.alreadyExisting || 0} ya inscritos y ${response?.errors || 0} con detalle para revisar.`,
+    response?.errors ? "warning" : "success"
   );
 }
 
