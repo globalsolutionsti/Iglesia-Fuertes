@@ -17168,7 +17168,7 @@ function buildFormationQrSuccessResult_(response, personId, source) {
     badge: source === "scanner" ? "Registro exitoso" : "Asistencia guardada",
     title: source === "scanner" ? "Asistencia registrada" : "Asistencia guardada",
     message: source === "scanner"
-      ? `La asistencia de ${participant.name || attendance.name || fallbackMeta.name || "la persona"} ya quedó registrada. Puedes pasar al siguiente QR.`
+      ? "Asistencia registrada correctamente. Puedes pasar al siguiente QR."
       : "La asistencia quedó registrada correctamente en el paso en operación seleccionado.",
     name: participant.name || attendance.name || fallbackMeta.name || "Sin nombre",
     groupName: programmedCourse.name || fallbackMeta.groupName || "Paso en operación",
@@ -27567,7 +27567,7 @@ async function registerQrAttendance(personId, options = {}) {
         },
         ...state.formationQrActivity
       ].slice(0, 8);
-      qrScannerRuntime.pausedUntil = Date.now() + 2600;
+      qrScannerRuntime.pausedUntil = Date.now() + 3400;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       renderApp();
 
@@ -27581,7 +27581,7 @@ async function registerQrAttendance(personId, options = {}) {
         }).catch((refreshError) => {
           console.error("Formation QR context refresh warning", refreshError);
         });
-      }, 2400);
+      }, 3200);
     };
 
     try {
@@ -27868,7 +27868,7 @@ function processQrRawValue_(rawValue) {
 
   qrScannerRuntime.lastValue = extractedPersonId;
   qrScannerRuntime.lastValueAt = now;
-  qrScannerRuntime.pausedUntil = now + 2200;
+  qrScannerRuntime.pausedUntil = now + 3000;
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
   renderApp();
