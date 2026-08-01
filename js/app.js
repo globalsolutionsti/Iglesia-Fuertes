@@ -354,6 +354,7 @@ const state = {
     editingFormationOfferingId: "",
     formationProcessSaving: false,
     formationProcessSavingMessage: "",
+    formationAttendanceActivating: false,
     formationSection: "route",
     formationStructureDrafts: {},
     formationStructureExpanded: {},
@@ -9272,6 +9273,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
     ? "La cámara está lista. Cada lectura se registra en la sesión seleccionada."
     : "Activa la cámara para comenzar a registrar asistencias del curso.");
   const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
+  const isActivatingSession = Boolean(state.ui.formationAttendanceActivating);
   const todaySession = getTodayFormationSession_(selectedOffering);
   const todaySessionMatches = Boolean(todaySession && String(todaySession.number || "") === String(currentSessionNumber || ""));
   const modeMeta = mode === "manual"
@@ -9308,7 +9310,9 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
         title: "Primero activa la sesión correcta",
         copy: "Hasta que la actives, el sistema bloquea manual, QR y kiosko para evitar registros en una fecha equivocada."
       });
-  const activationButtonLabel = captureEnabled ? "Sesión activa y lista" : "Activar sesión seleccionada";
+  const activationButtonLabel = isActivatingSession
+    ? "Activando sesión..."
+    : (captureEnabled ? "Sesión activa y lista" : "Activar sesión seleccionada");
   const selectedSessionLabel = selectedSession?.label || `Sesión ${currentSessionNumber}`;
   const activeSessionLabel = activeSession?.label || "Todavía no activada";
   const mobileHeroMarkup = isScanMode ? `
@@ -9396,10 +9400,10 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       </div>
 
       <div class="formation-attendance-activation-row">
-        <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}">
+        <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}" ${isActivatingSession ? "disabled" : ""}>
           ${escapeHtml(activationButtonLabel)}
         </button>
-        <span class="footer-note">${escapeHtml(operationStatus.copy)}</span>
+        <span class="footer-note">${escapeHtml(isActivatingSession ? "Estamos preparando esta sesión para capturar sin recargar toda la pantalla." : operationStatus.copy)}</span>
       </div>
 
       <div class="toggle-group formation-attendance-toggle">
@@ -22656,6 +22660,88 @@ function syncFormationOperationsSelection_() {
   }
 }
 
+function syncFormationOfferingIntoState_(offeringDto) {
+  const cleanOfferingId = String(offeringDto?.id || "").trim();
+
+  if (!cleanOfferingId) {
+    return;
+  }
+
+  state.formationOfferings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).map((offering) => {
+    return String(offering?.id || "").trim() === cleanOfferingId
+      ? {
+        ...offering,
+        ...offeringDto
+      }
+      : offering;
+  });
+}
+
+function applyFormationAttendanceContextState_(context, options = {}) {
+  const normalizedContext = context && typeof context === "object" ? context : null;
+  const offeringId = String(normalizedContext?.offering?.id || options.offeringId || "").trim();
+  const sessionNumber = String(normalizedContext?.sessionNumber || options.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+
+  state.formationAttendanceContext = normalizedContext;
+  state.loaded.formationAttendanceContext = Boolean(normalizedContext && offeringId);
+  state.cacheKeys.formationAttendanceContext = offeringId ? `${offeringId}::${sessionNumber}` : "";
+  state.filters.formationOps.sessionNumber = sessionNumber || state.filters.formationOps.sessionNumber || "1";
+
+  if (normalizedContext?.offering) {
+    syncFormationOfferingIntoState_(normalizedContext.offering);
+  }
+
+  if (Array.isArray(normalizedContext?.participants)) {
+    state.formationEnrollments = normalizedContext.participants;
+    state.loaded.formationEnrollments = true;
+    state.cacheKeys.formationEnrollments = offeringId
+      ? `ATTENDANCE::${offeringId}::${state.filters.formationOps.sessionNumber || "1"}`
+      : state.cacheKeys.formationEnrollments;
+  }
+}
+
+function applyFormationQrAttendanceLocally_(response, sessionNumber) {
+  const cleanPersonId = String(response?.attendance?.personId || response?.participant?.personId || "").trim();
+  const selectedSessionNumber = String(sessionNumber || response?.attendance?.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+
+  if (!cleanPersonId || !state.formationAttendanceContext || !Array.isArray(state.formationAttendanceContext.participants)) {
+    return;
+  }
+
+  const nextParticipants = state.formationAttendanceContext.participants.map((participant) => {
+    if (String(participant?.personId || "").trim() !== cleanPersonId) {
+      return participant;
+    }
+
+    const attendanceBySession = {
+      ...(participant?.attendanceBySession || {}),
+      [selectedSessionNumber]: "SI"
+    };
+    const previousSelectedAttendance = String(participant?.selectedSessionAttendance || "").trim().toUpperCase();
+    const currentAttendance = participant?.attendance || {};
+    const attendedSessions = Math.max(Number(currentAttendance?.attendedSessions || 0), 0);
+    const nextAttendedSessions = previousSelectedAttendance === "SI" ? attendedSessions : attendedSessions + 1;
+
+    return {
+      ...participant,
+      selectedSessionAttendance: "SI",
+      attendanceBySession,
+      attendance: {
+        ...currentAttendance,
+        attendedSessions: nextAttendedSessions
+      }
+    };
+  });
+
+  applyFormationAttendanceContextState_({
+    ...(state.formationAttendanceContext || {}),
+    participants: nextParticipants
+  }, {
+    offeringId: state.formationAttendanceContext?.offering?.id || "",
+    sessionNumber: selectedSessionNumber
+  });
+}
+
 async function loadFormationAttendanceContext_(offeringId, options = {}) {
   const cleanOfferingId = String(offeringId || "").trim();
 
@@ -22697,10 +22783,10 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
       context = response?.context || context;
     }
 
-    state.formationAttendanceContext = context;
-    state.loaded.formationAttendanceContext = true;
-    state.cacheKeys.formationAttendanceContext = requestKey;
-    state.filters.formationOps.sessionNumber = String(context?.sessionNumber || sessionNumber || "1");
+    applyFormationAttendanceContextState_(context, {
+      offeringId: cleanOfferingId,
+      sessionNumber
+    });
     return state.formationAttendanceContext;
   };
 
@@ -25611,7 +25697,10 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     return;
   }
 
-  await withLoading(async () => {
+  state.ui.formationAttendanceActivating = true;
+  renderApp();
+
+  try {
     response = await apiPost("formation.levelAttendance.activateSession", {
       offeringId: cleanOfferingId,
       sessionNumber: cleanSessionNumber,
@@ -25621,28 +25710,25 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     state.filters.formationOps.offeringId = cleanOfferingId;
     state.ui.selectedFormationOfferingId = cleanOfferingId;
     state.filters.formationOps.sessionNumber = String(response?.context?.sessionNumber || cleanSessionNumber || "1");
-    if (getActiveFormationSection_() === "attendance") {
-      await loadFormationAttendanceSectionData_({
-        force: true,
-        processId: state.filters.formationOps.processId || "",
-        sessionNumber: state.filters.formationOps.sessionNumber
-      });
-    } else {
-      await loadFormationOperationsData_({
-        force: true,
-        showLoading: false,
+    if (response?.offering) {
+      syncFormationOfferingIntoState_(response.offering);
+    }
+    if (response?.context) {
+      applyFormationAttendanceContextState_(response.context, {
         offeringId: cleanOfferingId,
         sessionNumber: state.filters.formationOps.sessionNumber
       });
     }
-  }, "Activando sesión del paso...");
 
-  renderApp();
-  showToast(
-    "Sesión activada",
-    `${response?.activeSession?.label || `Sesión ${state.filters.formationOps.sessionNumber}`} quedó lista para capturar asistencia del paso.`,
-    "success"
-  );
+    showToast(
+      "Sesión activada",
+      `${response?.activeSession?.label || `Sesión ${state.filters.formationOps.sessionNumber}`} quedó lista para capturar asistencia del paso.`,
+      "success"
+    );
+  } finally {
+    state.ui.formationAttendanceActivating = false;
+    renderApp();
+  }
 }
 
 async function assignFormationEnrollment_(personId) {
@@ -27474,25 +27560,28 @@ async function registerQrAttendance(personId, options = {}) {
       state.qrScanner.result = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
       state.qrScanner.status = "success";
       state.qrScanner.message = state.qrScanner.result.message;
+      applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
       state.formationQrActivity = [
         {
           ...state.qrScanner.result
         },
         ...state.formationQrActivity
       ].slice(0, 8);
-      qrScannerRuntime.pausedUntil = Date.now() + 4200;
+      qrScannerRuntime.pausedUntil = Date.now() + 2600;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       renderApp();
 
-      void loadFormationAttendanceContext_(formationContext.offeringId, {
-        force: true,
-        showLoading: false,
-        sessionNumber: formationContext.sessionNumber
-      }).then(() => {
-        renderApp();
-      }).catch((refreshError) => {
-        console.error("Formation QR context refresh warning", refreshError);
-      });
+      window.setTimeout(() => {
+        void loadFormationAttendanceContext_(formationContext.offeringId, {
+          force: true,
+          showLoading: false,
+          sessionNumber: formationContext.sessionNumber
+        }).then(() => {
+          renderApp();
+        }).catch((refreshError) => {
+          console.error("Formation QR context refresh warning", refreshError);
+        });
+      }, 2400);
     };
 
     try {
@@ -31818,6 +31907,7 @@ function resetRuntimeState() {
     editingFormationOfferingId: "",
     formationProcessSaving: false,
     formationProcessSavingMessage: "",
+    formationAttendanceActivating: false,
     formationSection: "route",
     formationStructureDrafts: {},
     formationStructureExpanded: {},
