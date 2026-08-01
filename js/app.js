@@ -8134,7 +8134,7 @@ function renderFormationLevelsWorkspace_(context) {
   `;
 }
 
-function renderFormationOperationsWorkspace_(context) {
+function renderFormationOperationsWorkspaceLegacy_(context) {
   const summary = buildFormationOperationsSummary_();
   const pendingCandidate = getFormationPendingEnrollmentCandidate_();
   const selectedProcess = getSelectedFormationProcess_();
@@ -8577,7 +8577,7 @@ function getFormationPortalBatchPeople_(roster) {
     .filter((person) => String(person?.id || "").trim());
 }
 
-function renderFormationPortalWorkspace_(context) {
+function renderFormationPortalWorkspaceLegacy_(context) {
   const selectedProcess = getSelectedFormationProcess_();
   const selectedOffering = getSelectedFormationOffering_();
   const filteredOfferings = getFilteredFormationOfferings_();
