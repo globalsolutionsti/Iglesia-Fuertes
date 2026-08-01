@@ -2539,6 +2539,8 @@ div {
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-shell,
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-activity {
+    display: grid;
+    gap: 10px;
     padding: 14px;
     border-radius: 22px;
   }
@@ -7398,6 +7400,61 @@ tbody tr:hover {
 }
 
 @media (max-width: 760px) {
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-mobile-hero {
+    display: none;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row {
+    gap: 8px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .btn {
+    min-height: 46px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-shell {
+    gap: 8px;
+    padding: 12px;
+    border-radius: 20px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .toggle-group {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn.btn-secondary {
+    flex-basis: 100%;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 260px;
+    border-radius: 20px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder strong {
+    font-size: 17px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-meta {
+    display: none;
+  }
+
   .formation-portal-roster-toolbar {
     gap: 8px;
   }
@@ -7586,23 +7643,26 @@ tbody tr:hover {
   }
 
   .formation-scan-inline {
-    padding: 14px;
+    margin-top: 6px;
+    padding: 12px 14px;
     border-radius: 18px;
-    gap: 5px;
+    gap: 4px;
+    box-shadow: 0 12px 24px rgba(17, 17, 17, 0.08);
   }
 
   .formation-scan-inline strong {
-    font-size: 22px;
-    line-height: 1.04;
+    font-size: 18px;
+    line-height: 1.12;
+    letter-spacing: -0.03em;
   }
 
   .formation-scan-inline span {
     font-size: 12px;
-    line-height: 1.45;
+    line-height: 1.35;
   }
 
   .formation-scan-inline small {
-    font-size: 11px;
+    display: none;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-card {
