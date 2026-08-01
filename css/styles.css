@@ -7438,10 +7438,15 @@ tbody tr:hover {
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
-    height: 42vh;
-    min-height: 240px;
-    max-height: 360px;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    aspect-ratio: 3 / 4;
     border-radius: 20px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
+    height: 100%;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder strong {
@@ -7647,7 +7652,7 @@ tbody tr:hover {
   .formation-scan-inline {
     position: relative;
     z-index: 4;
-    margin: -30px 10px 0;
+    margin: -18px 10px 0;
     padding: 12px 14px;
     border-radius: 18px;
     gap: 4px;
