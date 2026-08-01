@@ -1982,7 +1982,10 @@ div {
 .formation-scan-inline.kiosk-tone-success {
   background: linear-gradient(180deg, rgba(232, 251, 238, 0.99) 0%, rgba(215, 245, 224, 0.99) 100%);
   border-color: rgba(30, 166, 80, 0.32);
-  box-shadow: 0 18px 36px rgba(24, 145, 69, 0.18);
+  box-shadow:
+    0 0 0 2px rgba(74, 222, 128, 0.18),
+    0 18px 36px rgba(24, 145, 69, 0.22);
+  animation: formation-success-glow 0.9s ease-in-out 3;
 }
 
 .formation-scan-inline.kiosk-tone-warning {
@@ -2012,6 +2015,7 @@ div {
 
 .formation-scan-inline.kiosk-tone-success strong {
   color: #0b5e2b;
+  text-shadow: 0 0 16px rgba(74, 222, 128, 0.18);
 }
 
 .formation-scan-inline.kiosk-tone-warning strong {
@@ -6070,10 +6074,28 @@ tbody tr:hover {
   min-height: 420px;
   border-radius: 24px;
   overflow: hidden;
+  isolation: isolate;
   background:
     radial-gradient(circle at center, rgba(255, 255, 255, 0.04), transparent 44%),
     linear-gradient(180deg, #0f1113 0%, #070808 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.kiosk-scanner-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at center, rgba(74, 222, 128, 0.22) 0%, rgba(74, 222, 128, 0.12) 34%, rgba(74, 222, 128, 0.04) 62%, transparent 78%),
+    linear-gradient(180deg, rgba(74, 222, 128, 0.1) 0%, rgba(74, 222, 128, 0.04) 100%);
+  transition: opacity 0.12s ease;
 }
 
 .kiosk-video {
@@ -6088,6 +6110,7 @@ tbody tr:hover {
 .kiosk-video-placeholder {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: grid;
   place-items: center;
   gap: 6px;
@@ -6110,6 +6133,7 @@ tbody tr:hover {
 .kiosk-scan-overlay {
   position: absolute;
   inset: 0;
+  z-index: 2;
   pointer-events: none;
 }
 
@@ -6163,7 +6187,16 @@ tbody tr:hover {
 
 .kiosk-scanner-frame.kiosk-state-success {
   border-color: rgba(74, 222, 128, 0.96);
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.3), 0 0 44px rgba(74, 222, 128, 0.28);
+  transform: scale(1.01);
+  box-shadow:
+    0 0 0 4px rgba(74, 222, 128, 0.34),
+    0 0 52px rgba(74, 222, 128, 0.34),
+    0 0 94px rgba(17, 168, 88, 0.22);
+  animation: kiosk-success-pulse 0.9s ease-in-out 3;
+}
+
+.kiosk-scanner-frame.kiosk-state-success::after {
+  opacity: 1;
 }
 
 .kiosk-scanner-frame.kiosk-state-warning {
@@ -6179,7 +6212,17 @@ tbody tr:hover {
 .kiosk-scanner-frame.kiosk-state-success .kiosk-corner,
 .kiosk-scanner-frame.kiosk-state-success .kiosk-scan-line {
   border-color: rgba(74, 222, 128, 0.98);
-  filter: drop-shadow(0 0 18px rgba(74, 222, 128, 0.38));
+  filter: drop-shadow(0 0 24px rgba(74, 222, 128, 0.5));
+}
+
+.kiosk-scanner-frame.kiosk-state-success .kiosk-corner {
+  border-width: 5px;
+}
+
+.kiosk-scanner-frame.kiosk-state-success .kiosk-scan-line {
+  height: 4px;
+  background: linear-gradient(90deg, transparent 0%, rgba(74, 222, 128, 1) 10%, rgba(195, 255, 214, 1) 50%, rgba(74, 222, 128, 1) 90%, transparent 100%);
+  box-shadow: 0 0 28px rgba(74, 222, 128, 0.56);
 }
 
 .kiosk-scanner-frame.kiosk-state-warning .kiosk-corner,
@@ -6209,6 +6252,7 @@ tbody tr:hover {
   left: 0;
   right: 0;
   bottom: 26px;
+  z-index: 2;
   text-align: center;
   color: rgba(255, 255, 255, 0.82);
   font-size: 13px;
@@ -6592,6 +6636,51 @@ tbody tr:hover {
   100% {
     top: 80%;
     opacity: 0.4;
+  }
+}
+
+@keyframes kiosk-success-pulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(74, 222, 128, 0.12),
+      0 0 18px rgba(74, 222, 128, 0.16);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(74, 222, 128, 0.22),
+      0 0 64px rgba(74, 222, 128, 0.4),
+      0 0 104px rgba(17, 168, 88, 0.24);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 4px rgba(74, 222, 128, 0.34),
+      0 0 52px rgba(74, 222, 128, 0.34),
+      0 0 94px rgba(17, 168, 88, 0.22);
+  }
+}
+
+@keyframes formation-success-glow {
+  0% {
+    transform: translateY(0);
+    box-shadow:
+      0 0 0 0 rgba(74, 222, 128, 0.08),
+      0 12px 24px rgba(24, 145, 69, 0.12);
+  }
+
+  50% {
+    transform: translateY(-1px);
+    box-shadow:
+      0 0 0 4px rgba(74, 222, 128, 0.12),
+      0 22px 42px rgba(24, 145, 69, 0.24);
+  }
+
+  100% {
+    transform: translateY(0);
+    box-shadow:
+      0 0 0 2px rgba(74, 222, 128, 0.18),
+      0 18px 36px rgba(24, 145, 69, 0.22);
   }
 }
 
