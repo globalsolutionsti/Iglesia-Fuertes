@@ -17257,6 +17257,9 @@ function resolveFormationQrScanMeta_(personId) {
   const lastResult = state.qrScanner?.result && String(state.qrScanner.result.personId || "").trim() === cleanPersonId
     ? state.qrScanner.result
     : null;
+  const recentResult = cleanPersonId && Array.isArray(state.formationQrActivity)
+    ? (state.formationQrActivity.find((item) => String(item?.personId || "").trim() === cleanPersonId) || null)
+    : null;
   const directoryPerson = cleanPersonId
     ? (state.peopleDirectory.find((item) => String(item?.id || "").trim() === cleanPersonId) || null)
     : null;
@@ -17274,28 +17277,34 @@ function resolveFormationQrScanMeta_(personId) {
   return {
     name: String(
       lastResult?.name
+      || recentResult?.name
       || attendanceParticipant?.personName
+      || attendanceParticipant?.name
       || enrollment?.personName
+      || enrollment?.name
       || directoryPerson?.nombreCompleto
       || directoryPerson?.nombre
       || ""
     ).trim(),
     groupName: String(
       lastResult?.groupName
+      || recentResult?.groupName
       || selectedOffering?.name
       || enrollment?.offeringName
       || ""
     ).trim(),
     participantId: String(
       lastResult?.participantId
+      || recentResult?.participantId
       || attendanceParticipant?.id
       || enrollment?.id
       || ""
     ).trim(),
     personId: cleanPersonId,
-    sessionName: String(lastResult?.sessionName || "").trim(),
+    sessionName: String(lastResult?.sessionName || recentResult?.sessionName || "").trim(),
     levelName: String(
       lastResult?.levelName
+      || recentResult?.levelName
       || selectedOffering?.levelName
       || enrollment?.levelName
       || ""
