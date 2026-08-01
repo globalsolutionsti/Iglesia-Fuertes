@@ -1822,6 +1822,205 @@ div {
   padding: 14px 16px 18px;
 }
 
+.formation-journey-board {
+  display: grid;
+  gap: 18px;
+}
+
+.formation-journey-list {
+  display: grid;
+  gap: 14px;
+}
+
+.formation-journey-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.1fr) minmax(220px, 0.95fr) minmax(220px, 0.95fr) minmax(200px, 0.8fr);
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(246, 246, 246, 0.98) 100%);
+  align-items: stretch;
+}
+
+.formation-journey-main,
+.formation-journey-stage,
+.formation-journey-approved,
+.formation-journey-actions {
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.07);
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.formation-journey-main small,
+.formation-journey-stage small,
+.formation-journey-approved small,
+.formation-journey-actions small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formation-journey-main strong,
+.formation-journey-stage strong {
+  font-size: 26px;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+}
+
+.formation-journey-inline,
+.formation-journey-approved-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formation-journey-chip {
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(246, 243, 236, 0.98);
+  border: 1px solid rgba(17, 17, 17, 0.07);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.formation-journey-chip.is-empty {
+  color: var(--text-faint);
+  background: rgba(245, 245, 245, 0.96);
+}
+
+.formation-journey-stage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.formation-journey-stage span,
+.formation-journey-approved span,
+.formation-journey-actions span {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.formation-journey-actions .btn {
+  width: 100%;
+  min-height: 44px;
+}
+
+.formation-scan-inline {
+  margin-top: 14px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  display: grid;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.08);
+}
+
+.formation-scan-inline-badge {
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(17, 17, 17, 0.08);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.formation-scan-inline strong {
+  font-size: 28px;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+}
+
+.formation-scan-inline span {
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.formation-scan-inline small {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.formation-scan-inline.kiosk-tone-idle,
+.formation-scan-inline.kiosk-tone-live {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 247, 247, 0.98) 100%);
+  border-color: rgba(17, 17, 17, 0.08);
+}
+
+.formation-scan-inline.kiosk-tone-live {
+  box-shadow: 0 12px 28px rgba(16, 24, 40, 0.12);
+}
+
+.formation-scan-inline.kiosk-tone-success {
+  background: linear-gradient(180deg, rgba(232, 251, 238, 0.99) 0%, rgba(215, 245, 224, 0.99) 100%);
+  border-color: rgba(30, 166, 80, 0.32);
+}
+
+.formation-scan-inline.kiosk-tone-warning {
+  background: linear-gradient(180deg, rgba(255, 246, 225, 0.99) 0%, rgba(255, 235, 192, 0.99) 100%);
+  border-color: rgba(194, 138, 24, 0.28);
+}
+
+.formation-scan-inline.kiosk-tone-error {
+  background: linear-gradient(180deg, rgba(255, 234, 234, 0.99) 0%, rgba(252, 219, 219, 0.99) 100%);
+  border-color: rgba(210, 62, 62, 0.24);
+}
+
+.formation-scan-inline.kiosk-tone-success .formation-scan-inline-badge {
+  background: rgba(20, 123, 59, 0.12);
+  color: #0c6a31;
+}
+
+.formation-scan-inline.kiosk-tone-warning .formation-scan-inline-badge {
+  background: rgba(180, 123, 16, 0.14);
+  color: #8a5d05;
+}
+
+.formation-scan-inline.kiosk-tone-error .formation-scan-inline-badge {
+  background: rgba(199, 44, 44, 0.12);
+  color: #9b1f1f;
+}
+
+.formation-scan-inline.kiosk-tone-success strong {
+  color: #0b5e2b;
+}
+
+.formation-scan-inline.kiosk-tone-warning strong {
+  color: #7a5106;
+}
+
+.formation-scan-inline.kiosk-tone-error strong {
+  color: #8d1f1f;
+}
+
 .formation-ledger-head-route,
 .formation-ledger-row-route {
   grid-template-columns: minmax(210px, 1.12fr) minmax(220px, 1.18fr) minmax(220px, 1.08fr) minmax(185px, 0.82fr);
@@ -7174,6 +7373,26 @@ tbody tr:hover {
   .formation-portal-modal-preview {
     padding: 10px 10px 16px;
   }
+
+  .formation-journey-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .formation-journey-main strong,
+  .formation-journey-stage strong {
+    font-size: 22px;
+  }
+
+  .formation-journey-actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .formation-scan-inline strong {
+    font-size: 24px;
+  }
 }
 
 @media (max-width: 760px) {
@@ -7316,6 +7535,76 @@ tbody tr:hover {
     min-height: 46px;
     font-size: 14px;
     border-radius: 14px;
+  }
+
+  .formation-journey-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 20px;
+  }
+
+  .formation-journey-main,
+  .formation-journey-stage,
+  .formation-journey-approved,
+  .formation-journey-actions {
+    width: 100%;
+    padding: 12px;
+    border-radius: 16px;
+    gap: 8px;
+  }
+
+  .formation-journey-main strong,
+  .formation-journey-stage strong {
+    font-size: 21px;
+    line-height: 1.03;
+  }
+
+  .formation-journey-chip {
+    min-height: 28px;
+    padding: 0 9px;
+    font-size: 10px;
+  }
+
+  .formation-journey-stage-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .formation-journey-stage span,
+  .formation-journey-approved span,
+  .formation-journey-actions span {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .formation-journey-actions {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .formation-scan-inline {
+    padding: 14px;
+    border-radius: 18px;
+    gap: 5px;
+  }
+
+  .formation-scan-inline strong {
+    font-size: 22px;
+    line-height: 1.04;
+  }
+
+  .formation-scan-inline span {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .formation-scan-inline small {
+    font-size: 11px;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-result-card {
+    display: none;
   }
 }
 
