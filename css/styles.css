@@ -7438,7 +7438,9 @@ tbody tr:hover {
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
-    min-height: 260px;
+    height: 42vh;
+    min-height: 240px;
+    max-height: 360px;
     border-radius: 20px;
   }
 
@@ -7643,7 +7645,9 @@ tbody tr:hover {
   }
 
   .formation-scan-inline {
-    margin-top: 6px;
+    position: relative;
+    z-index: 4;
+    margin: -30px 10px 0;
     padding: 12px 14px;
     border-radius: 18px;
     gap: 4px;
