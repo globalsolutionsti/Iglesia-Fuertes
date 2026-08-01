@@ -4080,7 +4080,6 @@ function buildStudentPortalContext_(portal) {
   const records = Array.isArray(portal?.records) ? portal.records : [];
   const currentRecord = getStudentPortalCurrentRecord_(portal, currentLevel);
   const supportUrl = getStudentPortalSupportUrl_(person, currentLevel, currentRecord);
-  const payment = getStudentPortalPaymentSnapshot_(currentRecord);
   const activeTab = state.ui.studentPortalTab || "home";
   const profileTab = state.ui.studentPortalProfileTab || "summary";
   const attendance = currentLevel?.attendance || {
@@ -4119,7 +4118,6 @@ function buildStudentPortalContext_(portal) {
     records,
     currentRecord,
     supportUrl,
-    payment,
     activeTab,
     profileTab,
     attendance,
@@ -4462,7 +4460,6 @@ function renderStudentPortalHomeScreen_(context) {
     attendance,
     attendancePercent,
     leaderName,
-    payment,
     levels,
     supportUrl
   } = context;
@@ -4492,7 +4489,6 @@ function renderStudentPortalHomeScreen_(context) {
         <div class="student-portal-stage-card-meta">
           <span>${renderStudentPortalIcon_("calendar")} Inicio: ${escapeHtml(formatDate(currentLevel?.offering?.startDate || currentLevel?.enrollment?.startDate || "") || "Por confirmar")}</span>
           <span>${renderStudentPortalIcon_("leader")} Lider: ${escapeHtml(leaderName)}</span>
-          <span>${renderStudentPortalIcon_("wallet")} Pago: ${escapeHtml(payment.title)}</span>
         </div>
 
         <div class="student-portal-stage-progress">
@@ -5510,10 +5506,6 @@ function renderStudentPortalRecordCard_(record, index) {
     || ""
   ) || "-";
   const summary = record?.result || record?.reason || record?.notes || "Sin observaciones registradas.";
-  const paymentLine = record?.paymentStatus
-    ? `${record.paymentStatus}${record.paymentAmount ? ` • ${record.paymentAmount}` : ""}${record.paymentDueDate ? ` • Limite ${formatDate(record.paymentDueDate) || record.paymentDueDate}` : ""}`
-    : "";
-
   return `
     <article class="student-history-card">
       <div class="student-history-card-head">
@@ -5527,7 +5519,6 @@ function renderStudentPortalRecordCard_(record, index) {
       <div class="student-history-card-body">
         <span><strong>Fecha:</strong> ${escapeHtml(moment)}</span>
         <span><strong>Responsable:</strong> ${escapeHtml(actor)}</span>
-        ${paymentLine ? `<span><strong>Pago:</strong> ${escapeHtml(paymentLine)}</span>` : ""}
         <p>${escapeHtml(summary)}</p>
       </div>
     </article>
