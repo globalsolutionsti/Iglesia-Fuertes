@@ -873,7 +873,7 @@ function renderModuleTabButton_(tab) {
 
 function normalizeFormationSection_(value) {
   const cleanValue = String(value || "").trim().toLowerCase();
-  return ["attendance", "route", "cases", "operations", "portal", "levels"].includes(cleanValue) ? cleanValue : "attendance";
+  return ["route", "portal", "operations", "attendance", "levels"].includes(cleanValue) ? cleanValue : "route";
 }
 
 function getActiveFormationSection_() {
@@ -6911,12 +6911,10 @@ function renderWelcomeProspectsView_() {
 function renderFormationView_() {
   const activeSection = getActiveFormationSection_();
   const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
-  const needsRouteData = activeSection === "route" || activeSection === "cases";
+  const needsRouteData = activeSection === "route";
   const formationDraft = needsRouteData ? getFormationFilterDraft_() : {};
   const formationFilterDirty = needsRouteData ? isFormationFilterDirty_() : false;
   const candidates = needsRouteData ? getFilteredFormationCandidates_() : [];
-  const recordsReady = state.loaded.formationRecords && String(state.cacheKeys.formationRecords || "") === String(seasonId || "");
-  const allRecords = activeSection === "cases" && recordsReady ? state.formationRecords : [];
   const formationFilterFeedback = activeSection === "route" ? renderFormationFilterFeedback_(candidates) : "";
   const formationRouteContext = activeSection === "route" ? renderFormationRouteContext_(candidates) : "";
   const profile = needsRouteData ? state.formationProfile : null;
@@ -6937,20 +6935,25 @@ function renderFormationView_() {
       currentLevel: profile.person.nivelFormacionActual || ""
     } : null));
   const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
-  const editingRecord = allRecords.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || profile?.records?.find((item) => String(item.id) === String(state.ui.editingFormationRecordId || "")) || null;
   const summary = buildFormationSummary_();
+  const portalVisibleCount = Array.isArray(state.formationEnrollments) ? state.formationEnrollments.length : 0;
+  const operationsVisibleCount = Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster.length : 0;
 
   return `
     <section class="view-grid">
       ${renderModuleMobileHero_({
         tone: "participants",
         eyebrow: "Proceso de Formación",
-        title: "Camino Proceso de Formación",
-        copy: activeSection === "attendance"
-          ? "Entra directo a la operación de hoy: inscripción excepcional, activación de sesión y captura manual, QR o kiosko sin cargar bloques innecesarios."
-          : activeSection === "operations"
-          ? "Consulta inscritos, confirma su avance al siguiente paso y captura asistencia manual, QR o kiosko para la sesión activa de hoy."
-          : "Aquí controlas la ruta a Encuentro, la cuenta del asistente, sus niveles, asistencias por nivel y la evaluación para desbloquear el siguiente paso.",
+        title: "Proceso de Formación",
+        copy: activeSection === "route"
+          ? "Aquí inicia todo: la regla de 3 asistencias consecutivas lleva al congregante a la Ruta a Encuentro para invitarlo al Proceso de Formación."
+          : activeSection === "portal"
+            ? "Aquí revisas inscritos, compartes cuenta del portal, PIN y QR sin quitarle claridad al listado."
+            : activeSection === "operations"
+              ? "Aquí ves el camino real del inscrito: pasos aprobados, paso actual y avance de asistencia dentro del proceso."
+              : activeSection === "attendance"
+                ? "Esta ficha queda enfocada solo a la operación de asistencia: eliges proceso, paso, sesión y escaneas QR con una experiencia rápida en celular."
+                : "Aquí administras el catálogo operativo del Proceso de Formación sin tocar la captura diaria.",
         badge: {
           label: `${summary.pending} por validar`,
           kind: summary.pending ? "warning" : "dark"
@@ -6980,19 +6983,17 @@ function renderFormationView_() {
           <span>Ya aceptaron y quedaron registrados hacia Encuentro.</span>
         </article>
         <article class="stat-card">
-          <span class="status-chip success">Historial formativo</span>
-          <strong>${escapeHtml(recordsReady ? String(allRecords.length) : "—")}</strong>
-          <span>${escapeHtml(recordsReady ? "Casos registrados dentro del proceso de formación y discipulado." : "Se completa al abrir Casos formativos para no frenar la entrada.")}</span>
+          <span class="status-chip success">Acreditados</span>
+          <strong>${escapeHtml(String(summary.approved))}</strong>
+          <span>Ya completaron el paso actual y están listos para continuar en su camino.</span>
         </article>
       </div>
 
       ${renderFormationWorkspaceTabs_(activeSection, {
         routeCount: candidates.length,
-        recordsCount: allRecords.length,
-        recordsReady,
         processCount: state.formationProcesses.length,
-        operationsCount: state.formationOfferings.length,
-        portalCount: state.formationEnrollments.length,
+        operationsCount: operationsVisibleCount,
+        portalCount: portalVisibleCount,
         levelsCount: state.formationCatalog.length
       })}
 
@@ -7007,12 +7008,8 @@ function renderFormationView_() {
         activePersonId: selectedCandidate?.personId || profile?.person?.id || ""
       }) : ""}
 
-      ${activeSection === "cases" ? renderFormationCasesWorkspace_({
-        seasonId,
-        selectedCandidate,
-        profile,
-        editingRecord,
-        records: allRecords
+      ${activeSection === "portal" ? renderFormationPortalWorkspace_({
+        seasonId
       }) : ""}
 
       ${activeSection === "operations" ? renderFormationOperationsWorkspace_({
@@ -7020,10 +7017,6 @@ function renderFormationView_() {
       }) : ""}
 
       ${activeSection === "attendance" ? renderFormationAttendanceWorkspace_({
-        seasonId
-      }) : ""}
-
-      ${activeSection === "portal" ? renderFormationPortalWorkspace_({
         seasonId
       }) : ""}
 
@@ -7037,14 +7030,9 @@ function renderFormationView_() {
 function renderFormationWorkspaceTabs_(activeSection, counts) {
   const tabs = [
     {
-      key: "attendance",
-      label: "Asistencias",
-      description: "manual, QR y kiosko"
-    },
-    {
-      key: "operations",
-      label: "Camino Proceso de Formación",
-      description: `${counts.portalCount || 0} inscritos`
+      key: "route",
+      label: "Ruta a Encuentro",
+      description: `${counts.routeCount || 0} en ruta`
     },
     {
       key: "portal",
@@ -7052,14 +7040,14 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
       description: `${counts.portalCount || 0} inscritos`
     },
     {
-      key: "route",
-      label: "Ruta a Encuentro",
-      description: `${counts.routeCount || 0} en ruta`
+      key: "operations",
+      label: "Camino Proceso de Formación",
+      description: `${counts.operationsCount || 0} en camino`
     },
     {
-      key: "cases",
-      label: "Casos formativos",
-      description: counts.recordsReady ? `${counts.recordsCount || 0} registros` : "carga al abrir"
+      key: "attendance",
+      label: "Asistencia",
+      description: "manual, QR y kiosko"
     },
     {
       key: "levels",
@@ -7112,21 +7100,18 @@ function renderFormationAttendanceWorkspace_(context) {
   }));
   const filteredEnrollments = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
-  const quickCandidates = getFormationAttendanceQuickEnrollCandidates_(selectedOffering);
-  const pendingQuickCandidates = quickCandidates.filter((item) => !item?.alreadyEnrolled && item?.readyForAdvance);
   const activeSessionLabel = attendanceContext?.activeSession?.label || "Sin sesión activa";
   const activeSessionStatus = attendanceContext?.activeSession?.status || "Pendiente";
-  const targetLevelName = selectedOffering?.levelName || selectedOffering?.name || "Paso";
 
   return `
     <article class="panel-card module-section-anchor" id="formation-attendance-workspace">
       <div class="panel-head">
         <div>
-          <h2>Asistencias del Proceso de Formación</h2>
-          <p>Usa esta pestaña rápida para seleccionar el proceso, elegir el paso en operación, inscribir excepcionalmente a quien falte y capturar asistencia en manual, QR o kiosko.</p>
+          <h2>Asistencia del Proceso de Formación</h2>
+          <p>Esta ficha está pensada para operar rápido en celular: eliges proceso, paso, sesión y capturas asistencia en manual, QR asistido o kiosko sin cargar bloques innecesarios.</p>
         </div>
         <div class="actions-row">
-          <span class="status-chip neutral">Operación rápida de hoy</span>
+          <span class="status-chip neutral">Operación rápida del día</span>
           <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar asistencia</button>
         </div>
       </div>
@@ -7161,7 +7146,7 @@ function renderFormationAttendanceWorkspace_(context) {
                 label: `${level.name} (${level.order})`
               })),
               state.filters.formationOps.levelId,
-              "Todos los niveles"
+              "Todos los pasos"
             )}
           </select>
         </div>
@@ -7187,95 +7172,11 @@ function renderFormationAttendanceWorkspace_(context) {
       </div>
     </article>
 
-    <article class="detail-card formation-portal-direct-card">
-      <div class="panel-head">
-        <div>
-          <h2>Inscripción directa al paso seleccionado</h2>
-          <p>Este bloque sirve como respaldo operativo. Te muestra personas que ya cumplieron el paso anterior y todavía no aparecen inscritas en ${escapeHtml(targetLevelName)}.</p>
-        </div>
-        <span class="pill warning">Uso operativo</span>
-      </div>
-
-      ${selectedOffering ? `
-        <div class="summary-strip">
-          <span class="context-item"><strong>Destino:</strong> ${escapeHtml(targetLevelName)}</span>
-          <span class="context-item"><strong>Regla:</strong> solo muestra personas del paso anterior que ya cumplen para avanzar.</span>
-          <span class="context-item"><strong>Listado:</strong> ${escapeHtml(String(quickCandidates.length))} listos para inscribir</span>
-        </div>
-
-        <div class="actions-row" style="margin: 0 0 1rem 0;">
-          <span class="status-chip neutral">${escapeHtml(String(pendingQuickCandidates.length))} pendientes por inscribir</span>
-          ${pendingQuickCandidates.length ? `
-            <button class="btn btn-primary" type="button" data-action="assign-formation-bulk">
-              Inscribir todos al ${escapeHtml(targetLevelName)}
-            </button>
-          ` : ""}
-        </div>
-
-        <div class="field-grid two formation-portal-direct-grid">
-          <div class="field">
-            <label for="formation-ops-person-search">Buscar dentro de listos para inscribir</label>
-            <input
-              id="formation-ops-person-search"
-              value="${escapeHtml(state.filters.formationOps.personSearch || "")}"
-              placeholder="Nombre, QR ID, número o teléfono"
-            >
-          </div>
-          <div class="summary-box tone-neutral formation-portal-direct-note">
-            <span class="status-chip neutral">Contingencia lista</span>
-            <strong>Si el paso previo ya quedó completo, aquí puedes empujarlos al siguiente paso</strong>
-            <span>El sistema intentará acreditar automáticamente el paso anterior cuando ya tenga la asistencia completa y solo falte reflejarlo.</span>
-          </div>
-        </div>
-
-        <div class="formation-portal-direct-list">
-          ${quickCandidates.length ? quickCandidates.map((enrollment) => {
-            const attendance = enrollment?.attendance || {};
-            const completedLabel = String(enrollment?.status || "").trim().toUpperCase() === "ACREDITADO"
-              ? "Paso previo acreditado"
-              : (enrollment?.readyForAdvance ? "Listo por asistencia" : "Revisar paso previo");
-            const targetStatusLabel = enrollment?.alreadyEnrolled
-              ? (String(enrollment?.currentEnrollmentStatus || "").trim().toUpperCase() === "ACREDITADO" ? "Ya inscrito y acreditado" : "Ya inscrito en este paso")
-              : "Pendiente por inscribir";
-            return `
-              <article class="formation-portal-direct-item">
-                <div class="formation-portal-direct-copy">
-                  <strong>${escapeHtml(enrollment?.personName || "Congregante")}</strong>
-                  <span>${escapeHtml(enrollment?.personNumber || "-")} · QR ${escapeHtml(enrollment?.personId || "-")}</span>
-                  <span>${escapeHtml(enrollment?.personPhone || "Sin teléfono")} · ${escapeHtml(String(attendance.attendedSessions || 0))}/${escapeHtml(String(attendance.totalSessions || 0))} asistencias</span>
-                  <span>${escapeHtml(completedLabel)} · ${escapeHtml(enrollment?.levelName || "Paso previo")}</span>
-                  <span>${escapeHtml(targetStatusLabel)}</span>
-                </div>
-                ${enrollment?.alreadyEnrolled
-                  ? `<span class="pill success">Inscrito en ${escapeHtml(targetLevelName)}</span>`
-                  : `<button
-                      class="btn btn-primary"
-                      type="button"
-                      data-action="assign-formation-person"
-                      data-person-id="${escapeHtml(enrollment?.personId || "")}"
-                    >
-                      Inscribir a ${escapeHtml(targetLevelName)}
-                    </button>`}
-              </article>
-            `;
-          }).join("") : `
-            <div class="empty-state">
-              ${state.filters.formationOps.personSearch
-                ? "No encontramos personas listas con esa búsqueda o ya quedaron inscritas en este paso."
-                : "Todavía no hay personas listas para entrar a este paso, o bien ya fueron inscritas previamente."}
-            </div>
-          `}
-        </div>
-      ` : `
-        <div class="empty-state">Selecciona primero el proceso y el paso en operación. En cuanto lo hagas, aquí aparecerá el listado excepcional para inscribir rápido.</div>
-      `}
-    </article>
-
     <article class="detail-card module-section-anchor" id="formation-operations-attendance">
       <div class="panel-head">
         <div>
           <h2>Captura de asistencia</h2>
-          <p>Primero confirma el paso y la sesión. Si hoy corresponde esa fecha, el sistema lo activará; si no, puedes activarla manualmente como respaldo y capturar por manual, QR asistido o kiosko.</p>
+          <p>Primero confirma el paso y la sesión. Si hoy corresponde esa fecha, el sistema la activará; si no, puedes activarla manualmente como respaldo y capturar por manual, QR asistido o kiosko.</p>
         </div>
         ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Paso en operación")}</span>` : `<span class="pill dark">Sin paso activo</span>`}
       </div>
@@ -7283,7 +7184,7 @@ function renderFormationAttendanceWorkspace_(context) {
       ${selectedOffering ? `
         ${renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants)}
       ` : `
-        <div class="empty-state">Selecciona un paso en operación para habilitar la captura de asistencia.</div>
+        <div class="empty-state">Selecciona primero el proceso y el paso en operación para habilitar la captura de asistencia.</div>
       `}
     </article>
   `;
@@ -8677,18 +8578,17 @@ function getFormationPortalBatchPeople_(roster) {
 }
 
 function renderFormationPortalWorkspace_(context) {
+  const selectedProcess = getSelectedFormationProcess_();
   const selectedOffering = getSelectedFormationOffering_();
   const filteredOfferings = getFilteredFormationOfferings_();
   const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
-  const directEnrollmentPeople = getFormationEnrollmentSearchResults_(selectedOffering);
-  const directSearch = String(state.filters.formationOps.personSearch || "");
 
   return `
     <article class="panel-card module-section-anchor" id="formation-portal-workspace">
       <div class="panel-head">
         <div>
-          <h2>Inscritos y portal del asistente</h2>
-          <p>Desde aquí revisas a todos los inscritos del paso seleccionado, abres su cuenta en un modal limpio y compartes acceso o QR sin quitar espacio al listado.</p>
+          <h2>Inscritos y portal</h2>
+          <p>Esta ficha reúne a los inscritos del paso seleccionado, muestra en qué paso van y te deja abrir su cuenta del portal, enviar acceso o compartir QR sin saturar la pantalla.</p>
         </div>
         <div class="actions-row">
           <span class="status-chip neutral">${escapeHtml(String(roster.length))} inscritos visibles</span>
@@ -8697,13 +8597,28 @@ function renderFormationPortalWorkspace_(context) {
       </div>
 
       <div class="summary-strip">
-        <span class="context-item"><strong>Modo ideal:</strong> selecciona primero el paso en operación y luego abre cada inscrito desde “Gestionar”.</span>
-        <span class="context-item"><strong>Vista espejo:</strong> el detalle del portal ahora se abre en modal para que el listado quede más limpio y legible.</span>
+        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedProcess?.name || "Selecciona proceso")}</span>
+        <span class="context-item"><strong>Paso activo:</strong> ${escapeHtml(selectedOffering?.name || selectedOffering?.levelName || "Selecciona paso")}</span>
+        <span class="context-item"><strong>Portal:</strong> la cuenta se genera automáticamente al momento de inscribir al congregante.</span>
+        <span class="context-item"><strong>Vista limpia:</strong> usa “Gestionar” para abrir el modal y no encimar datos en el listado.</span>
       </div>
 
       <div class="field-grid two formation-ops-toolbar">
         <div class="field">
-          <label for="formation-ops-level">Nivel</label>
+          <label for="formation-ops-process">Proceso de Formación</label>
+          <select id="formation-ops-process">
+            ${renderOptions(
+              state.formationProcesses.map((process) => ({
+                value: process.id,
+                label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
+              })),
+              selectedProcess?.id || state.filters.formationOps.processId,
+              "Selecciona proceso"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-level">Paso del proceso</label>
           <select id="formation-ops-level">
             ${renderOptions(
               getFormationSortedLevels_().map((level) => ({
@@ -8711,20 +8626,20 @@ function renderFormationPortalWorkspace_(context) {
                 label: `${level.name} (${level.order})`
               })),
               state.filters.formationOps.levelId,
-              "Todos los niveles"
+              "Todos los pasos"
             )}
           </select>
         </div>
         <div class="field">
-          <label for="formation-ops-offering">Nivel en operación</label>
+          <label for="formation-ops-offering">Paso en operación</label>
           <select id="formation-ops-offering">
             ${renderOptions(
               filteredOfferings.map((offering) => ({
                 value: offering.id,
-                label: `${offering.name} | ${offering.levelName}`
+                label: `${offering.levelName} | ${offering.name}`
               })),
               selectedOffering?.id || state.filters.formationOps.offeringId,
-              "Selecciona nivel"
+              "Selecciona paso"
             )}
           </select>
         </div>
@@ -8746,73 +8661,11 @@ function renderFormationPortalWorkspace_(context) {
       </div>
     </article>
 
-    <article class="detail-card formation-portal-direct-card">
-      <div class="panel-head">
-        <div>
-          <h2>Inscripción directa excepcional</h2>
-          <p>Usa esta vía solo durante la implementación para inscribir personas directamente al paso seleccionado sin pasar por Ruta a Encuentro.</p>
-        </div>
-        <span class="pill warning">Solo implementación</span>
-      </div>
-
-      ${selectedOffering ? `
-        <div class="summary-strip">
-          <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedOffering.processName || "Sin proceso")}</span>
-          <span class="context-item"><strong>Paso destino:</strong> ${escapeHtml(selectedOffering.name || selectedOffering.levelName || "Sin paso")}</span>
-          <span class="context-item"><strong>Regla:</strong> si aquí lo inscribes, ya no debe volver a aparecer en Ruta a Encuentro.</span>
-        </div>
-
-        <div class="field-grid two formation-portal-direct-grid">
-          <div class="field">
-            <label for="formation-ops-person-search">Buscar congregante para inscripción directa</label>
-            <input
-              id="formation-ops-person-search"
-              value="${escapeHtml(directSearch)}"
-              placeholder="Nombre, QR ID, número o teléfono"
-            >
-          </div>
-          <div class="summary-box tone-neutral formation-portal-direct-note">
-            <span class="status-chip neutral">Mañana operativo</span>
-            <strong>Primero inscríbelo, después comparte su QR</strong>
-            <span>El flujo recomendado para mañana es: inscribir → abrir QR por WhatsApp → usar QR asistido o kiosko en la sesión activa.</span>
-          </div>
-        </div>
-
-        <div class="formation-portal-direct-list">
-          ${directEnrollmentPeople.length ? directEnrollmentPeople.map((person) => `
-            <article class="formation-portal-direct-item">
-              <div class="formation-portal-direct-copy">
-                <strong>${escapeHtml(person.nombreCompleto || person.nombre || "Congregante")}</strong>
-                <span>${escapeHtml(person.numero || "-")} · QR ${escapeHtml(person.id || "-")}</span>
-                <span>${escapeHtml(person.telefono || "Sin teléfono")} · ${escapeHtml(getPersonTypeDisplayLabel_(person.tipoPersona || person.type || "CONGREGANTE"))}</span>
-              </div>
-              <button
-                class="btn btn-primary"
-                type="button"
-                data-action="assign-formation-person"
-                data-person-id="${escapeHtml(person.id || "")}"
-              >
-                Inscribir directo
-              </button>
-            </article>
-          `).join("") : `
-            <div class="empty-state">
-              ${directSearch
-                ? "No encontramos personas disponibles con esa búsqueda o ya quedaron inscritas en este paso."
-                : "Escribe el nombre, QR ID, número o teléfono para empezar a inscribir de forma directa."}
-            </div>
-          `}
-        </div>
-      ` : `
-        <div class="empty-state">Primero selecciona el paso en operación. En cuanto lo elijas, aquí se habilitará la inscripción directa especial.</div>
-      `}
-    </article>
-
     <article class="detail-card formation-portal-roster-card">
       <div class="panel-head">
         <div>
           <h2>Listado de inscritos</h2>
-          <p>Consulta el estado del inscrito y entra a un modal con cuenta, PIN, portal espejo y QR.</p>
+          <p>Consulta el estado del inscrito, el paso que cursa y abre un modal limpio con cuenta, PIN, portal espejo y QR.</p>
         </div>
         ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.name || "Nivel")}</span>` : `<span class="pill dark">Sin nivel seleccionado</span>`}
       </div>
@@ -8828,6 +8681,360 @@ function renderFormationPortalWorkspace_(context) {
         <div class="actions-row formation-portal-roster-toolbar">
           <button class="btn btn-secondary" data-action="download-formation-portal-qr-batch" ${roster.length ? "" : "disabled"}>Preparar QR masivos</button>
           <span class="footer-note">Salida rápida para mañana: genera un ZIP con todos los QR y un manifiesto de apoyo para compartirlos por WhatsApp.</span>
+        </div>
+
+        ${roster.length ? `
+          <div class="formation-portal-roster">
+            ${roster.map((enrollment) => renderFormationPortalEnrollmentRow_(enrollment)).join("")}
+          </div>
+        ` : `
+          <div class="empty-state" style="margin-top: 18px;">No encontramos inscritos con el filtro actual para este paso en operación.</div>
+        `}
+      ` : `
+        <div class="empty-state">Selecciona primero un paso en operación para ver el listado de inscritos.</div>
+      `}
+    </article>
+  `;
+}
+
+function buildFormationJourneyRows_(rows) {
+  const grouped = new Map();
+  const search = normalizeText(state.filters.formationOps.search || "");
+  const status = String(state.filters.formationOps.enrollmentStatus || "ALL").toUpperCase();
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const personId = String(row?.personId || "").trim();
+
+    if (!personId) {
+      return;
+    }
+
+    if (!grouped.has(personId)) {
+      grouped.set(personId, []);
+    }
+
+    grouped.get(personId).push(row);
+  });
+
+  return Array.from(grouped.values()).map((entries) => {
+    const sorted = entries.slice().sort((left, right) => {
+      const leftOrder = Number(left?.levelOrder || 0);
+      const rightOrder = Number(right?.levelOrder || 0);
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      const leftStamp = parseDateToTimestamp_(left?.enrolledAt || left?.startDate || "", true);
+      const rightStamp = parseDateToTimestamp_(right?.enrolledAt || right?.startDate || "", true);
+      return leftStamp - rightStamp;
+    });
+    const current = sorted.slice().reverse().find((entry) => String(entry?.status || "").toUpperCase() !== "ACREDITADO") || sorted[sorted.length - 1] || null;
+    const approvedEntries = sorted.filter((entry) => String(entry?.status || "").toUpperCase() === "ACREDITADO");
+    const approvedLabels = approvedEntries.map((entry) => entry?.offeringName || entry?.levelName || "Paso").filter(Boolean);
+
+    return {
+      personId: current?.personId || "",
+      personName: current?.personName || "Congregante",
+      personNumber: current?.personNumber || "",
+      personPhone: current?.personPhone || "",
+      seasonName: resolveSeasonName_(current?.seasonId) || current?.seasonId || "Sin temporada",
+      currentStepName: current?.offeringName || current?.levelName || "Sin paso",
+      currentStepStatus: current?.status || "EN_CURSO",
+      currentAttendance: current?.attendance || {
+        attendedSessions: 0,
+        totalSessions: 0,
+        completed: false
+      },
+      currentEvaluation: current?.examApproved
+        ? "Examen acreditado"
+        : (current?.baptismConfirmed ? "Bautismo confirmado" : (current?.evaluatedAt ? "Evaluación registrada" : "Evaluación pendiente")),
+      approvedLabels,
+      approvedCount: approvedLabels.length,
+      enrollments: sorted
+    };
+  }).filter((journey) => {
+    if (status !== "ALL" && String(journey.currentStepStatus || "").toUpperCase() !== status) {
+      return false;
+    }
+
+    const haystack = normalizeText([
+      journey.personId,
+      journey.personName,
+      journey.personNumber,
+      journey.personPhone,
+      journey.currentStepName,
+      journey.currentStepStatus,
+      journey.seasonName,
+      journey.approvedLabels.join(" ")
+    ].join(" "));
+
+    return !search || haystack.includes(search);
+  }).sort((left, right) => String(left.personName || "").localeCompare(String(right.personName || "")));
+}
+
+function renderFormationJourneyRow_(journey) {
+  const approvedPreview = journey.approvedLabels.length
+    ? journey.approvedLabels.slice(0, 4).map((label) => `<span class="formation-journey-chip">${escapeHtml(label)}</span>`).join("")
+    : `<span class="formation-journey-chip is-empty">Todavía no acredita pasos</span>`;
+  const attendance = journey.currentAttendance || {
+    attendedSessions: 0,
+    totalSessions: 0,
+    completed: false
+  };
+  const attendanceSummary = `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} asistencias`;
+
+  return `
+    <article class="formation-journey-row">
+      <div class="formation-journey-main">
+        <small>Congregante</small>
+        <strong>${escapeHtml(journey.personName || "Congregante")}</strong>
+        <div class="formation-journey-inline">
+          ${journey.personNumber ? `<span class="formation-journey-chip">${escapeHtml(journey.personNumber)}</span>` : ""}
+          <span class="formation-journey-chip">QR ${escapeHtml(journey.personId || "-")}</span>
+          ${journey.personPhone ? `<span class="formation-journey-chip">${escapeHtml(journey.personPhone)}</span>` : ""}
+          <span class="formation-journey-chip">${escapeHtml(journey.seasonName || "Sin temporada")}</span>
+        </div>
+      </div>
+      <div class="formation-journey-stage">
+        <small>Paso que cursa</small>
+        <div class="formation-journey-stage-head">
+          <strong>${escapeHtml(journey.currentStepName || "Sin paso")}</strong>
+          <div>${renderWorkflowStatusPill_(journey.currentStepStatus || "EN_CURSO")}</div>
+        </div>
+        <span>${escapeHtml(attendanceSummary)}</span>
+        <span>${escapeHtml(journey.currentEvaluation || "Seguimiento pendiente")}</span>
+      </div>
+      <div class="formation-journey-approved">
+        <small>Pasos ya aprobados</small>
+        <div class="formation-journey-approved-list">${approvedPreview}</div>
+        <span>${escapeHtml(`${journey.approvedCount || 0} paso(s) acreditado(s) hasta ahora`)}</span>
+      </div>
+      <div class="formation-journey-actions">
+        <small>Acciones</small>
+        <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(journey.personId || "")}">Gestionar portal</button>
+        <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(journey.personId || "")}">Ver perfil</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderFormationOperationsWorkspace_(context) {
+  const selectedProcess = getSelectedFormationProcess_();
+  const summary = buildFormationOperationsSummary_();
+  const journeyRows = buildFormationJourneyRows_(state.formationProcessRoster);
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-operations-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>Camino Proceso de Formación</h2>
+          <p>Esta ficha muestra de forma clara quién ya está inscrito, cuál es el paso que cursa hoy y cuántos pasos ya acreditó dentro de su camino.</p>
+        </div>
+        <div class="actions-row">
+          <span class="status-chip neutral">${escapeHtml(String(journeyRows.length))} inscritos visibles</span>
+          <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar camino</button>
+        </div>
+      </div>
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip warning">Procesos</span>
+          <strong>${escapeHtml(String(summary.processes || 0))}</strong>
+          <span>Procesos creados y listos para operar dentro del discipulado.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip neutral">Pasos operativos</span>
+          <strong>${escapeHtml(String(summary.offerings || 0))}</strong>
+          <span>Pasos programados con sus sesiones para registrar avance real.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip success">Acreditados</span>
+          <strong>${escapeHtml(String(summary.approved || 0))}</strong>
+          <span>Inscripciones que ya cumplieron la regla del paso actual.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip dark">En curso</span>
+          <strong>${escapeHtml(String(summary.inProgress || 0))}</strong>
+          <span>Siguen tomando sesiones o están pendientes de validación pastoral.</span>
+        </article>
+      </div>
+
+      <div class="summary-strip">
+        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedProcess?.name || "Selecciona un proceso")}</span>
+        <span class="context-item"><strong>En esta vista:</strong> revisas el camino y entras al portal o perfil del inscrito sin saturar la pantalla.</span>
+        <span class="context-item"><strong>Lectura rápida:</strong> aprobado, paso actual y seguimiento en un solo renglón.</span>
+      </div>
+
+      <div class="field-grid two formation-ops-toolbar">
+        <div class="field">
+          <label for="formation-ops-process">Proceso de Formación</label>
+          <select id="formation-ops-process">
+            ${renderOptions(
+              state.formationProcesses.map((process) => ({
+                value: process.id,
+                label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
+              })),
+              selectedProcess?.id || state.filters.formationOps.processId,
+              "Selecciona proceso"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-level">Paso del proceso</label>
+          <select id="formation-ops-level">
+            ${renderOptions(
+              getFormationSortedLevels_().map((level) => ({
+                value: level.id,
+                label: `${level.name} (${level.order})`
+              })),
+              state.filters.formationOps.levelId,
+              "Todos los pasos"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-enrollment-status">Estatus</label>
+          <select id="formation-ops-enrollment-status">
+            ${renderOptions([
+              { value: "ALL", label: "Todos los estatus" },
+              { value: "EN_CURSO", label: "En curso" },
+              { value: "ACREDITADO", label: "Acreditado" },
+              { value: "NO_ACREDITADO", label: "No acreditado" }
+            ], state.filters.formationOps.enrollmentStatus, "Todos los estatus")}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-search">Buscar inscrito</label>
+          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, teléfono o paso actual">
+        </div>
+      </div>
+    </article>
+
+    <article class="detail-card formation-journey-board">
+      <div class="panel-head">
+        <div>
+          <h2>Listado del camino</h2>
+          <p>Solo se muestra lo necesario: identidad, paso actual, pasos acreditados y acciones rápidas.</p>
+        </div>
+        ${selectedProcess ? `<span class="pill warning">${escapeHtml(selectedProcess.name || "Proceso")}</span>` : `<span class="pill dark">Sin proceso</span>`}
+      </div>
+
+      ${journeyRows.length ? `
+        <div class="formation-journey-list">
+          ${journeyRows.map((journey) => renderFormationJourneyRow_(journey)).join("")}
+        </div>
+      ` : `
+        <div class="empty-state">Todavía no hay inscritos visibles para el proceso y filtros actuales.</div>
+      `}
+    </article>
+  `;
+}
+
+function renderFormationPortalWorkspace_(context) {
+  const selectedProcess = getSelectedFormationProcess_();
+  const selectedOffering = getSelectedFormationOffering_();
+  const filteredOfferings = getFilteredFormationOfferings_();
+  const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-portal-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>Inscritos y portal</h2>
+          <p>Desde aquí revisas a todos los inscritos del paso seleccionado, abres su cuenta en un modal limpio y compartes acceso o QR sin quitar espacio al listado.</p>
+        </div>
+        <div class="actions-row">
+          <span class="status-chip neutral">${escapeHtml(String(roster.length))} inscritos visibles</span>
+          <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar inscritos</button>
+        </div>
+      </div>
+
+      <div class="summary-strip">
+        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedProcess?.name || "Selecciona proceso")}</span>
+        <span class="context-item"><strong>Paso activo:</strong> ${escapeHtml(selectedOffering?.name || selectedOffering?.levelName || "Selecciona paso")}</span>
+        <span class="context-item"><strong>Portal:</strong> la cuenta se genera automáticamente al momento de inscribir al congregante.</span>
+        <span class="context-item"><strong>Vista limpia:</strong> usa “Gestionar” para abrir el modal sin encimar información.</span>
+      </div>
+
+      <div class="field-grid two formation-ops-toolbar">
+        <div class="field">
+          <label for="formation-ops-process">Proceso de Formación</label>
+          <select id="formation-ops-process">
+            ${renderOptions(
+              state.formationProcesses.map((process) => ({
+                value: process.id,
+                label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
+              })),
+              selectedProcess?.id || state.filters.formationOps.processId,
+              "Selecciona proceso"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-level">Paso del proceso</label>
+          <select id="formation-ops-level">
+            ${renderOptions(
+              getFormationSortedLevels_().map((level) => ({
+                value: level.id,
+                label: `${level.name} (${level.order})`
+              })),
+              state.filters.formationOps.levelId,
+              "Todos los pasos"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-offering">Paso en operación</label>
+          <select id="formation-ops-offering">
+            ${renderOptions(
+              filteredOfferings.map((offering) => ({
+                value: offering.id,
+                label: `${offering.levelName} | ${offering.name}`
+              })),
+              selectedOffering?.id || state.filters.formationOps.offeringId,
+              "Selecciona paso"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-ops-enrollment-status">Estatus de inscritos</label>
+          <select id="formation-ops-enrollment-status">
+            ${renderOptions([
+              { value: "ALL", label: "Todos los estatus" },
+              { value: "EN_CURSO", label: "En curso" },
+              { value: "ACREDITADO", label: "Acreditado" },
+              { value: "NO_ACREDITADO", label: "No acreditado" }
+            ], state.filters.formationOps.enrollmentStatus, "Todos los estatus")}
+          </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="formation-ops-search">Buscar inscrito</label>
+          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, paso o teléfono">
+        </div>
+      </div>
+    </article>
+
+    <article class="detail-card formation-portal-roster-card">
+      <div class="panel-head">
+        <div>
+          <h2>Listado de inscritos</h2>
+          <p>Consulta el estado del inscrito y entra a un modal con cuenta, PIN, portal espejo y QR.</p>
+        </div>
+        ${selectedOffering ? `<span class="pill warning">${escapeHtml(selectedOffering.name || "Paso")}</span>` : `<span class="pill dark">Sin paso seleccionado</span>`}
+      </div>
+
+      ${selectedOffering ? `
+        <div class="summary-strip">
+          <span class="context-item"><strong>Paso:</strong> ${escapeHtml(selectedOffering.name || "Sin paso")}</span>
+          <span class="context-item"><strong>Catálogo:</strong> ${escapeHtml(selectedOffering.levelName || "Sin nivel")}</span>
+          <span class="context-item"><strong>Líder:</strong> ${escapeHtml(selectedOffering.leaderName || "Sin líder")}</span>
+          <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(selectedOffering.totalSessions || 0))}</span>
+        </div>
+
+        <div class="actions-row formation-portal-roster-toolbar">
+          <button class="btn btn-secondary" data-action="download-formation-portal-qr-batch" ${roster.length ? "" : "disabled"}>Preparar QR masivos</button>
+          <span class="footer-note">Salida rápida para compartir: primero abre el chat correcto y luego descarga o comparte el QR correspondiente.</span>
         </div>
 
         ${roster.length ? `
@@ -9254,6 +9461,13 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             </div>
           </div>
 
+          <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
+            <span class="formation-scan-inline-badge">${escapeHtml(scanBadge)}</span>
+            <strong>${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
+            <span>${escapeHtml(scanMessage)}</span>
+            <small>${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}${scanResult?.participantId ? ` · ${scanResult.participantId}` : ""}</small>
+          </div>
+
           <div class="kiosk-scanner-meta">
             <span class="status-chip ${state.qrScanner.enabled ? "success" : "neutral"}">${state.qrScanner.enabled ? "Cámara activa" : "Cámara apagada"}</span>
             <span class="kiosk-camera-note">Vista actual: ${escapeHtml(activeCameraLabel)}</span>
@@ -9290,30 +9504,6 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             <span>${escapeHtml(scanResult?.timestampLabel || "Sin última lectura")}</span>
           </div>
         </aside>
-      </div>
-
-      <div class="formation-scan-activity">
-        <div class="panel-head">
-          <div>
-            <h3>Actividad reciente</h3>
-            <p>Así el líder confirma rápido quién acaba de entrar al curso y en qué sesión quedó guardado.</p>
-          </div>
-          <span class="pill neutral">${escapeHtml(String(activity.length))} recientes</span>
-        </div>
-
-        ${activity.length ? `
-          <div class="formation-scan-activity-list">
-            ${activity.map((item) => `
-              <article class="formation-scan-activity-item">
-                <strong>${escapeHtml(item.name || "Congregante")}</strong>
-                <span>${escapeHtml(item.groupName || selectedOffering.name || selectedOffering.levelName || "Nivel en operación")}</span>
-                <span>${escapeHtml(item.sessionName || `Sesión ${currentSessionNumber}`)} | ${escapeHtml(item.timestampLabel || "-")}</span>
-              </article>
-            `).join("")}
-          </div>
-        ` : `
-          <div class="empty-state">Todavía no hay lecturas recientes en este paso en operación.</div>
-        `}
       </div>
       `}
     </div>
@@ -16984,7 +17174,7 @@ function buildQrFailureResult_(error, personId) {
 
 function buildFormationQrFailureResult_(error, personId) {
   const normalizedCode = error instanceof ApiError ? String(error.code || "").toUpperCase() : "UNEXPECTED_ERROR";
-  const tone = normalizedCode === "DUPLICATE_FORMATION_QR_ATTENDANCE" ? "warning" : "error";
+  const tone = "error";
   const fallbackMeta = resolveFormationQrScanMeta_(personId);
   const titleMap = {
     DUPLICATE_FORMATION_QR_ATTENDANCE: "Asistencia ya registrada",
@@ -18286,27 +18476,10 @@ async function handleClick(event) {
       if (state.ui.formationSection === "route") {
         clearFormationProfileSelection_();
       }
-      if (state.ui.formationSection === "cases") {
-        await loadFormationRecords_({
-          message: "Cargando casos formativos..."
-        });
-      }
-      if (state.ui.formationSection === "attendance" || state.ui.formationSection === "operations" || state.ui.formationSection === "portal") {
-        await ensureFormationOperationsViewData_({
-          message: state.ui.formationSection === "attendance" ? "Preparando asistencias del proceso..." : "Preparando operación formativa...",
-          includeProcessRoster: false,
-          includePeopleDirectory: state.ui.formationSection !== "attendance"
-        });
-        if (state.ui.formationSection === "portal") {
-          ensureFormationPortalDefaultOffering_();
-        }
-      }
-      if (state.ui.formationSection === "levels") {
-        await loadFormationLevelsWorkspaceData_({
-          showLoading: false,
-          processId: state.filters.formationOps.processId || ""
-        });
-      }
+      await ensureFormationViewData_({
+        force: false,
+        showLoading: false
+      });
       renderApp();
       scrollViewportToTop_();
       return;
@@ -18333,7 +18506,7 @@ async function handleClick(event) {
         state.ui.selectedWelcomeFollowupId = "";
       }
       if (state.currentView === "formation") {
-        state.ui.formationSection = "attendance";
+        state.ui.formationSection = "route";
         clearFormationProfileSelection_();
         state.filters.formationOps.personSearch = "";
         state.formationProcessRoster = [];
@@ -19812,12 +19985,24 @@ async function handleClick(event) {
           processId: state.filters.formationOps.processId || "",
           sessionNumber: state.filters.formationOps.sessionNumber || "1"
         });
-      } else {
-        await ensureFormationOperationsViewData_({
+      } else if (state.ui.formationSection === "portal") {
+        await ensureFormationPortalSectionData_({
+          force: true
+        });
+      } else if (state.ui.formationSection === "operations") {
+        await ensureFormationJourneySectionData_({
+          force: true
+        });
+      } else if (state.ui.formationSection === "levels") {
+        await loadFormationLevelsWorkspaceData_({
           force: true,
-          message: "Actualizando operación formativa...",
-          includeProcessRoster: false,
-          includePeopleDirectory: true
+          showLoading: false,
+          processId: state.filters.formationOps.processId || ""
+        });
+      } else {
+        await ensureFormationViewData_({
+          force: true,
+          showLoading: false
         });
       }
       if (state.ui.formationSection === "portal") {
@@ -19997,7 +20182,7 @@ async function handleClick(event) {
     }
 
     if (action === "edit-formation-record") {
-      state.ui.formationSection = "cases";
+      state.ui.formationSection = "route";
       state.ui.editingFormationRecordId = String(button.dataset.recordId || "");
       state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       await loadFormationProfile_(state.ui.selectedFormationPersonId, {
@@ -20756,6 +20941,7 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-process") {
+      const activeFormationSection = getActiveFormationSection_();
       state.filters.formationOps.processId = target.value || "";
       state.filters.formationOps.levelId = "";
       state.filters.formationOps.offeringId = "";
@@ -20763,26 +20949,30 @@ async function handleChange(event) {
       state.ui.editingFormationOfferingId = "";
       state.qrScanner.result = null;
       state.formationQrActivity = [];
-      await loadFormationAttendanceBootstrap_({
-        force: true,
-        showLoading: false,
-        processId: state.filters.formationOps.processId
-      });
-      if (getActiveFormationSection_() === "attendance") {
+      if (activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
           sessionNumber: "1"
         });
-      } else {
-        const selectedOffering = getSelectedFormationOffering_();
-        await loadFormationOperationsData_({
+      } else if (activeFormationSection === "portal") {
+        await ensureFormationPortalSectionData_({
           force: true,
           showLoading: false,
           processId: state.filters.formationOps.processId,
-          levelId: state.filters.formationOps.levelId,
-          offeringId: selectedOffering?.id || "",
           sessionNumber: "1"
+        });
+      } else if (activeFormationSection === "operations") {
+        await ensureFormationJourneySectionData_({
+          force: true,
+          showLoading: false,
+          processId: state.filters.formationOps.processId
+        });
+      } else {
+        await loadFormationAttendanceBootstrap_({
+          force: true,
+          showLoading: false,
+          processId: state.filters.formationOps.processId
         });
       }
       renderApp();
@@ -20801,30 +20991,38 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-level") {
+      const activeFormationSection = getActiveFormationSection_();
       state.filters.formationOps.levelId = target.value;
       state.filters.formationOps.offeringId = "";
       state.ui.selectedFormationOfferingId = "";
       state.qrScanner.result = null;
       state.formationQrActivity = [];
-      await loadFormationAttendanceBootstrap_({
-        force: true,
-        showLoading: false,
-        processId: state.filters.formationOps.processId
-      });
-      if (getActiveFormationSection_() === "attendance") {
+      if (activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
-      } else {
-        const selectedOffering = getSelectedFormationOffering_();
-        await loadFormationOperationsData_({
-          force: false,
+      } else if (activeFormationSection === "portal") {
+        await ensureFormationPortalSectionData_({
+          force: true,
+          showLoading: false,
+          processId: state.filters.formationOps.processId,
+          levelId: state.filters.formationOps.levelId,
+          sessionNumber: state.filters.formationOps.sessionNumber
+        });
+      } else if (activeFormationSection === "operations") {
+        await ensureFormationJourneySectionData_({
+          force: true,
           showLoading: false,
           levelId: state.filters.formationOps.levelId,
-          offeringId: selectedOffering?.id || "",
           sessionNumber: state.filters.formationOps.sessionNumber
+        });
+      } else {
+        await loadFormationAttendanceBootstrap_({
+          force: true,
+          showLoading: false,
+          processId: state.filters.formationOps.processId
         });
       }
 
@@ -20833,22 +21031,24 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-offering") {
+      const activeFormationSection = getActiveFormationSection_();
       state.filters.formationOps.offeringId = target.value;
       state.ui.selectedFormationOfferingId = target.value;
       state.qrScanner.result = null;
       state.formationQrActivity = [];
-      if (getActiveFormationSection_() === "attendance") {
+      if (activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
-      } else {
+      } else if (activeFormationSection === "portal") {
         await loadFormationOperationsData_({
           force: false,
           showLoading: false,
           offeringId: state.filters.formationOps.offeringId,
-          sessionNumber: state.filters.formationOps.sessionNumber
+          sessionNumber: state.filters.formationOps.sessionNumber,
+          loadAttendanceContext: false
         });
       }
 
@@ -20861,7 +21061,7 @@ async function handleChange(event) {
       state.qrScanner.result = null;
       state.formationQrActivity = [];
 
-      if (state.filters.formationOps.offeringId) {
+      if (getActiveFormationSection_() === "attendance" && state.filters.formationOps.offeringId) {
         await loadFormationAttendanceContext_(state.filters.formationOps.offeringId, {
           force: true,
           showLoading: false,
@@ -22529,11 +22729,9 @@ async function loadFormationAttendanceSectionData_(options = {}) {
     : [];
   state.loaded.formationEnrollments = true;
   state.cacheKeys.formationEnrollments = `ATTENDANCE::${selectedOffering.id}::${state.filters.formationOps.sessionNumber || "1"}`;
-
-  await loadFormationAttendanceTransitionRoster_({
-    force: options.force,
-    showLoading: false
-  });
+  state.formationProcessRoster = [];
+  state.loaded.formationProcessRoster = false;
+  state.cacheKeys.formationProcessRoster = "";
 }
 
 async function loadFormationProcessRoster_(processId, options = {}) {
@@ -22661,6 +22859,7 @@ async function loadFormationOperationsData_(options = {}) {
   const requestedLevelId = String(options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""));
   const requestedOfferingId = String(options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""));
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
+  const shouldLoadAttendanceContext = options.loadAttendanceContext !== false;
   const offeringsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}`;
   const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "AUTO"}::${requestedSessionNumber || "1"}`;
 
@@ -22673,11 +22872,15 @@ async function loadFormationOperationsData_(options = {}) {
   ) {
     syncFormationOperationsSelection_();
 
-    if (requestedOfferingId || state.filters.formationOps.offeringId) {
+    if (shouldLoadAttendanceContext && (requestedOfferingId || state.filters.formationOps.offeringId)) {
       await loadFormationAttendanceContext_(requestedOfferingId || state.filters.formationOps.offeringId, {
         showLoading: false,
         sessionNumber: requestedSessionNumber
       });
+    } else if (!shouldLoadAttendanceContext) {
+      state.formationAttendanceContext = null;
+      state.loaded.formationAttendanceContext = false;
+      state.cacheKeys.formationAttendanceContext = "";
     }
 
     return;
@@ -22783,7 +22986,7 @@ async function loadFormationOperationsData_(options = {}) {
     state.loaded.formationEnrollments = true;
     state.cacheKeys.formationEnrollments = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${effectiveOfferingId || "ALL"}::${requestedSessionNumber || "1"}`;
 
-    if (effectiveOfferingId) {
+    if (effectiveOfferingId && shouldLoadAttendanceContext) {
       await loadFormationAttendanceContext_(effectiveOfferingId, {
         force: options.force,
         showLoading: false,
@@ -23042,8 +23245,11 @@ async function ensureFormationOperationsViewData_(options = {}) {
     await loadFormationOperationsData_({
       force: options.force,
       showLoading: false,
+      processId: options.processId,
+      levelId: options.levelId,
       offeringId: options.offeringId,
-      sessionNumber: options.sessionNumber
+      sessionNumber: options.sessionNumber,
+      loadAttendanceContext: options.loadAttendanceContext
     });
 
     if (options.includeProcessRoster) {
@@ -23061,10 +23267,55 @@ async function ensureFormationOperationsViewData_(options = {}) {
   return withLoading(task, options.message || "Preparando operación formativa...");
 }
 
+async function ensureFormationPortalSectionData_(options = {}) {
+  await ensureFormationOperationsViewData_({
+    force: options.force,
+    showLoading: false,
+    processId: state.filters.formationOps.processId || "",
+    levelId: state.filters.formationOps.levelId || "",
+    offeringId: state.filters.formationOps.offeringId || "",
+    sessionNumber: state.filters.formationOps.sessionNumber || "1",
+    includeProcessRoster: false,
+    includePeopleDirectory: false,
+    loadAttendanceContext: false
+  });
+
+  ensureFormationPortalDefaultOffering_();
+}
+
+async function ensureFormationJourneySectionData_(options = {}) {
+  await Promise.all([
+    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+      showLoading: false
+    }),
+    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  if (!state.filters.formationOps.processId && state.formationProcesses.length) {
+    state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
+  }
+
+  await loadFormationOperationsData_({
+    force: options.force,
+    showLoading: false,
+    processId: state.filters.formationOps.processId || "",
+    levelId: state.filters.formationOps.levelId || "",
+    offeringId: "",
+    sessionNumber: state.filters.formationOps.sessionNumber || "1",
+    loadAttendanceContext: false
+  });
+
+  await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
+    force: options.force,
+    showLoading: false,
+    levelId: state.filters.formationOps.levelId || ""
+  });
+}
+
 async function ensureFormationViewData_(options = {}) {
   const activeSection = getActiveFormationSection_();
-  const requestedSeasonId = ensureValidSeasonId(state.filters.formation.seasonId) || getLatestSeason()?.id || "";
-  const shouldLoadRecords = activeSection === "cases";
 
   if (activeSection === "attendance") {
     await loadFormationAttendanceSectionData_({
@@ -23075,24 +23326,13 @@ async function ensureFormationViewData_(options = {}) {
     return;
   }
 
-  if (activeSection === "operations" || activeSection === "portal") {
-    await Promise.all([
-      state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
-        showLoading: false
-      }),
-      state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
-        showLoading: false
-      })
-    ]);
+  if (activeSection === "portal") {
+    await ensureFormationPortalSectionData_(options);
+    return;
+  }
 
-    await ensureFormationOperationsViewData_({
-      force: options.force,
-      showLoading: false,
-      offeringId: options.offeringId,
-      sessionNumber: options.sessionNumber,
-      includeProcessRoster: false,
-      includePeopleDirectory: activeSection !== "attendance"
-    });
+  if (activeSection === "operations") {
+    await ensureFormationJourneySectionData_(options);
     return;
   }
 
@@ -23120,27 +23360,11 @@ async function ensureFormationViewData_(options = {}) {
     })
   ]);
 
-  if (
-    !shouldLoadRecords &&
-    (!state.loaded.formationRecords || String(state.cacheKeys.formationRecords || "") !== String(requestedSeasonId || ""))
-  ) {
-    invalidateFormationRecordsCache_({
-      clearData: true
-    });
-  }
-
   await loadFormationData_({
     ...options,
     includeCandidates: true,
-    includeRecords: shouldLoadRecords
+    includeRecords: false
   });
-
-  if (activeSection === "operations") {
-    await ensureFormationOperationsViewData_({
-      force: options.force,
-      showLoading: false
-    });
-  }
 
   if (!state.ui.selectedFormationPersonId) {
     state.formationProfile = null;
@@ -23291,7 +23515,7 @@ async function continueConnectionEncounterEnrollment_() {
 
   state.ui.connectionEncounterModal = null;
   state.currentView = "formation";
-  state.ui.formationSection = "operations";
+  state.ui.formationSection = "portal";
   state.filters.formation.seasonId = modalState.seasonId || state.filters.formation.seasonId;
   state.filters.formationOps.processId = modalState.processId;
   renderApp();
@@ -23301,7 +23525,7 @@ async function continueConnectionEncounterEnrollment_() {
     force: false
   });
   await registerFormationEncounter_(modalState.candidate);
-  scrollToSection_("formation-operations-workspace");
+  scrollToSection_("formation-portal-workspace");
 }
 
 async function openFormationProfile_(personId, options = {}) {
@@ -25210,7 +25434,7 @@ async function saveFormationRecord_(rawPayload) {
 
   state.ui.selectedFormationPersonId = payload.personId;
   state.ui.editingFormationRecordId = "";
-  state.ui.formationSection = "cases";
+  state.ui.formationSection = "route";
   showToast("Caso guardado", "El proceso formativo quedó actualizado y ya se reflejó en el historial.", "success");
   renderApp();
 }
@@ -31050,7 +31274,6 @@ async function applyFormationFilters_(options = {}) {
   const seasonChanged = nextSeasonId !== previousSeasonId;
   const nextGroupId = String(draft.groupId || "");
   const shouldSyncCandidates = Boolean(options.syncCandidates);
-  const shouldLoadRecords = getActiveFormationSection_() === "cases";
   const syncMessage = shouldSyncCandidates
     ? (nextGroupId ? "Actualizando grupo..." : "Actualizando todos los grupos...")
     : "Aplicando filtro...";
@@ -31070,12 +31293,6 @@ async function applyFormationFilters_(options = {}) {
     state.ui.editingFormationRecordId = "";
     state.formationProfile = null;
 
-    if (!shouldLoadRecords) {
-      invalidateFormationRecordsCache_({
-        clearData: true
-      });
-    }
-
     await runFormationFilterTask_(shouldSyncCandidates ? syncMessage : "Aplicando temporada...", async () => {
       await loadFormationData_({
         force: true,
@@ -31083,7 +31300,7 @@ async function applyFormationFilters_(options = {}) {
         syncCandidates: shouldSyncCandidates,
         groupId: nextGroupId,
         includeCandidates: true,
-        includeRecords: shouldLoadRecords
+        includeRecords: false
       });
       syncFormationSelectionAfterFilter_();
       if (state.ui.selectedFormationPersonId) {
@@ -31105,7 +31322,7 @@ async function applyFormationFilters_(options = {}) {
         syncCandidates: true,
         groupId: nextGroupId,
         includeCandidates: true,
-        includeRecords: shouldLoadRecords
+        includeRecords: false
       });
     }
 
