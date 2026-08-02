@@ -27926,13 +27926,36 @@ async function detectQrFromVideo_(video) {
 }
 
 async function detectQrWithNativeDetector_(video) {
-  if (!qrScannerRuntime.detector || typeof qrScannerRuntime.detector.detect !== "function") {
+  const width = video.videoWidth || video.clientWidth;
+  const height = video.videoHeight || video.clientHeight;
+
+  if (
+    !qrScannerRuntime.detector
+    || typeof qrScannerRuntime.detector.detect !== "function"
+    || !width
+    || !height
+  ) {
     return "";
   }
 
-  const codes = await Promise.resolve(qrScannerRuntime.detector.detect(video));
-  const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
-  return detectedCode?.rawValue ? String(detectedCode.rawValue).trim() : "";
+  const regions = buildPreferredQrScanRegions_(width, height, 960);
+
+  for (const region of regions) {
+    const canvas = drawQrRegionToCanvas_(video, region);
+    if (!canvas) {
+      continue;
+    }
+
+    const codes = await Promise.resolve(qrScannerRuntime.detector.detect(canvas));
+    const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
+    if (detectedCode?.rawValue) {
+      return String(detectedCode.rawValue).trim();
+    }
+  }
+
+  const fullFrameCodes = await Promise.resolve(qrScannerRuntime.detector.detect(video));
+  const fullFrameMatch = Array.isArray(fullFrameCodes) ? fullFrameCodes.find((item) => item?.rawValue) : null;
+  return fullFrameMatch?.rawValue ? String(fullFrameMatch.rawValue).trim() : "";
 }
 
 function detectQrWithJsQrFallback_(video) {
@@ -27943,28 +27966,7 @@ function detectQrWithJsQrFallback_(video) {
     return "";
   }
 
-  const targetMax = 1120;
-  const targetScale = Math.min(1, targetMax / Math.max(width, height));
-  const targetWidth = Math.max(320, Math.round(width * targetScale));
-  const targetHeight = Math.max(320, Math.round(height * targetScale));
-  const regions = [
-    {
-      sx: Math.round(width * 0.14),
-      sy: Math.round(height * 0.14),
-      sw: Math.round(width * 0.72),
-      sh: Math.round(height * 0.72),
-      dw: targetWidth,
-      dh: targetHeight
-    },
-    {
-      sx: 0,
-      sy: 0,
-      sw: width,
-      sh: height,
-      dw: targetWidth,
-      dh: targetHeight
-    }
-  ];
+  const regions = buildPreferredQrScanRegions_(width, height, 1120);
 
   for (const region of regions) {
     const decoded = decodeQrFromVideoRegion_(video, region);
@@ -27976,9 +27978,49 @@ function detectQrWithJsQrFallback_(video) {
   return "";
 }
 
-function decodeQrFromVideoRegion_(video, region) {
-  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
-    return "";
+function buildPreferredQrScanRegions_(width, height, targetMax = 960) {
+  const buildRegion = (marginX, marginY) => {
+    const sx = Math.max(0, Math.round(width * marginX));
+    const sy = Math.max(0, Math.round(height * marginY));
+    const sw = Math.max(220, Math.round(width * (1 - (marginX * 2))));
+    const sh = Math.max(220, Math.round(height * (1 - (marginY * 2))));
+    const scale = Math.min(1, targetMax / Math.max(sw, sh));
+
+    return {
+      sx,
+      sy,
+      sw: Math.min(sw, width - sx),
+      sh: Math.min(sh, height - sy),
+      dw: Math.max(260, Math.round(sw * scale)),
+      dh: Math.max(260, Math.round(sh * scale))
+    };
+  };
+
+  return [
+    buildRegion(0.18, 0.16),
+    buildRegion(0.14, 0.12),
+    buildRegion(0.22, 0.20),
+    {
+      sx: 0,
+      sy: 0,
+      sw: width,
+      sh: height,
+      dw: Math.max(320, Math.min(targetMax, width)),
+      dh: Math.max(320, Math.min(targetMax, height))
+    }
+  ];
+}
+
+function drawQrRegionToCanvas_(video, region) {
+  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context) {
+    qrScannerRuntime.canvas = document.createElement("canvas");
+    qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
+      willReadFrequently: true
+    });
+  }
+
+  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context) {
+    return null;
   }
 
   const canvasWidth = Math.max(200, Math.round(region.dw || region.sw || 0));
@@ -28002,6 +28044,21 @@ function decodeQrFromVideoRegion_(video, region) {
     canvasHeight
   );
 
+  return qrScannerRuntime.canvas;
+}
+
+function decodeQrFromVideoRegion_(video, region) {
+  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+    return "";
+  }
+
+  const canvas = drawQrRegionToCanvas_(video, region);
+  if (!canvas) {
+    return "";
+  }
+
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
   const imageData = qrScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
   const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
     inversionAttempts: "attemptBoth"
@@ -32310,23 +32367,30 @@ async function optimizeQrCameraTrack_(stream, cameraFacing = "rear") {
     return;
   }
 
-  const advanced = [];
+  const tuning = {};
   if (supportsQrTrackMode_(capabilities?.focusMode, "continuous")) {
-    advanced.push({ focusMode: "continuous" });
+    tuning.focusMode = "continuous";
   }
   if (supportsQrTrackMode_(capabilities?.exposureMode, "continuous")) {
-    advanced.push({ exposureMode: "continuous" });
+    tuning.exposureMode = "continuous";
   }
   if (supportsQrTrackMode_(capabilities?.whiteBalanceMode, "continuous")) {
-    advanced.push({ whiteBalanceMode: "continuous" });
+    tuning.whiteBalanceMode = "continuous";
+  }
+  if (cameraFacing !== "front" && capabilities?.zoom && typeof capabilities.zoom.max === "number") {
+    const minZoom = typeof capabilities.zoom.min === "number" ? capabilities.zoom.min : 1;
+    const maxZoom = capabilities.zoom.max;
+    if (maxZoom >= 1.1) {
+      tuning.zoom = Math.min(Math.max(1.15, minZoom), maxZoom);
+    }
   }
 
-  if (!advanced.length) {
+  if (!Object.keys(tuning).length) {
     return;
   }
 
   try {
-    await track.applyConstraints({ advanced });
+    await track.applyConstraints({ advanced: [tuning] });
   } catch (error) {
     // Si el dispositivo no soporta estos ajustes finos, seguimos con el stream base.
   }
