@@ -9481,10 +9481,10 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           </div>
 
           <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
-            <span class="formation-scan-inline-badge">${escapeHtml(scanBadge)}</span>
-            <strong>${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
-            <span>${escapeHtml(scanMessage)}</span>
-            <small>${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}${scanResult?.participantId ? ` · ${scanResult.participantId}` : ""}</small>
+            <span class="formation-scan-inline-badge" data-qr-feedback="badge">${escapeHtml(scanBadge)}</span>
+            <strong data-qr-feedback="name">${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
+            <span data-qr-feedback="message">${escapeHtml(scanMessage)}</span>
+            <small data-qr-feedback="meta">${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}${scanResult?.participantId ? ` · ${scanResult.participantId}` : ""}</small>
           </div>
         </div>
       </div>
@@ -27553,7 +27553,7 @@ async function registerQrAttendance(personId, options = {}) {
       ].slice(0, 8);
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
-      renderApp();
+      syncQrScannerLiveFeedback_();
       scheduleQrScannerResultReset_(3000);
       scheduleFormationAttendanceContextRefresh_(
         formationContext.offeringId,
@@ -27584,7 +27584,7 @@ async function registerQrAttendance(personId, options = {}) {
         throw error;
       }
 
-      renderApp();
+      syncQrScannerLiveFeedback_();
     }
 
     return;
@@ -27827,6 +27827,78 @@ function buildQrScannerReadyMessage_() {
     : `Lector listo con cámara ${cameraLabel}. Presenta el siguiente QR para registrar la asistencia.`;
 }
 
+function getQrScannerLiveState_() {
+  const tone = state.qrScanner.result?.tone || (state.qrScanner.enabled ? "live" : "idle");
+  const badge = state.qrScanner.result?.badge || (state.qrScanner.enabled
+    ? (resolveFormationAttendanceMode_() === "kiosk" ? "Kiosko activo" : "Escaneo activo")
+    : "Cámara en espera");
+  const name = state.qrScanner.result?.name || (
+    state.qrScanner.enabled
+      ? "Esperando siguiente QR"
+      : "Activa la sesión para comenzar"
+  );
+  const message = state.qrScanner.result?.message || (
+    state.qrScanner.enabled
+      ? "La cámara está lista. Acerca el QR y espera la confirmación en verde o rojo."
+      : "Activa la cámara para comenzar a registrar asistencias del curso."
+  );
+  const sessionName = state.qrScanner.result?.sessionName || `Sesión ${state.filters.formationOps.sessionNumber || "1"}`;
+  const participantId = state.qrScanner.result?.participantId || "";
+
+  return {
+    tone,
+    badge,
+    name,
+    message,
+    meta: participantId ? `${sessionName} · ${participantId}` : sessionName
+  };
+}
+
+function syncQrScannerLiveFeedback_() {
+  const stateSnapshot = getQrScannerLiveState_();
+  const frame = document.querySelector("#formation-operations-attendance .kiosk-scanner-frame");
+  if (frame instanceof HTMLElement) {
+    frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
+    frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
+  }
+
+  const inline = document.querySelector("#formation-operations-attendance .formation-scan-inline");
+  if (inline instanceof HTMLElement) {
+    inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+    inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
+  }
+
+  const badgeNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="badge"]');
+  if (badgeNode instanceof HTMLElement) {
+    badgeNode.textContent = stateSnapshot.badge;
+  }
+
+  const nameNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="name"]');
+  if (nameNode instanceof HTMLElement) {
+    nameNode.textContent = stateSnapshot.name;
+  }
+
+  const messageNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="message"]');
+  if (messageNode instanceof HTMLElement) {
+    messageNode.textContent = stateSnapshot.message;
+  }
+
+  const metaNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="meta"]');
+  if (metaNode instanceof HTMLElement) {
+    metaNode.textContent = stateSnapshot.meta;
+  }
+
+  const placeholder = document.querySelector("#formation-operations-attendance .kiosk-video-placeholder");
+  if (placeholder instanceof HTMLElement) {
+    placeholder.classList.toggle("hidden", Boolean(state.qrScanner.enabled));
+  }
+
+  const scanLine = document.querySelector("#formation-operations-attendance .kiosk-scan-line");
+  if (scanLine instanceof HTMLElement) {
+    scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
+  }
+}
+
 function scheduleQrScannerResultReset_(delayMs = 3000) {
   clearQrScannerResultReset_();
   qrScannerRuntime.resetResultTimeoutId = window.setTimeout(() => {
@@ -27838,7 +27910,7 @@ function scheduleQrScannerResultReset_(delayMs = 3000) {
     state.qrScanner.result = null;
     state.qrScanner.status = "scanning";
     state.qrScanner.message = buildQrScannerReadyMessage_();
-    renderApp();
+    syncQrScannerLiveFeedback_();
   }, delayMs);
 }
 
@@ -28097,7 +28169,7 @@ function processQrRawValue_(rawValue) {
     state.qrScanner.message = state.qrScanner.result.message;
     qrScannerRuntime.pausedUntil = Date.now() + 3000;
     playKioskSignal_("error");
-    renderApp();
+    syncQrScannerLiveFeedback_();
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28120,7 +28192,7 @@ function processQrRawValue_(rawValue) {
     state.qrScanner.message = state.qrScanner.result.message;
     qrScannerRuntime.pausedUntil = now + 3000;
     playKioskSignal_("error");
-    renderApp();
+    syncQrScannerLiveFeedback_();
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28132,7 +28204,7 @@ function processQrRawValue_(rawValue) {
   qrScannerRuntime.pausedUntil = now + 3000;
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
-  renderApp();
+  syncQrScannerLiveFeedback_();
   void registerQrAttendance(extractedPersonId, {
     source: "scanner",
     showLoading: false,
