@@ -27850,12 +27850,7 @@ function clearQrScannerFeedbackResult_() {
 }
 
 function renderQrScannerFeedback_() {
-  const hasVisibleScanner = Boolean(document.querySelector("#formation-operations-attendance .kiosk-scanner-frame"));
-
-  if (!hasVisibleScanner) {
-    renderApp();
-  }
-
+  renderApp();
   window.requestAnimationFrame(() => {
     syncQrScannerLiveFeedback_();
     window.setTimeout(() => {
@@ -27864,6 +27859,9 @@ function renderQrScannerFeedback_() {
     window.setTimeout(() => {
       syncQrScannerLiveFeedback_();
     }, 180);
+    window.setTimeout(() => {
+      syncQrScannerLiveFeedback_();
+    }, 420);
   });
 }
 
