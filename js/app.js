@@ -27554,6 +27554,7 @@ async function registerQrAttendance(personId, options = {}) {
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       syncQrScannerLiveFeedback_();
+      renderApp();
       scheduleQrScannerResultReset_(3000);
       scheduleFormationAttendanceContextRefresh_(
         formationContext.offeringId,
@@ -27585,6 +27586,7 @@ async function registerQrAttendance(personId, options = {}) {
       }
 
       syncQrScannerLiveFeedback_();
+      renderApp();
     }
 
     return;
@@ -27855,47 +27857,51 @@ function getQrScannerLiveState_() {
 }
 
 function syncQrScannerLiveFeedback_() {
-  const stateSnapshot = getQrScannerLiveState_();
-  const frame = document.querySelector("#formation-operations-attendance .kiosk-scanner-frame");
-  if (frame instanceof HTMLElement) {
-    frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
-    frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
-  }
+  try {
+    const stateSnapshot = getQrScannerLiveState_();
+    const frame = document.querySelector("#formation-operations-attendance .kiosk-scanner-frame");
+    if (frame instanceof HTMLElement) {
+      frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
+      frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
+    }
 
-  const inline = document.querySelector("#formation-operations-attendance .formation-scan-inline");
-  if (inline instanceof HTMLElement) {
-    inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
-    inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
-  }
+    const inline = document.querySelector("#formation-operations-attendance .formation-scan-inline");
+    if (inline instanceof HTMLElement) {
+      inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+      inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
+    }
 
-  const badgeNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="badge"]');
-  if (badgeNode instanceof HTMLElement) {
-    badgeNode.textContent = stateSnapshot.badge;
-  }
+    const badgeNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="badge"]');
+    if (badgeNode instanceof HTMLElement) {
+      badgeNode.textContent = stateSnapshot.badge;
+    }
 
-  const nameNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="name"]');
-  if (nameNode instanceof HTMLElement) {
-    nameNode.textContent = stateSnapshot.name;
-  }
+    const nameNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="name"]');
+    if (nameNode instanceof HTMLElement) {
+      nameNode.textContent = stateSnapshot.name;
+    }
 
-  const messageNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="message"]');
-  if (messageNode instanceof HTMLElement) {
-    messageNode.textContent = stateSnapshot.message;
-  }
+    const messageNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="message"]');
+    if (messageNode instanceof HTMLElement) {
+      messageNode.textContent = stateSnapshot.message;
+    }
 
-  const metaNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="meta"]');
-  if (metaNode instanceof HTMLElement) {
-    metaNode.textContent = stateSnapshot.meta;
-  }
+    const metaNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="meta"]');
+    if (metaNode instanceof HTMLElement) {
+      metaNode.textContent = stateSnapshot.meta;
+    }
 
-  const placeholder = document.querySelector("#formation-operations-attendance .kiosk-video-placeholder");
-  if (placeholder instanceof HTMLElement) {
-    placeholder.classList.toggle("hidden", Boolean(state.qrScanner.enabled));
-  }
+    const placeholder = document.querySelector("#formation-operations-attendance .kiosk-video-placeholder");
+    if (placeholder instanceof HTMLElement) {
+      placeholder.classList.toggle("hidden", Boolean(state.qrScanner.enabled));
+    }
 
-  const scanLine = document.querySelector("#formation-operations-attendance .kiosk-scan-line");
-  if (scanLine instanceof HTMLElement) {
-    scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
+    const scanLine = document.querySelector("#formation-operations-attendance .kiosk-scan-line");
+    if (scanLine instanceof HTMLElement) {
+      scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
+    }
+  } catch (error) {
+    // Si el DOM cambia durante el render, dejamos que el flujo principal siga sin bloquear el escaneo.
   }
 }
 
@@ -27903,14 +27909,15 @@ function scheduleQrScannerResultReset_(delayMs = 3000) {
   clearQrScannerResultReset_();
   qrScannerRuntime.resetResultTimeoutId = window.setTimeout(() => {
     qrScannerRuntime.resetResultTimeoutId = 0;
-    if (!state.qrScanner.enabled) {
-      return;
-    }
+      if (!state.qrScanner.enabled) {
+        return;
+      }
 
-    state.qrScanner.result = null;
-    state.qrScanner.status = "scanning";
-    state.qrScanner.message = buildQrScannerReadyMessage_();
-    syncQrScannerLiveFeedback_();
+      state.qrScanner.result = null;
+      state.qrScanner.status = "scanning";
+      state.qrScanner.message = buildQrScannerReadyMessage_();
+      syncQrScannerLiveFeedback_();
+      renderApp();
   }, delayMs);
 }
 
@@ -28170,6 +28177,7 @@ function processQrRawValue_(rawValue) {
     qrScannerRuntime.pausedUntil = Date.now() + 3000;
     playKioskSignal_("error");
     syncQrScannerLiveFeedback_();
+    renderApp();
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28193,6 +28201,7 @@ function processQrRawValue_(rawValue) {
     qrScannerRuntime.pausedUntil = now + 3000;
     playKioskSignal_("error");
     syncQrScannerLiveFeedback_();
+    renderApp();
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28205,6 +28214,7 @@ function processQrRawValue_(rawValue) {
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
   syncQrScannerLiveFeedback_();
+  renderApp();
   void registerQrAttendance(extractedPersonId, {
     source: "scanner",
     showLoading: false,
