@@ -27558,6 +27558,13 @@ async function registerQrAttendance(personId, options = {}) {
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       renderQrScannerFeedback_();
+      if (source === "scanner") {
+        showToast(
+          "Asistencia registrada",
+          `${state.qrScanner.result?.name || "Participante"} · ${state.qrScanner.result?.sessionName || `Sesión ${formationContext.sessionNumber}`}`,
+          "success"
+        );
+      }
       scheduleQrScannerResultReset_(3000);
       scheduleFormationAttendanceContextRefresh_(
         formationContext.offeringId,
@@ -27589,6 +27596,13 @@ async function registerQrAttendance(personId, options = {}) {
       }
 
       renderQrScannerFeedback_();
+      if (source === "scanner") {
+        showToast(
+          state.qrScanner.result?.title || "No se pudo registrar",
+          `${state.qrScanner.result?.name || "Participante"} · ${state.qrScanner.result?.sessionName || `Sesión ${formationContext.sessionNumber}`}`,
+          state.qrScanner.result?.tone === "warning" ? "warning" : "danger"
+        );
+      }
     }
 
     return;
@@ -28286,6 +28300,11 @@ function processQrRawValue_(rawValue) {
     qrScannerRuntime.pausedUntil = now + 3000;
     playKioskSignal_("error");
     renderQrScannerFeedback_();
+    showToast(
+      state.qrScanner.result?.title || "Asistencia ya registrada",
+      `${state.qrScanner.result?.name || "Participante"} · ${state.qrScanner.result?.sessionName || `Sesión ${state.filters.formationOps.sessionNumber || "1"}`}`,
+      "warning"
+    );
     scheduleQrScannerResultReset_(3000);
     return;
   }
