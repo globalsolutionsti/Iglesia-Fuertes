@@ -3802,6 +3802,7 @@ async function syncRuntimeAfterRender_() {
   }
 
   await ensureQrScannerStarted_();
+  syncQrScannerLiveFeedback_();
 }
 
 function renderLoginView() {
@@ -9262,6 +9263,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const scanMessage = scanResult?.message || (state.qrScanner.enabled
     ? "La cámara está lista. Acerca el QR y espera la confirmación en verde o rojo."
     : "Activa la cámara para comenzar a registrar asistencias del curso.");
+  const scannerFrameStyle = getQrScannerFrameInlineStyle_(scannerTone);
+  const scannerInlineStyle = getQrScannerInlineStyle_(scannerTone);
   const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
   const isActivatingSession = Boolean(state.ui.formationAttendanceActivating);
   const todaySession = getTodayFormationSession_(selectedOffering);
@@ -9465,7 +9468,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             ${isKiosk ? `<button class="btn btn-ghost" type="button" data-action="toggle-kiosk-fullscreen">Pantalla completa</button>` : ""}
           </div>
 
-          <div class="kiosk-scanner-frame kiosk-state-${escapeHtml(scannerTone)}">
+          <div class="kiosk-scanner-frame kiosk-state-${escapeHtml(scannerTone)}" style="${escapeHtml(scannerFrameStyle)}">
             <video id="qr-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
             <div class="kiosk-video-placeholder ${state.qrScanner.enabled ? "hidden" : ""}">
               <strong>${escapeHtml(captureEnabled ? "Cámara en espera" : "Sesión aún no activada")}</strong>
@@ -9479,14 +9482,9 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
               <span class="kiosk-scan-line ${state.qrScanner.enabled ? "" : "hidden"}"></span>
               <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
             </div>
-            <div class="kiosk-live-result kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
-              <span class="kiosk-live-result-badge" data-qr-frame-feedback="badge">${escapeHtml(scanBadge)}</span>
-              <strong data-qr-frame-feedback="name">${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
-              <small data-qr-frame-feedback="meta">${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}${scanResult?.participantId ? ` · ${scanResult.participantId}` : ""}</small>
-            </div>
           </div>
 
-          <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
+          <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}" style="${escapeHtml(scannerInlineStyle)}">
             <span class="formation-scan-inline-badge" data-qr-feedback="badge">${escapeHtml(scanBadge)}</span>
             <strong data-qr-feedback="name">${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
             <span data-qr-feedback="message">${escapeHtml(scanMessage)}</span>
@@ -27832,6 +27830,46 @@ function buildQrScannerReadyMessage_() {
   return isConnectionKiosk
     ? `Lector listo con cámara ${cameraLabel}. Alinea el siguiente QR dentro del marco.`
     : `Lector listo con cámara ${cameraLabel}. Presenta el siguiente QR para registrar la asistencia.`;
+}
+
+function getQrScannerFrameInlineStyle_(tone) {
+  const cleanTone = String(tone || "").trim().toLowerCase();
+
+  if (cleanTone === "success") {
+    return "border-color: rgba(74, 222, 128, 0.98); box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.34), 0 0 52px rgba(74, 222, 128, 0.34), 0 0 94px rgba(17, 168, 88, 0.22); transform: scale(1.01);";
+  }
+
+  if (cleanTone === "warning") {
+    return "border-color: rgba(245, 158, 11, 0.94); box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.22), 0 0 30px rgba(245, 158, 11, 0.16);";
+  }
+
+  if (cleanTone === "error") {
+    return "border-color: rgba(239, 68, 68, 0.94); box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), 0 0 30px rgba(239, 68, 68, 0.16);";
+  }
+
+  return "";
+}
+
+function getQrScannerInlineStyle_(tone) {
+  const cleanTone = String(tone || "").trim().toLowerCase();
+
+  if (cleanTone === "success") {
+    return "background: linear-gradient(180deg, rgba(232, 251, 238, 0.99) 0%, rgba(215, 245, 224, 0.99) 100%); border-color: rgba(30, 166, 80, 0.32); box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.18), 0 18px 36px rgba(24, 145, 69, 0.22);";
+  }
+
+  if (cleanTone === "warning") {
+    return "background: linear-gradient(180deg, rgba(255, 246, 225, 0.99) 0%, rgba(255, 235, 192, 0.99) 100%); border-color: rgba(194, 138, 24, 0.28);";
+  }
+
+  if (cleanTone === "error") {
+    return "background: linear-gradient(180deg, rgba(255, 234, 234, 0.99) 0%, rgba(252, 219, 219, 0.99) 100%); border-color: rgba(210, 62, 62, 0.24);";
+  }
+
+  if (cleanTone === "live") {
+    return "background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 247, 247, 0.98) 100%); border-color: rgba(17, 17, 17, 0.08); box-shadow: 0 12px 28px rgba(16, 24, 40, 0.12);";
+  }
+
+  return "";
 }
 
 function getQrScannerFeedbackResult_() {
