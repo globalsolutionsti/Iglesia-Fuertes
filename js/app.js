@@ -512,7 +512,9 @@ const qrScannerRuntime = {
   lastValueAt: 0,
   resetResultTimeoutId: 0,
   contextRefreshTimeoutId: 0,
-  retryStartTimeoutId: 0
+  retryStartTimeoutId: 0,
+  awaitingFrameClear: false,
+  clearFrameCount: 0
 };
 
 const credentialRenderRuntime = {
@@ -27750,6 +27752,8 @@ function stopQrScannerRuntime_(keepStatus = false) {
   qrScannerRuntime.pausedUntil = 0;
   qrScannerRuntime.lastValue = "";
   qrScannerRuntime.lastValueAt = 0;
+  qrScannerRuntime.awaitingFrameClear = false;
+  qrScannerRuntime.clearFrameCount = 0;
   qrScannerRuntime.detector = null;
   qrScannerRuntime.engine = "";
   qrScannerRuntime.canvas = null;
@@ -27892,6 +27896,21 @@ function scanQrFrame_() {
 
   detectQrFromVideo_(video)
     .then((rawValue) => {
+      if (qrScannerRuntime.awaitingFrameClear) {
+        if (!rawValue) {
+          qrScannerRuntime.clearFrameCount += 1;
+          if (qrScannerRuntime.clearFrameCount >= 2) {
+            qrScannerRuntime.awaitingFrameClear = false;
+            qrScannerRuntime.clearFrameCount = 0;
+            qrScannerRuntime.lastValue = "";
+            qrScannerRuntime.lastValueAt = 0;
+          }
+        } else {
+          qrScannerRuntime.clearFrameCount = 0;
+        }
+        return;
+      }
+
       if (!rawValue) {
         return;
       }
@@ -28091,6 +28110,8 @@ function processQrRawValue_(rawValue) {
   }
 
   if (isFormationOperationsQrActive_() && isFormationAttendanceAlreadyRegisteredLocally_(extractedPersonId, state.filters.formationOps.sessionNumber)) {
+    qrScannerRuntime.awaitingFrameClear = true;
+    qrScannerRuntime.clearFrameCount = 0;
     state.qrScanner.result = buildFormationQrFailureResult_(
       new ApiError("La asistencia ya estaba registrada en esta sesión del paso.", "DUPLICATE_FORMATION_QR_ATTENDANCE"),
       extractedPersonId
@@ -28106,6 +28127,8 @@ function processQrRawValue_(rawValue) {
 
   qrScannerRuntime.lastValue = extractedPersonId;
   qrScannerRuntime.lastValueAt = now;
+  qrScannerRuntime.awaitingFrameClear = true;
+  qrScannerRuntime.clearFrameCount = 0;
   qrScannerRuntime.pausedUntil = now + 3000;
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
