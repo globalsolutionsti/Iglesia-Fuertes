@@ -506,6 +506,7 @@ const qrScannerRuntime = {
   context: null,
   animationFrameId: 0,
   busy: false,
+  lastScanAt: 0,
   pausedUntil: 0,
   lastValue: "",
   lastValueAt: 0
@@ -27691,7 +27692,7 @@ async function ensureQrScannerStarted_() {
       qrScannerRuntime.detector = new window.BarcodeDetector({
         formats: ["qr_code"]
       });
-      qrScannerRuntime.engine = "native";
+      qrScannerRuntime.engine = typeof window.jsQR === "function" ? "hybrid" : "native";
     } else if (typeof window.jsQR === "function") {
       qrScannerRuntime.detector = {
         detect() {
@@ -27707,11 +27708,19 @@ async function ensureQrScannerStarted_() {
       throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "No se encontro un motor de lectura QR compatible. Recarga la pagina y vuelve a intentar.");
       return;
     }
+
+    if (typeof window.jsQR === "function" && (!qrScannerRuntime.canvas || !qrScannerRuntime.context)) {
+      qrScannerRuntime.canvas = document.createElement("canvas");
+      qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
+        willReadFrequently: true
+      });
+    }
   }
 
   if (!qrScannerRuntime.stream) {
     try {
       qrScannerRuntime.stream = await requestQrCameraStream_(state.filters.qr.cameraFacing);
+      await optimizeQrCameraTrack_(qrScannerRuntime.stream, state.filters.qr.cameraFacing);
     } catch (error) {
       throwQrScannerError_("CAMERA_PERMISSION_DENIED", "No se pudo abrir la camara. Revisa permisos del navegador y vuelve a intentar.");
       return;
@@ -27731,9 +27740,11 @@ async function ensureQrScannerStarted_() {
 
   state.qrScanner.cameraFacing = resolveQrCameraFacingFromStream_(qrScannerRuntime.stream, state.filters.qr.cameraFacing);
   state.qrScanner.status = "scanning";
-  state.qrScanner.message = qrScannerRuntime.engine === "native"
-    ? `Escaneo activo con camara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`
-    : `Escaneo activo con lector compatible y camara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`;
+  state.qrScanner.message = qrScannerRuntime.engine === "hybrid"
+    ? `Escaneo activo con lector híbrido y cámara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`
+    : qrScannerRuntime.engine === "native"
+      ? `Escaneo activo con cámara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`
+      : `Escaneo activo con lector compatible y cámara ${getQrCameraLabel_(state.qrScanner.cameraFacing)}. Acerca el QR al marco central.`;
 
   if (!qrScannerRuntime.animationFrameId) {
     scanQrFrame_();
@@ -27747,6 +27758,7 @@ function stopQrScannerRuntime_(keepStatus = false) {
   }
 
   qrScannerRuntime.busy = false;
+  qrScannerRuntime.lastScanAt = 0;
   qrScannerRuntime.pausedUntil = 0;
   qrScannerRuntime.lastValue = "";
   qrScannerRuntime.lastValueAt = 0;
@@ -27789,10 +27801,16 @@ function scanQrFrame_() {
     return;
   }
 
-  if (qrScannerRuntime.busy || Date.now() < qrScannerRuntime.pausedUntil || !qrScannerRuntime.detector) {
+  const now = Date.now();
+  if (qrScannerRuntime.busy || now < qrScannerRuntime.pausedUntil || !qrScannerRuntime.detector) {
     return;
   }
 
+  if ((now - qrScannerRuntime.lastScanAt) < 90) {
+    return;
+  }
+
+  qrScannerRuntime.lastScanAt = now;
   qrScannerRuntime.busy = true;
 
   detectQrFromVideo_(video)
@@ -27812,35 +27830,106 @@ function scanQrFrame_() {
 }
 
 async function detectQrFromVideo_(video) {
-  if (qrScannerRuntime.engine === "native") {
-    const codes = await Promise.resolve(qrScannerRuntime.detector.detect(video));
-    const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
-    return detectedCode?.rawValue ? String(detectedCode.rawValue).trim() : "";
+  if (qrScannerRuntime.engine === "native" || qrScannerRuntime.engine === "hybrid") {
+    const nativeValue = await detectQrWithNativeDetector_(video);
+    if (nativeValue) {
+      return nativeValue;
+    }
   }
 
-  if (qrScannerRuntime.engine === "jsqr") {
-    const width = video.videoWidth || video.clientWidth;
-    const height = video.videoHeight || video.clientHeight;
-
-    if (!width || !height || !qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
-      return "";
+  if (qrScannerRuntime.engine === "jsqr" || qrScannerRuntime.engine === "hybrid") {
+    const fallbackValue = detectQrWithJsQrFallback_(video);
+    if (fallbackValue) {
+      return fallbackValue;
     }
-
-    if (qrScannerRuntime.canvas.width !== width || qrScannerRuntime.canvas.height !== height) {
-      qrScannerRuntime.canvas.width = width;
-      qrScannerRuntime.canvas.height = height;
-    }
-
-    qrScannerRuntime.context.drawImage(video, 0, 0, width, height);
-    const imageData = qrScannerRuntime.context.getImageData(0, 0, width, height);
-    const decoded = window.jsQR(imageData.data, width, height, {
-      inversionAttempts: "dontInvert"
-    });
-
-    return decoded?.data ? String(decoded.data).trim() : "";
   }
 
   return "";
+}
+
+async function detectQrWithNativeDetector_(video) {
+  if (!qrScannerRuntime.detector || typeof qrScannerRuntime.detector.detect !== "function") {
+    return "";
+  }
+
+  const codes = await Promise.resolve(qrScannerRuntime.detector.detect(video));
+  const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
+  return detectedCode?.rawValue ? String(detectedCode.rawValue).trim() : "";
+}
+
+function detectQrWithJsQrFallback_(video) {
+  const width = video.videoWidth || video.clientWidth;
+  const height = video.videoHeight || video.clientHeight;
+
+  if (!width || !height || !qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+    return "";
+  }
+
+  const targetMax = 960;
+  const targetScale = Math.min(1, targetMax / Math.max(width, height));
+  const targetWidth = Math.max(320, Math.round(width * targetScale));
+  const targetHeight = Math.max(320, Math.round(height * targetScale));
+  const regions = [
+    {
+      sx: 0,
+      sy: 0,
+      sw: width,
+      sh: height,
+      dw: targetWidth,
+      dh: targetHeight
+    },
+    {
+      sx: Math.round(width * 0.12),
+      sy: Math.round(height * 0.12),
+      sw: Math.round(width * 0.76),
+      sh: Math.round(height * 0.76),
+      dw: targetWidth,
+      dh: targetHeight
+    }
+  ];
+
+  for (const region of regions) {
+    const decoded = decodeQrFromVideoRegion_(video, region);
+    if (decoded) {
+      return decoded;
+    }
+  }
+
+  return "";
+}
+
+function decodeQrFromVideoRegion_(video, region) {
+  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+    return "";
+  }
+
+  const canvasWidth = Math.max(200, Math.round(region.dw || region.sw || 0));
+  const canvasHeight = Math.max(200, Math.round(region.dh || region.sh || 0));
+
+  if (qrScannerRuntime.canvas.width !== canvasWidth || qrScannerRuntime.canvas.height !== canvasHeight) {
+    qrScannerRuntime.canvas.width = canvasWidth;
+    qrScannerRuntime.canvas.height = canvasHeight;
+  }
+
+  qrScannerRuntime.context.clearRect(0, 0, canvasWidth, canvasHeight);
+  qrScannerRuntime.context.drawImage(
+    video,
+    region.sx,
+    region.sy,
+    region.sw,
+    region.sh,
+    0,
+    0,
+    canvasWidth,
+    canvasHeight
+  );
+
+  const imageData = qrScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
+  const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+    inversionAttempts: "attemptBoth"
+  });
+
+  return decoded?.data ? String(decoded.data).trim() : "";
 }
 
 function processQrRawValue_(rawValue) {
@@ -32068,10 +32157,14 @@ function buildQrCameraConstraints_(cameraFacing, strict = false) {
         ? { exact: facingMode }
         : { ideal: facingMode },
       width: {
-        ideal: 1280
+        ideal: 1920
       },
       height: {
-        ideal: 720
+        ideal: 1080
+      },
+      frameRate: {
+        ideal: 30,
+        max: 60
       }
     }
   };
@@ -32085,10 +32178,14 @@ async function requestQrCameraStream_(cameraFacing) {
       audio: false,
       video: {
         width: {
-          ideal: 1280
+          ideal: 1920
         },
         height: {
-          ideal: 720
+          ideal: 1080
+        },
+        frameRate: {
+          ideal: 30,
+          max: 60
         }
       }
     }
@@ -32105,6 +32202,49 @@ async function requestQrCameraStream_(cameraFacing) {
   }
 
   throw lastError || new Error("QR camera unavailable");
+}
+
+async function optimizeQrCameraTrack_(stream, cameraFacing = "rear") {
+  const track = stream?.getVideoTracks?.()[0];
+  if (!track?.getCapabilities || !track?.applyConstraints) {
+    return;
+  }
+
+  let capabilities = null;
+  try {
+    capabilities = track.getCapabilities();
+  } catch (error) {
+    return;
+  }
+
+  const advanced = [];
+  if (supportsQrTrackMode_(capabilities?.focusMode, "continuous")) {
+    advanced.push({ focusMode: "continuous" });
+  }
+  if (supportsQrTrackMode_(capabilities?.exposureMode, "continuous")) {
+    advanced.push({ exposureMode: "continuous" });
+  }
+  if (supportsQrTrackMode_(capabilities?.whiteBalanceMode, "continuous")) {
+    advanced.push({ whiteBalanceMode: "continuous" });
+  }
+
+  if (!advanced.length) {
+    return;
+  }
+
+  try {
+    await track.applyConstraints({ advanced });
+  } catch (error) {
+    // Si el dispositivo no soporta estos ajustes finos, seguimos con el stream base.
+  }
+}
+
+function supportsQrTrackMode_(supportedValue, expectedValue) {
+  if (Array.isArray(supportedValue)) {
+    return supportedValue.includes(expectedValue);
+  }
+
+  return supportedValue === expectedValue;
 }
 
 function resolveQrCameraFacingFromStream_(stream, fallback = "rear") {
