@@ -509,7 +509,8 @@ const qrScannerRuntime = {
   lastScanAt: 0,
   pausedUntil: 0,
   lastValue: "",
-  lastValueAt: 0
+  lastValueAt: 0,
+  resetResultTimeoutId: 0
 };
 
 const credentialRenderRuntime = {
@@ -9314,7 +9315,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           <span class="status-chip dark">${escapeHtml(modeMeta.title)}</span>
           <strong>${escapeHtml(selectedOffering.name || selectedOffering.levelName || "Paso en operación")}</strong>
           <p>${escapeHtml(captureEnabled
-            ? `Sesión lista: ${selectedSessionLabel}. Escanea un QR a la vez y espera el panel verde antes de pasar a la siguiente persona.`
+            ? `Sesión lista: ${selectedSessionLabel}. Escanea un QR, espera el verde o rojo y después pasa a la siguiente persona.`
             : `Primero activa ${selectedSessionLabel} para habilitar el escaneo y proteger los registros.`)}</p>
         </div>
         <span class="status-chip ${captureEnabled ? "success" : "warning"}">${escapeHtml(captureEnabled ? "Listo" : "Pendiente")}</span>
@@ -9326,11 +9327,20 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       </div>
     </section>
   ` : "";
+  const scanCompactMarkup = isScanMode ? `
+    <div class="formation-attendance-scan-compact">
+      <span class="context-item"><strong>Modo:</strong> ${escapeHtml(modeMeta.title)}</span>
+      <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+      <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
+      <span class="context-item"><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
+    </div>
+  ` : "";
 
   return `
     <div class="formation-attendance-panel ${isScanMode ? "is-scan-mode" : "is-manual-mode"}">
       ${mobileHeroMarkup}
 
+      ${!isScanMode ? `
       <div class="formation-attendance-summary-grid">
         <article class="formation-attendance-summary-card">
           <span class="status-chip neutral">Operación actual</span>
@@ -9383,13 +9393,16 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
           </div>
         </article>
       </div>
+      ` : ""}
 
+      ${!isScanMode ? `
       <div class="formation-attendance-steps">
         <span class="context-item"><strong>Paso 1:</strong> elige el paso en operación</span>
         <span class="context-item"><strong>Paso 2:</strong> confirma la sesión</span>
         <span class="context-item"><strong>Paso 3:</strong> activa la sesión correcta</span>
         <span class="context-item"><strong>Paso 4:</strong> captura asistencia en el modo que prefieras</span>
       </div>
+      ` : ""}
 
       <div class="formation-attendance-activation-row">
         <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}" ${isActivatingSession ? "disabled" : ""}>
@@ -9403,7 +9416,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
         <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
         <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
       </div>
-      <div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>
+      ${isScanMode ? scanCompactMarkup : `<div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>`}
 
       ${mode === "manual" ? `
       <form id="formation-level-attendance-form">
@@ -9501,36 +9514,6 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             <span class="footer-note">${escapeHtml(captureEnabled ? (isKiosk ? "El kiosko registra en la sesión activa del paso y queda listo para el siguiente QR." : "El operador valida un QR a la vez y el sistema responde en vivo para evitar dobles lecturas.") : "Mientras la sesión no esté activa, QR y kiosko quedan protegidos por el sistema.")}</span>
           </div>
         </div>
-
-        <aside class="kiosk-result-card kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
-          <span class="kiosk-result-badge">${escapeHtml(scanBadge)}</span>
-          <h3>${escapeHtml(scanTitle)}</h3>
-          <p>${escapeHtml(scanMessage)}</p>
-
-          <div class="kiosk-result-grid">
-            <div class="kiosk-result-item">
-              <label>Nombre</label>
-              <strong>${escapeHtml(scanResult?.name || "Esperando lectura")}</strong>
-            </div>
-            <div class="kiosk-result-item">
-              <label>Paso en operación</label>
-              <strong>${escapeHtml(scanResult?.groupName || selectedOffering.name || selectedOffering.levelName || "Pendiente")}</strong>
-            </div>
-            <div class="kiosk-result-item">
-              <label>Folio de inscripción</label>
-              <strong>${escapeHtml(scanResult?.participantId || "Pendiente")}</strong>
-            </div>
-            <div class="kiosk-result-item">
-              <label>QR ID</label>
-              <strong>${escapeHtml(scanResult?.personId || "Pendiente")}</strong>
-            </div>
-          </div>
-
-          <div class="kiosk-result-footer">
-            <span>${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}</span>
-            <span>${escapeHtml(scanResult?.timestampLabel || "Sin última lectura")}</span>
-          </div>
-        </aside>
       </div>
       `}
     </div>
@@ -18522,7 +18505,11 @@ async function handleClick(event) {
         showLoading: false
       });
       renderApp();
-      scrollViewportToTop_();
+      if (state.ui.formationSection === "attendance") {
+        scrollToSection_("formation-attendance-workspace");
+      } else {
+        scrollViewportToTop_();
+      }
       return;
     }
 
@@ -19934,7 +19921,12 @@ async function handleClick(event) {
     }
 
     if (action === "clear-kiosk-result") {
+      clearQrScannerResultReset_();
       state.qrScanner.result = null;
+      if (state.qrScanner.enabled) {
+        state.qrScanner.status = "scanning";
+        state.qrScanner.message = buildQrScannerReadyMessage_();
+      }
       renderApp();
       return;
     }
@@ -27568,9 +27560,10 @@ async function registerQrAttendance(personId, options = {}) {
         },
         ...state.formationQrActivity
       ].slice(0, 8);
-      qrScannerRuntime.pausedUntil = Date.now() + 3400;
+      qrScannerRuntime.pausedUntil = Date.now() + 3000;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       renderApp();
+      scheduleQrScannerResultReset_(3000);
 
       window.setTimeout(() => {
         void loadFormationAttendanceContext_(formationContext.offeringId, {
@@ -27601,7 +27594,9 @@ async function registerQrAttendance(personId, options = {}) {
       state.qrScanner.result = buildFormationQrFailureResult_(error, cleanPersonId);
       state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
       state.qrScanner.message = state.qrScanner.result.message;
+      qrScannerRuntime.pausedUntil = Date.now() + 3000;
       playKioskSignal_(state.qrScanner.result.tone);
+      scheduleQrScannerResultReset_(3000);
 
       if (!options.suppressToast) {
         throw error;
@@ -27757,6 +27752,8 @@ function stopQrScannerRuntime_(keepStatus = false) {
     qrScannerRuntime.animationFrameId = 0;
   }
 
+  clearQrScannerResultReset_();
+
   qrScannerRuntime.busy = false;
   qrScannerRuntime.lastScanAt = 0;
   qrScannerRuntime.pausedUntil = 0;
@@ -27784,6 +27781,44 @@ function stopQrScannerRuntime_(keepStatus = false) {
   }
 }
 
+function clearQrScannerResultReset_() {
+  if (qrScannerRuntime.resetResultTimeoutId) {
+    window.clearTimeout(qrScannerRuntime.resetResultTimeoutId);
+    qrScannerRuntime.resetResultTimeoutId = 0;
+  }
+}
+
+function buildQrScannerReadyMessage_() {
+  const cameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
+
+  if (isFormationOperationsQrActive_()) {
+    const mode = resolveFormationAttendanceMode_();
+    return mode === "kiosk"
+      ? `Lector listo con cámara ${cameraLabel}. Alinea el siguiente QR dentro del marco.`
+      : `Lector listo con cámara ${cameraLabel}. Presenta el siguiente QR para registrar la asistencia.`;
+  }
+
+  const isConnectionKiosk = state.currentView === "qr";
+  return isConnectionKiosk
+    ? `Lector listo con cámara ${cameraLabel}. Alinea el siguiente QR dentro del marco.`
+    : `Lector listo con cámara ${cameraLabel}. Presenta el siguiente QR para registrar la asistencia.`;
+}
+
+function scheduleQrScannerResultReset_(delayMs = 3000) {
+  clearQrScannerResultReset_();
+  qrScannerRuntime.resetResultTimeoutId = window.setTimeout(() => {
+    qrScannerRuntime.resetResultTimeoutId = 0;
+    if (!state.qrScanner.enabled) {
+      return;
+    }
+
+    state.qrScanner.result = null;
+    state.qrScanner.status = "scanning";
+    state.qrScanner.message = buildQrScannerReadyMessage_();
+    renderApp();
+  }, delayMs);
+}
+
 function scanQrFrame_() {
   const connectionScannerActive = state.currentView === "qr"
     || (state.currentView === "attendance" && resolveConnectionAttendanceMode_() !== "manual");
@@ -27806,7 +27841,7 @@ function scanQrFrame_() {
     return;
   }
 
-  if ((now - qrScannerRuntime.lastScanAt) < 90) {
+  if ((now - qrScannerRuntime.lastScanAt) < 45) {
     return;
   }
 
@@ -27865,24 +27900,24 @@ function detectQrWithJsQrFallback_(video) {
     return "";
   }
 
-  const targetMax = 960;
+  const targetMax = 1120;
   const targetScale = Math.min(1, targetMax / Math.max(width, height));
   const targetWidth = Math.max(320, Math.round(width * targetScale));
   const targetHeight = Math.max(320, Math.round(height * targetScale));
   const regions = [
     {
-      sx: 0,
-      sy: 0,
-      sw: width,
-      sh: height,
+      sx: Math.round(width * 0.14),
+      sy: Math.round(height * 0.14),
+      sw: Math.round(width * 0.72),
+      sh: Math.round(height * 0.72),
       dw: targetWidth,
       dh: targetHeight
     },
     {
-      sx: Math.round(width * 0.12),
-      sy: Math.round(height * 0.12),
-      sw: Math.round(width * 0.76),
-      sh: Math.round(height * 0.76),
+      sx: 0,
+      sy: 0,
+      sw: width,
+      sh: height,
       dw: targetWidth,
       dh: targetHeight
     }
@@ -27942,9 +27977,10 @@ function processQrRawValue_(rawValue) {
     );
     state.qrScanner.status = "error";
     state.qrScanner.message = state.qrScanner.result.message;
-    qrScannerRuntime.pausedUntil = Date.now() + 2400;
+    qrScannerRuntime.pausedUntil = Date.now() + 3000;
     playKioskSignal_("error");
     renderApp();
+    scheduleQrScannerResultReset_(3000);
     return;
   }
 
