@@ -9479,6 +9479,11 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
               <span class="kiosk-scan-line ${state.qrScanner.enabled ? "" : "hidden"}"></span>
               <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
             </div>
+            <div class="kiosk-live-result kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
+              <span class="kiosk-live-result-badge" data-qr-frame-feedback="badge">${escapeHtml(scanBadge)}</span>
+              <strong data-qr-frame-feedback="name">${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
+              <small data-qr-frame-feedback="meta">${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}${scanResult?.participantId ? ` · ${scanResult.participantId}` : ""}</small>
+            </div>
           </div>
 
           <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}">
@@ -27920,14 +27925,31 @@ function syncQrScannerLiveFeedback_() {
       inline.setAttribute("data-feedback-tone", stateSnapshot.tone);
     }
 
+    const frameResult = document.querySelector("#formation-operations-attendance .kiosk-live-result");
+    if (frameResult instanceof HTMLElement) {
+      frameResult.className = frameResult.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+      frameResult.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
+      frameResult.setAttribute("data-feedback-tone", stateSnapshot.tone);
+    }
+
     const badgeNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="badge"]');
     if (badgeNode instanceof HTMLElement) {
       badgeNode.textContent = stateSnapshot.badge;
     }
 
+    const frameBadgeNode = document.querySelector('#formation-operations-attendance [data-qr-frame-feedback="badge"]');
+    if (frameBadgeNode instanceof HTMLElement) {
+      frameBadgeNode.textContent = stateSnapshot.badge;
+    }
+
     const nameNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="name"]');
     if (nameNode instanceof HTMLElement) {
       nameNode.textContent = stateSnapshot.name;
+    }
+
+    const frameNameNode = document.querySelector('#formation-operations-attendance [data-qr-frame-feedback="name"]');
+    if (frameNameNode instanceof HTMLElement) {
+      frameNameNode.textContent = stateSnapshot.name;
     }
 
     const messageNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="message"]');
@@ -27938,6 +27960,11 @@ function syncQrScannerLiveFeedback_() {
     const metaNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="meta"]');
     if (metaNode instanceof HTMLElement) {
       metaNode.textContent = stateSnapshot.meta;
+    }
+
+    const frameMetaNode = document.querySelector('#formation-operations-attendance [data-qr-frame-feedback="meta"]');
+    if (frameMetaNode instanceof HTMLElement) {
+      frameMetaNode.textContent = stateSnapshot.meta;
     }
 
     const placeholder = document.querySelector("#formation-operations-attendance .kiosk-video-placeholder");
