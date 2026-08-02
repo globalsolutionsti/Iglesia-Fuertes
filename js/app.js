@@ -337,6 +337,7 @@ const state = {
     status: "idle",
     message: "Activa la camara para comenzar el registro automatico.",
     result: null,
+    displayResult: null,
     cameraFacing: ""
   },
   selectedBulkPeople: [],
@@ -9245,7 +9246,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const mode = resolveFormationAttendanceMode_();
   const isScanMode = mode !== "manual";
   const isKiosk = mode === "kiosk";
-  const scanResult = state.qrScanner.result;
+  const scanResult = getQrScannerFeedbackResult_();
   const scannerTone = scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
   const attendanceYesCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "SI").length;
@@ -19895,7 +19896,7 @@ async function handleClick(event) {
 
     if (action === "clear-kiosk-result") {
       clearQrScannerResultReset_();
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       if (state.qrScanner.enabled) {
         state.qrScanner.status = "scanning";
         state.qrScanner.message = buildQrScannerReadyMessage_();
@@ -19911,7 +19912,7 @@ async function handleClick(event) {
       }
 
       state.filters.qr.cameraFacing = nextFacing;
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
 
       if (state.qrScanner.enabled) {
         state.qrScanner.status = "starting";
@@ -20024,7 +20025,7 @@ async function handleClick(event) {
         : (button.dataset.mode === "qr" ? "qr" : "manual");
 
       state.filters.formationOps.captureMode = nextMode;
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
 
       if (nextMode === "manual") {
@@ -20211,7 +20212,7 @@ async function handleClick(event) {
       state.filters.formationOps.offeringId = offeringId;
       state.ui.selectedFormationOfferingId = offeringId;
       state.ui.editingFormationOfferingId = "";
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
       await loadFormationOperationsData_({
         force: false,
@@ -20231,7 +20232,7 @@ async function handleClick(event) {
       state.filters.formationOps.offeringId = offeringId;
       state.ui.selectedFormationOfferingId = offeringId;
       state.ui.editingFormationOfferingId = offeringId;
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
       await loadFormationOperationsData_({
         force: false,
@@ -20953,7 +20954,7 @@ async function handleChange(event) {
       state.filters.formationOps.offeringId = "";
       state.ui.selectedFormationOfferingId = "";
       state.ui.editingFormationOfferingId = "";
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
       if (activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
@@ -21001,7 +21002,7 @@ async function handleChange(event) {
       state.filters.formationOps.levelId = target.value;
       state.filters.formationOps.offeringId = "";
       state.ui.selectedFormationOfferingId = "";
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
       if (activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
@@ -21040,7 +21041,7 @@ async function handleChange(event) {
       const activeFormationSection = getActiveFormationSection_();
       state.filters.formationOps.offeringId = target.value;
       state.ui.selectedFormationOfferingId = target.value;
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
       if (activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
@@ -21064,7 +21065,7 @@ async function handleChange(event) {
 
     if (target.id === "formation-ops-session") {
       state.filters.formationOps.sessionNumber = target.value || "1";
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
 
       if (getActiveFormationSection_() === "attendance" && state.filters.formationOps.offeringId) {
@@ -27541,7 +27542,7 @@ async function registerQrAttendance(personId, options = {}) {
         capturedBy: state.user?.name || "",
         skipProgressSync: source === "scanner" ? "1" : ""
       });
-      state.qrScanner.result = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
+      setQrScannerFeedbackResult_(buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source));
       state.qrScanner.status = "success";
       state.qrScanner.message = state.qrScanner.result.message;
       applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
@@ -27553,8 +27554,7 @@ async function registerQrAttendance(personId, options = {}) {
       ].slice(0, 8);
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
       playKioskSignal_(state.qrScanner.result?.tone || "success");
-      syncQrScannerLiveFeedback_();
-      renderApp();
+      renderQrScannerFeedback_();
       scheduleQrScannerResultReset_(3000);
       scheduleFormationAttendanceContextRefresh_(
         formationContext.offeringId,
@@ -27574,7 +27574,7 @@ async function registerQrAttendance(personId, options = {}) {
         showToast("Registro exitoso", "La asistencia se guardó dentro de Proceso de Formación.", "success");
       }
     } catch (error) {
-      state.qrScanner.result = buildFormationQrFailureResult_(error, cleanPersonId);
+      setQrScannerFeedbackResult_(buildFormationQrFailureResult_(error, cleanPersonId));
       state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
       state.qrScanner.message = state.qrScanner.result.message;
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
@@ -27585,8 +27585,7 @@ async function registerQrAttendance(personId, options = {}) {
         throw error;
       }
 
-      syncQrScannerLiveFeedback_();
-      renderApp();
+      renderQrScannerFeedback_();
     }
 
     return;
@@ -27775,6 +27774,7 @@ function stopQrScannerRuntime_(keepStatus = false) {
     state.qrScanner.cameraFacing = "";
     state.qrScanner.status = "idle";
     state.qrScanner.message = "Activa la camara para comenzar el registro automatico.";
+    clearQrScannerFeedbackResult_();
   }
 }
 
@@ -27829,23 +27829,49 @@ function buildQrScannerReadyMessage_() {
     : `Lector listo con cámara ${cameraLabel}. Presenta el siguiente QR para registrar la asistencia.`;
 }
 
+function getQrScannerFeedbackResult_() {
+  return state.qrScanner.displayResult || state.qrScanner.result || null;
+}
+
+function setQrScannerFeedbackResult_(result) {
+  const normalizedResult = result || null;
+  state.qrScanner.result = normalizedResult;
+  state.qrScanner.displayResult = normalizedResult;
+}
+
+function clearQrScannerFeedbackResult_() {
+  state.qrScanner.result = null;
+  state.qrScanner.displayResult = null;
+}
+
+function renderQrScannerFeedback_() {
+  renderApp();
+  window.requestAnimationFrame(() => {
+    syncQrScannerLiveFeedback_();
+    window.setTimeout(() => {
+      syncQrScannerLiveFeedback_();
+    }, 40);
+  });
+}
+
 function getQrScannerLiveState_() {
-  const tone = state.qrScanner.result?.tone || (state.qrScanner.enabled ? "live" : "idle");
-  const badge = state.qrScanner.result?.badge || (state.qrScanner.enabled
+  const feedbackResult = getQrScannerFeedbackResult_();
+  const tone = feedbackResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
+  const badge = feedbackResult?.badge || (state.qrScanner.enabled
     ? (resolveFormationAttendanceMode_() === "kiosk" ? "Kiosko activo" : "Escaneo activo")
     : "Cámara en espera");
-  const name = state.qrScanner.result?.name || (
+  const name = feedbackResult?.name || (
     state.qrScanner.enabled
       ? "Esperando siguiente QR"
       : "Activa la sesión para comenzar"
   );
-  const message = state.qrScanner.result?.message || (
+  const message = feedbackResult?.message || (
     state.qrScanner.enabled
       ? "La cámara está lista. Acerca el QR y espera la confirmación en verde o rojo."
       : "Activa la cámara para comenzar a registrar asistencias del curso."
   );
-  const sessionName = state.qrScanner.result?.sessionName || `Sesión ${state.filters.formationOps.sessionNumber || "1"}`;
-  const participantId = state.qrScanner.result?.participantId || "";
+  const sessionName = feedbackResult?.sessionName || `Sesión ${state.filters.formationOps.sessionNumber || "1"}`;
+  const participantId = feedbackResult?.participantId || "";
 
   return {
     tone,
@@ -27913,11 +27939,10 @@ function scheduleQrScannerResultReset_(delayMs = 3000) {
         return;
       }
 
-      state.qrScanner.result = null;
+      clearQrScannerFeedbackResult_();
       state.qrScanner.status = "scanning";
       state.qrScanner.message = buildQrScannerReadyMessage_();
-      syncQrScannerLiveFeedback_();
-      renderApp();
+      renderQrScannerFeedback_();
   }, delayMs);
 }
 
@@ -28168,16 +28193,15 @@ function processQrRawValue_(rawValue) {
   const extractedPersonId = extractPersonIdFromScan_(rawValue);
 
   if (!extractedPersonId) {
-    state.qrScanner.result = buildActiveQrFailureResult_(
+    setQrScannerFeedbackResult_(buildActiveQrFailureResult_(
       new ApiError("El codigo QR no contiene un QR ID reconocible.", "INVALID_QR_VALUE"),
       extractNumericQrIdCandidate_(rawValue) || String(rawValue || "").trim()
-    );
+    ));
     state.qrScanner.status = "error";
     state.qrScanner.message = state.qrScanner.result.message;
     qrScannerRuntime.pausedUntil = Date.now() + 3000;
     playKioskSignal_("error");
-    syncQrScannerLiveFeedback_();
-    renderApp();
+    renderQrScannerFeedback_();
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28192,16 +28216,15 @@ function processQrRawValue_(rawValue) {
   if (isFormationOperationsQrActive_() && isFormationAttendanceAlreadyRegisteredLocally_(extractedPersonId, state.filters.formationOps.sessionNumber)) {
     qrScannerRuntime.awaitingFrameClear = true;
     qrScannerRuntime.clearFrameCount = 0;
-    state.qrScanner.result = buildFormationQrFailureResult_(
+    setQrScannerFeedbackResult_(buildFormationQrFailureResult_(
       new ApiError("La asistencia ya estaba registrada en esta sesión del paso.", "DUPLICATE_FORMATION_QR_ATTENDANCE"),
       extractedPersonId
-    );
+    ));
     state.qrScanner.status = "error";
     state.qrScanner.message = state.qrScanner.result.message;
     qrScannerRuntime.pausedUntil = now + 3000;
     playKioskSignal_("error");
-    syncQrScannerLiveFeedback_();
-    renderApp();
+    renderQrScannerFeedback_();
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28213,8 +28236,7 @@ function processQrRawValue_(rawValue) {
   qrScannerRuntime.pausedUntil = now + 3000;
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
-  syncQrScannerLiveFeedback_();
-  renderApp();
+  renderQrScannerFeedback_();
   void registerQrAttendance(extractedPersonId, {
     source: "scanner",
     showLoading: false,
@@ -28332,7 +28354,7 @@ function throwQrScannerError_(code, message) {
   state.qrScanner.enabled = false;
   state.qrScanner.status = "error";
   state.qrScanner.message = message;
-  state.qrScanner.result = buildActiveQrFailureResult_(new ApiError(message, code), "");
+  setQrScannerFeedbackResult_(buildActiveQrFailureResult_(new ApiError(message, code), ""));
   stopQrScannerRuntime_(true);
   renderApp();
 }
@@ -32233,6 +32255,7 @@ function resetRuntimeState() {
     status: "idle",
     message: "Activa la camara para comenzar el registro automatico.",
     result: null,
+    displayResult: null,
     cameraFacing: ""
   };
   state.selectedBulkPeople = [];
