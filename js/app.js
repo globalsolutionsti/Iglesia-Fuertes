@@ -511,7 +511,8 @@ const qrScannerRuntime = {
   lastValue: "",
   lastValueAt: 0,
   resetResultTimeoutId: 0,
-  contextRefreshTimeoutId: 0
+  contextRefreshTimeoutId: 0,
+  retryStartTimeoutId: 0
 };
 
 const credentialRenderRuntime = {
@@ -6955,6 +6956,7 @@ function renderFormationView_() {
   const routeVisibleCount = Array.isArray(candidates) ? candidates.length : 0;
   const processCount = Array.isArray(state.formationProcesses) ? state.formationProcesses.length : 0;
   const levelsCount = Array.isArray(state.formationCatalog) ? state.formationCatalog.length : 0;
+  const isAttendanceSection = activeSection === "attendance";
   const overviewCards = [
     {
       chip: "Ruta a Encuentro",
@@ -6997,14 +6999,17 @@ function renderFormationView_() {
           label: activeSection === "attendance" ? "Operación móvil" : "Ruta pastoral",
           kind: activeSection === "attendance" ? "success" : "dark"
         },
-        metrics: [
-          { label: "Ruta", value: String(routeVisibleCount) },
-          { label: "Inscritos", value: String(portalVisibleCount) },
-          { label: "Camino", value: String(operationsVisibleCount) },
-          { label: "Catálogos", value: String(processCount + levelsCount) }
-        ]
+        metrics: isAttendanceSection
+          ? []
+          : [
+            { label: "Ruta", value: String(routeVisibleCount) },
+            { label: "Inscritos", value: String(portalVisibleCount) },
+            { label: "Camino", value: String(operationsVisibleCount) },
+            { label: "Catálogos", value: String(processCount + levelsCount) }
+          ]
       })}
 
+      ${!isAttendanceSection ? `
       <div class="stats-grid assistants-stats-grid">
         ${overviewCards.map((card) => `
           <article class="stat-card">
@@ -7014,6 +7019,7 @@ function renderFormationView_() {
           </article>
         `).join("")}
       </div>
+      ` : ""}
 
       ${renderFormationWorkspaceTabs_(activeSection, {
         routeCount: routeVisibleCount,
@@ -7126,27 +7132,14 @@ function renderFormationAttendanceWorkspace_(context) {
   }));
   const filteredEnrollments = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
-  const activeSessionLabel = attendanceContext?.activeSession?.label || "Sin sesión activa";
-  const activeSessionStatus = attendanceContext?.activeSession?.status || "Pendiente";
 
   return `
     <article class="panel-card module-section-anchor" id="formation-attendance-workspace">
       <div class="panel-head">
         <div>
-          <h2>Asistencia del Proceso de Formación</h2>
-          <p>Esta ficha está pensada para operar rápido en celular: eliges proceso, paso, sesión y capturas asistencia en manual, QR asistido o kiosko sin cargar bloques innecesarios.</p>
+          <h2>Preparar asistencia</h2>
+          <p>Selecciona el proceso, el paso, el paso en operación y la sesión que vas a capturar.</p>
         </div>
-        <div class="actions-row">
-          <span class="status-chip neutral">Operación rápida del día</span>
-          <button class="btn btn-secondary" type="button" data-action="refresh-formation-operations">Actualizar asistencia</button>
-        </div>
-      </div>
-
-      <div class="summary-strip">
-        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedProcess?.name || "Selecciona uno")}</span>
-        <span class="context-item"><strong>Paso en operación:</strong> ${escapeHtml(selectedOffering?.name || selectedOffering?.levelName || "Selecciona uno")}</span>
-        <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
-        <span class="context-item"><strong>Estatus:</strong> ${escapeHtml(activeSessionStatus)}</span>
       </div>
 
       <div class="field-grid two formation-ops-toolbar">
@@ -7202,7 +7195,7 @@ function renderFormationAttendanceWorkspace_(context) {
       <div class="panel-head">
         <div>
           <h2>Captura de asistencia</h2>
-          <p>Primero confirma el paso y la sesión. Si hoy corresponde esa fecha, el sistema la activará; si no, puedes activarla manualmente como respaldo y capturar por manual, QR asistido o kiosko.</p>
+          <p>Si la sesión corresponde al día de hoy, el sistema la toma como activa; si no, puedes activarla manualmente como respaldo.</p>
         </div>
         ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Paso en operación")}</span>` : `<span class="pill dark">Sin paso activo</span>`}
       </div>
@@ -9264,7 +9257,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const scanBadge = scanResult?.badge || (state.qrScanner.enabled ? (isKiosk ? "Kiosko activo" : "Escaneo activo") : "Cámara en espera");
   const scanTitle = scanResult?.title || (isKiosk ? "Escanea el QR del asistente" : "Escaneo QR asistido");
   const scanMessage = scanResult?.message || (state.qrScanner.enabled
-    ? "La cámara está lista. Cada lectura se registra en la sesión seleccionada."
+    ? "La cámara está lista. Acerca el QR y espera la confirmación en verde o rojo."
     : "Activa la cámara para comenzar a registrar asistencias del curso.");
   const activeCameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
   const isActivatingSession = Boolean(state.ui.formationAttendanceActivating);
@@ -9309,38 +9302,20 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
     : (captureEnabled ? "Sesión activa y lista" : "Activar sesión seleccionada");
   const selectedSessionLabel = selectedSession?.label || `Sesión ${currentSessionNumber}`;
   const activeSessionLabel = activeSession?.label || "Todavía no activada";
-  const mobileHeroMarkup = isScanMode ? `
-    <section class="formation-attendance-mobile-hero">
-      <div class="formation-attendance-mobile-hero-head">
-        <div>
-          <span class="status-chip dark">${escapeHtml(modeMeta.title)}</span>
-          <strong>${escapeHtml(selectedOffering.name || selectedOffering.levelName || "Paso en operación")}</strong>
-          <p>${escapeHtml(captureEnabled
-            ? `Sesión lista: ${selectedSessionLabel}. Escanea un QR, espera el verde o rojo y después pasa a la siguiente persona.`
-            : `Primero activa ${selectedSessionLabel} para habilitar el escaneo y proteger los registros.`)}</p>
-        </div>
-        <span class="status-chip ${captureEnabled ? "success" : "warning"}">${escapeHtml(captureEnabled ? "Listo" : "Pendiente")}</span>
-      </div>
-      <div class="formation-attendance-mobile-strip">
-        <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
-        <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
-        <span><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
-      </div>
-    </section>
-  ` : "";
   const scanCompactMarkup = isScanMode ? `
     <div class="formation-attendance-scan-compact">
-      <span class="context-item"><strong>Modo:</strong> ${escapeHtml(modeMeta.title)}</span>
       <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
       <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
-      <span class="context-item"><strong>Cámara:</strong> ${escapeHtml(activeCameraLabel)}</span>
     </div>
   ` : "";
+  const activationNote = isActivatingSession
+    ? "Estamos preparando la sesión para que empieces a escanear sin salir de esta vista."
+    : (captureEnabled
+      ? "La sesión ya está lista. Escanea un QR a la vez y espera 3 segundos la confirmación antes del siguiente."
+      : "Activa la sesión correcta antes de abrir la cámara para evitar registros en una sesión equivocada.");
 
   return `
     <div class="formation-attendance-panel ${isScanMode ? "is-scan-mode" : "is-manual-mode"}">
-      ${mobileHeroMarkup}
-
       ${!isScanMode ? `
       <div class="formation-attendance-summary-grid">
         <article class="formation-attendance-summary-card">
@@ -9405,11 +9380,13 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       </div>
       ` : ""}
 
+      ${isScanMode ? scanCompactMarkup : ""}
+
       <div class="formation-attendance-activation-row">
         <button class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}" type="button" data-action="activate-formation-session" data-offering-id="${escapeHtml(selectedOffering.id || "")}" data-session-number="${escapeHtml(currentSessionNumber)}" ${isActivatingSession ? "disabled" : ""}>
           ${escapeHtml(activationButtonLabel)}
         </button>
-        <span class="footer-note">${escapeHtml(isActivatingSession ? "Estamos preparando esta sesión para capturar sin recargar toda la pantalla." : operationStatus.copy)}</span>
+        <span class="footer-note">${escapeHtml(activationNote)}</span>
       </div>
 
       <div class="toggle-group formation-attendance-toggle">
@@ -9417,7 +9394,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
         <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
         <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
       </div>
-      ${isScanMode ? scanCompactMarkup : `<div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>`}
+      ${!isScanMode ? `<div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>` : ""}
 
       ${mode === "manual" ? `
       <form id="formation-level-attendance-form">
@@ -9483,7 +9460,6 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
               <button class="toggle-button ${state.filters.qr.cameraFacing === "rear" ? "active" : ""}" type="button" data-action="set-kiosk-camera" data-camera-facing="rear">Trasera</button>
             </div>
             ${isKiosk ? `<button class="btn btn-ghost" type="button" data-action="toggle-kiosk-fullscreen">Pantalla completa</button>` : ""}
-            <button class="btn btn-secondary" type="button" data-action="clear-kiosk-result">Limpiar resultado</button>
           </div>
 
           <div class="kiosk-scanner-frame kiosk-state-${escapeHtml(scannerTone)}">
@@ -9507,12 +9483,6 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             <strong>${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
             <span>${escapeHtml(scanMessage)}</span>
             <small>${escapeHtml(scanResult?.sessionName || `Sesión ${currentSessionNumber}`)}${scanResult?.participantId ? ` · ${scanResult.participantId}` : ""}</small>
-          </div>
-
-          <div class="kiosk-scanner-meta">
-            <span class="status-chip ${state.qrScanner.enabled ? "success" : "neutral"}">${state.qrScanner.enabled ? "Cámara activa" : "Cámara apagada"}</span>
-            <span class="kiosk-camera-note">Vista actual: ${escapeHtml(activeCameraLabel)}</span>
-            <span class="footer-note">${escapeHtml(captureEnabled ? (isKiosk ? "El kiosko registra en la sesión activa del paso y queda listo para el siguiente QR." : "El operador valida un QR a la vez y el sistema responde en vivo para evitar dobles lecturas.") : "Mientras la sesión no esté activa, QR y kiosko quedan protegidos por el sistema.")}</span>
           </div>
         </div>
       </div>
@@ -27600,8 +27570,6 @@ async function registerQrAttendance(personId, options = {}) {
       if (!options.suppressToast) {
         showToast("Registro exitoso", "La asistencia se guardó dentro de Proceso de Formación.", "success");
       }
-
-      renderApp();
     } catch (error) {
       state.qrScanner.result = buildFormationQrFailureResult_(error, cleanPersonId);
       state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
@@ -27681,8 +27649,11 @@ async function ensureQrScannerStarted_() {
 
   const video = document.getElementById("qr-kiosk-video");
   if (!(video instanceof HTMLVideoElement)) {
+    scheduleQrScannerRestart_(120);
     return;
   }
+
+  clearQrScannerRestart_();
 
   if (!window.isSecureContext && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
     throwQrScannerError_("UNSUPPORTED_QR_SCANNER", "El kiosko con camara requiere HTTPS o localhost para acceder al video.");
@@ -27738,10 +27709,17 @@ async function ensureQrScannerStarted_() {
     video.srcObject = qrScannerRuntime.stream;
   }
 
+  video.muted = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.setAttribute("playsinline", "true");
+
   try {
     await video.play();
   } catch (error) {
-    throwQrScannerError_("CAMERA_PERMISSION_DENIED", "La camara no pudo iniciar correctamente en esta pantalla.");
+    state.qrScanner.status = "starting";
+    state.qrScanner.message = `Reconectando la cámara ${getQrCameraLabel_(state.filters.qr.cameraFacing)}...`;
+    scheduleQrScannerRestart_(260);
     return;
   }
 
@@ -27799,6 +27777,27 @@ function clearQrScannerResultReset_() {
     window.clearTimeout(qrScannerRuntime.resetResultTimeoutId);
     qrScannerRuntime.resetResultTimeoutId = 0;
   }
+}
+
+function clearQrScannerRestart_() {
+  if (qrScannerRuntime.retryStartTimeoutId) {
+    window.clearTimeout(qrScannerRuntime.retryStartTimeoutId);
+    qrScannerRuntime.retryStartTimeoutId = 0;
+  }
+}
+
+function scheduleQrScannerRestart_(delayMs = 180) {
+  if (qrScannerRuntime.retryStartTimeoutId || !state.qrScanner.enabled) {
+    return;
+  }
+
+  qrScannerRuntime.retryStartTimeoutId = window.setTimeout(() => {
+    qrScannerRuntime.retryStartTimeoutId = 0;
+    if (!state.qrScanner.enabled) {
+      return;
+    }
+    void ensureQrScannerStarted_();
+  }, Math.max(80, Number(delayMs || 0) || 180));
 }
 
 function clearFormationAttendanceContextRefresh_() {
