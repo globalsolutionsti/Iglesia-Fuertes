@@ -27845,12 +27845,20 @@ function clearQrScannerFeedbackResult_() {
 }
 
 function renderQrScannerFeedback_() {
-  renderApp();
+  const hasVisibleScanner = Boolean(document.querySelector("#formation-operations-attendance .kiosk-scanner-frame"));
+
+  if (!hasVisibleScanner) {
+    renderApp();
+  }
+
   window.requestAnimationFrame(() => {
     syncQrScannerLiveFeedback_();
     window.setTimeout(() => {
       syncQrScannerLiveFeedback_();
-    }, 40);
+    }, 60);
+    window.setTimeout(() => {
+      syncQrScannerLiveFeedback_();
+    }, 180);
   });
 }
 
@@ -27889,12 +27897,27 @@ function syncQrScannerLiveFeedback_() {
     if (frame instanceof HTMLElement) {
       frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
       frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
+      frame.setAttribute("data-feedback-tone", stateSnapshot.tone);
+      if (stateSnapshot.tone === "success") {
+        frame.style.borderColor = "rgba(74, 222, 128, 0.98)";
+        frame.style.boxShadow = "0 0 0 4px rgba(74, 222, 128, 0.34), 0 0 52px rgba(74, 222, 128, 0.34), 0 0 94px rgba(17, 168, 88, 0.22)";
+      } else if (stateSnapshot.tone === "warning") {
+        frame.style.borderColor = "rgba(245, 158, 11, 0.94)";
+        frame.style.boxShadow = "0 0 0 2px rgba(245, 158, 11, 0.22), 0 0 30px rgba(245, 158, 11, 0.16)";
+      } else if (stateSnapshot.tone === "error") {
+        frame.style.borderColor = "rgba(239, 68, 68, 0.94)";
+        frame.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.2), 0 0 30px rgba(239, 68, 68, 0.16)";
+      } else {
+        frame.style.borderColor = "";
+        frame.style.boxShadow = "";
+      }
     }
 
     const inline = document.querySelector("#formation-operations-attendance .formation-scan-inline");
     if (inline instanceof HTMLElement) {
       inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
       inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
+      inline.setAttribute("data-feedback-tone", stateSnapshot.tone);
     }
 
     const badgeNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="badge"]');
