@@ -2331,8 +2331,8 @@ div {
 }
 
 .formation-attendance-scan-compact {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -2471,7 +2471,7 @@ div {
 }
 
 .formation-scan-shell {
-  padding: 18px;
+  padding: 14px;
   border-radius: 24px;
   border: 1px solid rgba(17, 17, 17, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 245, 245, 0.98) 100%);
@@ -2479,6 +2479,19 @@ div {
 
 .formation-scan-actions {
   align-items: center;
+}
+
+.formation-attendance-panel.is-scan-mode .formation-attendance-activation-row {
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(250, 250, 250, 0.92);
+}
+
+.formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .footer-note {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .formation-scan-activity {
@@ -7513,6 +7526,7 @@ tbody tr:hover {
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row {
     gap: 8px;
+    padding: 10px 12px;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .btn {
@@ -7521,35 +7535,45 @@ tbody tr:hover {
     font-size: 14px;
   }
 
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .footer-note {
+    flex-basis: 100%;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-shell {
     gap: 8px;
     padding: 10px;
-    border-radius: 20px;
+    border-radius: 18px;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn,
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .toggle-group {
-    flex: 1 1 calc(50% - 4px);
     min-width: 0;
   }
 
-  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn.btn-secondary {
-    flex-basis: 100%;
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn:first-child,
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .toggle-group {
+    grid-column: 1 / -1;
+  }
+
+  .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn.btn-ghost {
+    display: none;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
-    height: clamp(290px, 44vh, 360px);
-    min-height: clamp(290px, 44vh, 360px);
-    max-height: clamp(290px, 44vh, 360px);
+    height: clamp(220px, 34vh, 280px);
+    min-height: clamp(220px, 34vh, 280px);
+    max-height: clamp(220px, 34vh, 280px);
     aspect-ratio: auto;
-    border-radius: 20px;
+    border-radius: 18px;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .kiosk-video {
@@ -7759,27 +7783,27 @@ tbody tr:hover {
   .formation-scan-inline {
     position: relative;
     z-index: 4;
-    margin: 6px 0 0;
-    padding: 12px 13px;
-    border-radius: 18px;
+    margin: 4px 0 0;
+    padding: 10px 11px;
+    border-radius: 16px;
     gap: 4px;
     box-shadow: 0 12px 24px rgba(17, 17, 17, 0.08);
   }
 
   .formation-scan-inline strong {
-    font-size: 16px;
+    font-size: 15px;
     line-height: 1.1;
     letter-spacing: -0.03em;
   }
 
   .formation-scan-inline span {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.3;
   }
 
   .formation-scan-inline small {
     display: block;
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1.28;
   }
 
@@ -7789,15 +7813,16 @@ tbody tr:hover {
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact {
     gap: 6px;
+    grid-template-columns: 1fr;
   }
 
   .app-shell.view-formation .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact .context-item {
     width: 100%;
     min-height: 0;
-    padding: 8px 11px;
+    padding: 7px 10px;
     border-radius: 14px;
-    font-size: 11px;
-    line-height: 1.28;
+    font-size: 10px;
+    line-height: 1.24;
   }
 }
 
