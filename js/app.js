@@ -9691,7 +9691,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             </div>
           </div>
 
-          <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}" style="${escapeHtml(scannerInlineStyle)}">
+          <div class="formation-scan-inline kiosk-tone-${escapeHtml(scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle"))}" data-formation-qr-fixed-card="1" style="${escapeHtml(scannerInlineStyle)}">
             <span class="formation-scan-inline-badge" data-qr-feedback="badge">${escapeHtml(scanBadge)}</span>
             <strong data-qr-feedback="name">${escapeHtml(scanResult?.name || (captureEnabled ? "Esperando siguiente QR" : "Activa la sesión para comenzar"))}</strong>
             <span data-qr-feedback="message">${escapeHtml(scanMessage)}</span>
@@ -28245,6 +28245,8 @@ function applyQrScannerLiveStateToDom_(stateSnapshot) {
     inline.style.cssText = getQrScannerInlineStyle_(stateSnapshot.tone);
   }
 
+  updateFormationQrFixedCardDom_(stateSnapshot);
+
   const badgeNode = root.querySelector('[data-qr-feedback="badge"]');
   if (badgeNode instanceof HTMLElement) {
     badgeNode.textContent = stateSnapshot.badge;
@@ -28273,6 +28275,41 @@ function applyQrScannerLiveStateToDom_(stateSnapshot) {
   const scanLine = root.querySelector(".kiosk-scan-line");
   if (scanLine instanceof HTMLElement) {
     scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
+  }
+
+  return true;
+}
+
+function updateFormationQrFixedCardDom_(stateSnapshot) {
+  const card = document.querySelector('[data-formation-qr-fixed-card="1"]');
+  if (!(card instanceof HTMLElement) || !stateSnapshot) {
+    return false;
+  }
+
+  card.className = card.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+  void card.offsetHeight;
+  card.classList.add(`kiosk-tone-${stateSnapshot.tone || "idle"}`);
+  card.setAttribute("data-feedback-tone", String(stateSnapshot.tone || "idle"));
+  card.style.cssText = getQrScannerInlineStyle_(stateSnapshot.tone || "idle");
+
+  const badgeNode = card.querySelector('[data-qr-feedback="badge"]');
+  if (badgeNode instanceof HTMLElement) {
+    badgeNode.textContent = stateSnapshot.badge || "Cámara en espera";
+  }
+
+  const nameNode = card.querySelector('[data-qr-feedback="name"]');
+  if (nameNode instanceof HTMLElement) {
+    nameNode.textContent = stateSnapshot.name || "Esperando siguiente QR";
+  }
+
+  const messageNode = card.querySelector('[data-qr-feedback="message"]');
+  if (messageNode instanceof HTMLElement) {
+    messageNode.textContent = stateSnapshot.message || "";
+  }
+
+  const metaNode = card.querySelector('[data-qr-feedback="meta"]');
+  if (metaNode instanceof HTMLElement) {
+    metaNode.textContent = stateSnapshot.meta || "";
   }
 
   return true;
