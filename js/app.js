@@ -538,6 +538,9 @@ const qrScannerRuntime = {
   duplicateSuppressUntil: 0
 };
 
+const FORMATION_QR_SUCCESS_HOLD_MS = 1500;
+const FORMATION_QR_ERROR_HOLD_MS = 1500;
+
 const credentialRenderRuntime = {
   logoPromise: null
 };
@@ -17329,7 +17332,7 @@ function buildFormationQrSuccessResult_(response, personId, source) {
 
   return {
     tone: "success",
-    badge: source === "scanner" ? "Registro exitoso" : "Asistencia guardada",
+    badge: source === "scanner" ? "QR leído" : "Asistencia guardada",
     title: source === "scanner" ? "Asistencia registrada" : "Asistencia guardada",
     message: source === "scanner"
       ? "Asistencia registrada correctamente. Puedes pasar al siguiente QR."
@@ -17352,8 +17355,8 @@ function buildFormationQrProcessingResult_(personId) {
 
   return {
     tone: "live",
-    badge: "QR leído",
-    title: "Registrando asistencia",
+    badge: "Validando QR",
+    title: "Validando asistencia",
     message: "QR reconocido. Estamos guardando la asistencia en esta sesión...",
     name: fallbackMeta.name || "Validando participante",
     groupName: fallbackMeta.groupName || selectedOffering?.name || "Paso en operación",
@@ -27872,17 +27875,25 @@ async function registerQrAttendance(personId, options = {}) {
         skipProgressSync: source === "scanner" ? "1" : ""
       });
       const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
-      setQrScannerFeedbackResult_(successResult);
-      setFormationScannerVisualLock_(successResult, 3000);
+      setQrScannerFeedbackResult_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
+      setFormationScannerVisualLock_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
       clearFormationScannerRequestLock_();
       state.qrScanner.status = "success";
       state.qrScanner.message = state.qrScanner.result.message;
       qrScannerRuntime.duplicateSuppressValue = "";
       qrScannerRuntime.duplicateSuppressUntil = 0;
-      qrScannerRuntime.pausedUntil = Date.now() + 3000;
-      applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
+      qrScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
+      applyQrScannerLiveStateToDom_({
+        tone: "success",
+        badge: successResult.badge || "QR leído",
+        name: successResult.name || "Sin nombre",
+        message: `${successResult.processName || "Proceso de Formación"} · ${successResult.levelName || successResult.groupName || "Paso en operación"}`,
+        meta: successResult.participantId
+          ? `${successResult.sessionName || "Sesión"} · ${successResult.participantId}`
+          : (successResult.sessionName || "Sesión")
+      });
       renderQrScannerFeedback_();
-      scheduleQrScannerResultReset_(3000);
+      scheduleQrScannerResultReset_(FORMATION_QR_SUCCESS_HOLD_MS);
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       try {
         applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
@@ -27916,14 +27927,14 @@ async function registerQrAttendance(personId, options = {}) {
       qrScannerRuntime.duplicateSuppressValue = cleanPersonId;
       qrScannerRuntime.duplicateSuppressUntil = Date.now() + 300000;
       const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
-      setQrScannerFeedbackResult_(failureResult);
-      setFormationScannerVisualLock_(failureResult, 3000);
+      setQrScannerFeedbackResult_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
+      setFormationScannerVisualLock_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
       clearFormationScannerRequestLock_();
       state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
       state.qrScanner.message = state.qrScanner.result.message;
-      qrScannerRuntime.pausedUntil = Date.now() + 3000;
+      qrScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
       playKioskSignal_(state.qrScanner.result.tone);
-      scheduleQrScannerResultReset_(3000);
+      scheduleQrScannerResultReset_(FORMATION_QR_ERROR_HOLD_MS);
 
       if (!options.suppressToast) {
         throw error;
@@ -28289,14 +28300,15 @@ function getQrScannerFeedbackResult_() {
   return state.qrScanner.displayResult || state.qrScanner.result || null;
 }
 
-function setQrScannerFeedbackResult_(result) {
+function setQrScannerFeedbackResult_(result, durationMs = 3200) {
   const normalizedResult = result || null;
+  const safeDuration = Math.max(Number(durationMs || 0), 0);
   state.qrScanner.result = normalizedResult;
   state.qrScanner.displayResult = normalizedResult;
   qrScannerRuntime.feedbackResult = normalizedResult;
-  qrScannerRuntime.feedbackUntil = normalizedResult ? Date.now() + 3200 : 0;
+  qrScannerRuntime.feedbackUntil = normalizedResult ? Date.now() + safeDuration : 0;
   qrScannerRuntime.fixedCardResult = normalizedResult;
-  qrScannerRuntime.fixedCardUntil = normalizedResult ? Date.now() + 3200 : 0;
+  qrScannerRuntime.fixedCardUntil = normalizedResult ? Date.now() + safeDuration : 0;
 }
 
 function clearQrScannerFeedbackResult_(options = {}) {
@@ -28487,16 +28499,18 @@ function scheduleQrScannerResultReset_(delayMs = 3000) {
   clearQrScannerResultReset_();
   qrScannerRuntime.resetResultTimeoutId = window.setTimeout(() => {
     qrScannerRuntime.resetResultTimeoutId = 0;
-      if (!state.qrScanner.enabled) {
-        return;
-      }
+    clearFormationScannerRequestLock_();
 
-      clearQrScannerFeedbackResult_({
-        clearVisual: true
-      });
-      state.qrScanner.status = "scanning";
-      state.qrScanner.message = buildQrScannerReadyMessage_();
-      renderQrScannerFeedback_();
+    if (!state.qrScanner.enabled) {
+      return;
+    }
+
+    clearQrScannerFeedbackResult_({
+      clearVisual: true
+    });
+    state.qrScanner.status = "scanning";
+    state.qrScanner.message = buildQrScannerReadyMessage_();
+    renderQrScannerFeedback_();
   }, delayMs);
 }
 
