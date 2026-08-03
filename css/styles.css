@@ -2477,6 +2477,16 @@ div {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 245, 245, 0.98) 100%);
 }
 
+.formation-scan-shell[data-feedback-tone="success"] {
+  border-color: rgba(30, 166, 80, 0.24);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.14);
+}
+
+.formation-scan-shell[data-feedback-tone="error"] {
+  border-color: rgba(210, 62, 62, 0.18);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
 .formation-scan-actions {
   align-items: center;
 }
@@ -2631,6 +2641,10 @@ div {
   min-height: 280px;
   height: min(44vh, 280px);
   max-height: 280px;
+}
+
+.app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scan-line {
+  display: none !important;
 }
 
 .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline {
