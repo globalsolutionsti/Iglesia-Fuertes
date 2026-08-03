@@ -27847,31 +27847,29 @@ async function registerQrAttendance(personId, options = {}) {
       setQrScannerFeedbackResult_(buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source));
       state.qrScanner.status = "success";
       state.qrScanner.message = state.qrScanner.result.message;
-      applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
-      state.formationQrActivity = [
-        {
-          ...state.qrScanner.result
-        },
-        ...state.formationQrActivity
-      ].slice(0, 8);
       qrScannerRuntime.duplicateSuppressValue = "";
       qrScannerRuntime.duplicateSuppressUntil = 0;
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
-      playKioskSignal_(state.qrScanner.result?.tone || "success");
+      applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
       renderQrScannerFeedback_();
-      if (source === "scanner") {
-        showToast(
-          "Asistencia registrada",
-          `${state.qrScanner.result?.name || "Participante"} · ${state.qrScanner.result?.sessionName || `Sesión ${formationContext.sessionNumber}`}`,
-          "success"
-        );
-      }
       scheduleQrScannerResultReset_(3000);
-      scheduleFormationAttendanceContextRefresh_(
-        formationContext.offeringId,
-        formationContext.sessionNumber,
-        12000
-      );
+      playKioskSignal_(state.qrScanner.result?.tone || "success");
+      try {
+        applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
+        state.formationQrActivity = [
+          {
+            ...state.qrScanner.result
+          },
+          ...state.formationQrActivity
+        ].slice(0, 8);
+        scheduleFormationAttendanceContextRefresh_(
+          formationContext.offeringId,
+          formationContext.sessionNumber,
+          12000
+        );
+      } catch (postSuccessError) {
+        console.error("Formation QR post-success sync warning", postSuccessError);
+      }
     };
 
     try {
@@ -27886,7 +27884,7 @@ async function registerQrAttendance(personId, options = {}) {
       }
     } catch (error) {
       qrScannerRuntime.duplicateSuppressValue = cleanPersonId;
-      qrScannerRuntime.duplicateSuppressUntil = Date.now() + 12000;
+      qrScannerRuntime.duplicateSuppressUntil = Date.now() + 300000;
       setQrScannerFeedbackResult_(buildFormationQrFailureResult_(error, cleanPersonId));
       state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
       state.qrScanner.message = state.qrScanner.result.message;
@@ -27899,13 +27897,6 @@ async function registerQrAttendance(personId, options = {}) {
       }
 
       renderQrScannerFeedback_();
-      if (source === "scanner") {
-        showToast(
-          state.qrScanner.result?.title || "No se pudo registrar",
-          `${state.qrScanner.result?.name || "Participante"} · ${state.qrScanner.result?.sessionName || `Sesión ${formationContext.sessionNumber}`}`,
-          state.qrScanner.result?.tone === "warning" ? "warning" : "danger"
-        );
-      }
     }
 
     return;
@@ -28217,6 +28208,61 @@ function getActiveQrScannerRoot_() {
     || document.querySelector("#formation-operations-attendance");
 }
 
+function applyQrScannerLiveStateToDom_(stateSnapshot) {
+  const root = getActiveQrScannerRoot_();
+  if (!(root instanceof HTMLElement)) {
+    return false;
+  }
+
+  const frame = root.querySelector(".kiosk-scanner-frame");
+  if (frame instanceof HTMLElement) {
+    frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
+    frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
+    frame.setAttribute("data-feedback-tone", stateSnapshot.tone);
+    frame.style.cssText = getQrScannerFrameInlineStyle_(stateSnapshot.tone);
+  }
+
+  const inline = root.querySelector(".formation-scan-inline");
+  if (inline instanceof HTMLElement) {
+    inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+    inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
+    inline.setAttribute("data-feedback-tone", stateSnapshot.tone);
+    inline.style.cssText = getQrScannerInlineStyle_(stateSnapshot.tone);
+  }
+
+  const badgeNode = root.querySelector('[data-qr-feedback="badge"]');
+  if (badgeNode instanceof HTMLElement) {
+    badgeNode.textContent = stateSnapshot.badge;
+  }
+
+  const nameNode = root.querySelector('[data-qr-feedback="name"]');
+  if (nameNode instanceof HTMLElement) {
+    nameNode.textContent = stateSnapshot.name;
+  }
+
+  const messageNode = root.querySelector('[data-qr-feedback="message"]');
+  if (messageNode instanceof HTMLElement) {
+    messageNode.textContent = stateSnapshot.message;
+  }
+
+  const metaNode = root.querySelector('[data-qr-feedback="meta"]');
+  if (metaNode instanceof HTMLElement) {
+    metaNode.textContent = stateSnapshot.meta;
+  }
+
+  const placeholder = root.querySelector(".kiosk-video-placeholder");
+  if (placeholder instanceof HTMLElement) {
+    placeholder.classList.toggle("hidden", Boolean(state.qrScanner.enabled));
+  }
+
+  const scanLine = root.querySelector(".kiosk-scan-line");
+  if (scanLine instanceof HTMLElement) {
+    scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
+  }
+
+  return true;
+}
+
 function renderQrScannerFeedback_() {
   const liveRoot = getActiveQrScannerRoot_();
   const hasLiveScanner = liveRoot instanceof HTMLElement
@@ -28228,7 +28274,7 @@ function renderQrScannerFeedback_() {
 
   const applyFeedback = () => {
     syncQrScannerLiveFeedback_();
-    [70, 180, 360, 720, 1200, 1900, 2700].forEach((delayMs) => {
+    [60, 150, 300, 520, 900, 1400, 2100, 2900].forEach((delayMs) => {
       window.setTimeout(() => {
         syncQrScannerLiveFeedback_();
       }, delayMs);
@@ -28280,56 +28326,7 @@ function getQrScannerLiveState_() {
 function syncQrScannerLiveFeedback_() {
   try {
     const stateSnapshot = getQrScannerLiveState_();
-    const root = getActiveQrScannerRoot_();
-    if (!(root instanceof HTMLElement)) {
-      return;
-    }
-
-    const frame = root.querySelector(".kiosk-scanner-frame");
-    if (frame instanceof HTMLElement) {
-      frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
-      frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
-      frame.setAttribute("data-feedback-tone", stateSnapshot.tone);
-      frame.style.cssText = getQrScannerFrameInlineStyle_(stateSnapshot.tone);
-    }
-
-    const inline = root.querySelector(".formation-scan-inline");
-    if (inline instanceof HTMLElement) {
-      inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
-      inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
-      inline.setAttribute("data-feedback-tone", stateSnapshot.tone);
-      inline.style.cssText = getQrScannerInlineStyle_(stateSnapshot.tone);
-    }
-
-    const badgeNode = root.querySelector('[data-qr-feedback="badge"]');
-    if (badgeNode instanceof HTMLElement) {
-      badgeNode.textContent = stateSnapshot.badge;
-    }
-
-    const nameNode = root.querySelector('[data-qr-feedback="name"]');
-    if (nameNode instanceof HTMLElement) {
-      nameNode.textContent = stateSnapshot.name;
-    }
-
-    const messageNode = root.querySelector('[data-qr-feedback="message"]');
-    if (messageNode instanceof HTMLElement) {
-      messageNode.textContent = stateSnapshot.message;
-    }
-
-    const metaNode = root.querySelector('[data-qr-feedback="meta"]');
-    if (metaNode instanceof HTMLElement) {
-      metaNode.textContent = stateSnapshot.meta;
-    }
-
-    const placeholder = root.querySelector(".kiosk-video-placeholder");
-    if (placeholder instanceof HTMLElement) {
-      placeholder.classList.toggle("hidden", Boolean(state.qrScanner.enabled));
-    }
-
-    const scanLine = root.querySelector(".kiosk-scan-line");
-    if (scanLine instanceof HTMLElement) {
-      scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
-    }
+    applyQrScannerLiveStateToDom_(stateSnapshot);
   } catch (error) {
     // Si el DOM cambia durante el render, dejamos que el flujo principal siga sin bloquear el escaneo.
   }
@@ -28627,6 +28624,7 @@ function processQrRawValue_(rawValue) {
     state.qrScanner.message = state.qrScanner.result.message;
     qrScannerRuntime.pausedUntil = Date.now() + 3000;
     playKioskSignal_("error");
+    applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
     renderQrScannerFeedback_();
     scheduleQrScannerResultReset_(3000);
     return;
@@ -28642,7 +28640,7 @@ function processQrRawValue_(rawValue) {
     qrScannerRuntime.awaitingFrameClear = true;
     qrScannerRuntime.clearFrameCount = 0;
     qrScannerRuntime.duplicateSuppressValue = extractedPersonId;
-    qrScannerRuntime.duplicateSuppressUntil = now + 12000;
+    qrScannerRuntime.duplicateSuppressUntil = now + 300000;
     setQrScannerFeedbackResult_(buildFormationQrFailureResult_(
       new ApiError("La asistencia ya estaba registrada en esta sesión del paso.", "DUPLICATE_FORMATION_QR_ATTENDANCE"),
       extractedPersonId
@@ -28651,12 +28649,8 @@ function processQrRawValue_(rawValue) {
     state.qrScanner.message = state.qrScanner.result.message;
     qrScannerRuntime.pausedUntil = now + 3000;
     playKioskSignal_("error");
+    applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
     renderQrScannerFeedback_();
-    showToast(
-      state.qrScanner.result?.title || "Asistencia ya registrada",
-      `${state.qrScanner.result?.name || "Participante"} · ${state.qrScanner.result?.sessionName || `Sesión ${state.filters.formationOps.sessionNumber || "1"}`}`,
-      "warning"
-    );
     scheduleQrScannerResultReset_(3000);
     return;
   }
@@ -28670,6 +28664,7 @@ function processQrRawValue_(rawValue) {
   qrScannerRuntime.pausedUntil = now + 3000;
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
+  applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
   renderQrScannerFeedback_();
   void registerQrAttendance(extractedPersonId, {
     source: "scanner",
@@ -33041,6 +33036,10 @@ function handleError(error) {
 }
 
 function showToast(title, copy, type = "success") {
+  if (isFormationOperationsQrActive_()) {
+    return;
+  }
+
   const toast = document.createElement("article");
   toast.className = `toast ${type}`;
   toast.innerHTML = `
