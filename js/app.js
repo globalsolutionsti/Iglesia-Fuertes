@@ -59,6 +59,11 @@ function readInitialLaunchContext_() {
 }
 
 const VIEW_META = {
+  attendance: {
+    module: "attendanceHub",
+    title: "Asistencias",
+    subtitle: "Elige el flujo de captura y entra directo a la operación sin cargar pantallas innecesarias."
+  },
   dashboard: {
     module: "dashboard",
     title: "Dashboard Iglesia",
@@ -99,13 +104,8 @@ const VIEW_META = {
     title: "Asignacion de Participantes",
     subtitle: "Asigna personas a grupos de forma individual o masiva."
   },
-  attendance: {
-    module: "connection",
-    title: "Asistencias",
-    subtitle: "Opera la captura manual, escaneo QR asistido y modo kiosko."
-  },
   qr: {
-    module: "connection",
+    module: "attendanceHub",
     title: "Asistencias",
     subtitle: "Opera la captura manual, escaneo QR asistido y modo kiosko."
   },
@@ -132,6 +132,11 @@ const VIEW_META = {
 };
 
 const MODULE_META = {
+  attendanceHub: {
+    title: "Asistencias",
+    description: "Grupos de conexión y formación",
+    defaultView: "attendance"
+  },
   dashboard: {
     title: "Dashboard Iglesia",
     description: "Pastor, lideres e indicadores clave",
@@ -149,7 +154,7 @@ const MODULE_META = {
   },
   connection: {
     title: "Grupos de Conexion",
-    description: "Catalogos, temporadas, asignacion y asistencias",
+    description: "Catalogos, temporadas y asignacion",
     defaultView: "catalogs"
   },
   formation: {
@@ -165,6 +170,9 @@ const MODULE_META = {
 };
 
 const MODULE_TABS = {
+  attendanceHub: [
+    { view: "attendance", label: "Asistencias", description: "Grupos y formación" }
+  ],
   dashboard: [
     { view: "dashboard", label: "Resumen", description: "Pastor y lideres" }
   ],
@@ -179,8 +187,7 @@ const MODULE_TABS = {
   connection: [
     { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
     { view: "seasons", label: "Temporadas", description: "Sesiones y estados" },
-    { view: "participants", label: "Asignacion", description: "Individual y masiva" },
-    { view: "attendance", label: "Asistencias", description: "Manual, QR y kiosko" }
+    { view: "participants", label: "Asignacion", description: "Individual y masiva" }
   ],
   formation: [
     { view: "formation", label: "Formación", description: "Prospectos, niveles e historial" }
@@ -192,6 +199,7 @@ const MODULE_TABS = {
 };
 
 const ACCESSIBLE_VIEWS = [
+  "attendance",
   "dashboard",
   "assistants",
   "congregants-new",
@@ -200,7 +208,6 @@ const ACCESSIBLE_VIEWS = [
   "catalogs",
   "seasons",
   "participants",
-  "attendance",
   "formation",
   "admin-settings",
   "admin-users"
@@ -212,6 +219,7 @@ const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
 const PERSON_TYPE_OPTIONS = ["NUEVO", "PROSPECTO GP", "CONGREGANTE", "PROSPECTO GF", "VOLUNTARIOS", "LIDER", "COORDINADOR"];
 const CREDENTIAL_PREVIEW_LIMIT = 8;
 const MOBILE_NAV_ITEMS = [
+  { module: "attendanceHub", view: "attendance", label: "Asistencia", description: "Captura" },
   { module: "dashboard", view: "dashboard", label: "Inicio", description: "Pastor" },
   { module: "welcome", view: "congregants-new", label: "Bienvenida", description: "Nuevos" },
   { module: "directory", view: "assistants", label: "Congregantes", description: "Padron" },
@@ -230,7 +238,7 @@ const state = {
   currentView: initialLaunchContext.forceStudentPortal
     ? "login"
     : initialStoredUser
-    ? (initialStoredUser.sessionType === "student" ? "student-portal" : "dashboard")
+    ? (initialStoredUser.sessionType === "student" ? "student-portal" : "attendance")
     : "login",
   connectionStatus: null,
   metrics: {
@@ -343,6 +351,7 @@ const state = {
   selectedBulkPeople: [],
   ui: {
     mobileNavOpen: false,
+    attendanceCenterSection: "home",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
     editingGroupId: "",
@@ -547,7 +556,9 @@ async function init() {
       bootstrapApplicationInBackground_({
         message: state.currentView === "dashboard"
           ? "Preparando Dashboard Iglesia..."
-          : "Preparando tu grupo de conexión..."
+          : (state.currentView === "attendance"
+            ? "Preparando Centro de Asistencias..."
+            : "Preparando tu grupo de conexión...")
       });
     }
   }
@@ -879,9 +890,19 @@ function renderModuleTabButton_(tab) {
   `;
 }
 
+function normalizeAttendanceCenterSection_(value) {
+  const cleanValue = String(value || "").trim().toLowerCase();
+  return ["home", "connection", "formation"].includes(cleanValue) ? cleanValue : "home";
+}
+
+function getActiveAttendanceCenterSection_() {
+  state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(state.ui.attendanceCenterSection);
+  return state.ui.attendanceCenterSection;
+}
+
 function normalizeFormationSection_(value) {
   const cleanValue = String(value || "").trim().toLowerCase();
-  return ["route", "portal", "operations", "attendance", "levels"].includes(cleanValue) ? cleanValue : "route";
+  return ["route", "portal", "operations", "levels"].includes(cleanValue) ? cleanValue : "route";
 }
 
 function getActiveFormationSection_() {
@@ -981,6 +1002,14 @@ function getFormationPortalDefaultOffering_() {
     });
 
   return offerings[0] || null;
+}
+
+function getPreferredActiveFormationProcess_() {
+  const rows = Array.isArray(state.formationProcesses) ? state.formationProcesses : [];
+
+  return rows.find((process) => String(process?.status || "").trim().toUpperCase() === "ACTIVO")
+    || rows[0]
+    || null;
 }
 
 function ensureFormationPortalDefaultOffering_(options = {}) {
@@ -3788,7 +3817,7 @@ async function syncRuntimeAfterRender_() {
 
   const attendanceMode = resolveConnectionAttendanceMode_();
   const shouldKeepQrRuntime = state.currentView === "qr"
-    || (state.currentView === "attendance" && attendanceMode !== "manual")
+    || (isAttendanceConnectionSectionActive_() && attendanceMode !== "manual")
     || isFormationOperationsQrActive_();
 
   if (!shouldKeepQrRuntime) {
@@ -5689,7 +5718,7 @@ function renderCurrentView() {
     case "participants":
       return renderConnectionSectionView_(renderParticipantsView());
     case "attendance":
-      return renderConnectionAttendanceView_();
+      return renderAttendanceHubView_();
     case "qr":
       return renderConnectionAttendanceView_();
     case "formation":
@@ -5712,6 +5741,184 @@ function renderConnectionSectionView_(content) {
   return content;
 }
 
+function renderAttendanceHubView_() {
+  const section = getActiveAttendanceCenterSection_();
+  const isHome = section === "home";
+  const isFormation = section === "formation";
+  const isConnection = section === "connection";
+
+  return `
+    <section class="view-grid attendance-hub-view">
+      <article class="panel-card attendance-hub-hero">
+        <div class="panel-head">
+          <div>
+            <h2>Centro de asistencias</h2>
+            <p>Entra rápido a la operación. Primero eliges el flujo y después capturas en manual, QR asistido o kiosko.</p>
+          </div>
+          <span class="pill ${isFormation ? "success" : (isConnection ? "warning" : "dark")}">${escapeHtml(isFormation ? "Proceso de Formación" : (isConnection ? "Grupos de Conexión" : "Selecciona flujo"))}</span>
+        </div>
+
+        <div class="mode-card-grid attendance-hub-card-grid">
+          <button
+            class="mode-card attendance-hub-card ${isConnection ? "active" : ""}"
+            data-action="set-attendance-center-section"
+            data-section-key="connection"
+          >
+            <strong>Asistencias Grupo Conexión</strong>
+            <span>Usa captura manual, QR asistido y kiosko para sesiones de grupos.</span>
+          </button>
+
+          <button
+            class="mode-card attendance-hub-card ${isFormation ? "active" : ""}"
+            data-action="set-attendance-center-section"
+            data-section-key="formation"
+          >
+            <strong>Asistencia Proceso de Formación</strong>
+            <span>Selecciona el proceso activo, detecta la sesión de hoy y escanea desde celular o tablet.</span>
+          </button>
+        </div>
+
+        ${isHome ? `
+          <div class="attendance-hub-empty">
+            <strong>Elige un flujo para comenzar.</strong>
+            <span>El módulo entra ligero y no carga datos hasta que selecciones el tipo de asistencia que vas a operar.</span>
+          </div>
+        ` : ""}
+      </article>
+
+      ${isFormation ? renderAttendanceFormationWorkspace_() : ""}
+      ${isConnection ? renderConnectionAttendanceView_() : ""}
+    </section>
+  `;
+}
+
+function renderAttendanceFormationWorkspace_() {
+  const selectedProcess = getSelectedFormationProcess_();
+  const filteredOfferings = getFilteredFormationOfferings_();
+  const selectedOffering = getSelectedFormationOffering_();
+  const attendanceContext = selectedOffering && String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering.id || "")
+    ? state.formationAttendanceContext
+    : null;
+  const scheduledSessions = attendanceContext?.sessions?.length
+    ? attendanceContext.sessions
+    : (selectedOffering?.sessionSchedule || []);
+  const currentSessionNumber = String(
+    state.filters.formationOps.sessionNumber
+    || attendanceContext?.sessionNumber
+    || "1"
+  );
+  const sessionOptions = (scheduledSessions.length ? scheduledSessions : Array.from({
+    length: Math.max(Number(selectedOffering?.totalSessions || 0), 1)
+  }, (_, index) => ({
+    number: String(index + 1),
+    label: `Sesión ${index + 1}`
+  }))).map((session) => ({
+    value: String(session.number || session.value || ""),
+    label: String(session.label || `Sesión ${session.number || session.value || ""}`)
+  }));
+  const attendanceParticipants = getFormationAttendanceParticipants_(
+    attendanceContext,
+    Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []
+  );
+  const activeSessionLabel = attendanceContext?.activeSession?.label
+    || selectedOffering?.activeSession?.label
+    || "Sin sesión activa";
+  const selectedSessionLabel = attendanceContext?.selectedSession?.label
+    || sessionOptions.find((session) => String(session.value || "") === currentSessionNumber)?.label
+    || `Sesión ${currentSessionNumber}`;
+  const captureEnabled = Boolean(
+    attendanceContext?.captureEnabled
+    || (attendanceContext?.activeSession && String(attendanceContext.activeSession.number || "") === currentSessionNumber)
+  );
+
+  return `
+    <article class="panel-card module-section-anchor attendance-formation-shell" id="attendance-formation-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>Asistencia Proceso de Formación</h2>
+          <p>Elige el paso que vas a operar. Si hoy coincide con una sesión, el sistema la prepara automáticamente.</p>
+        </div>
+        <span class="pill ${captureEnabled ? "success" : "warning"}">${escapeHtml(captureEnabled ? "Sesión lista" : "Revisa sesión")}</span>
+      </div>
+
+      <div class="field-grid two attendance-formation-fields">
+        <div class="field">
+          <label for="formation-ops-process">Proceso de Formación</label>
+          <select id="formation-ops-process">
+            ${renderOptions(
+              state.formationProcesses.map((process) => ({
+                value: process.id,
+                label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
+              })),
+              selectedProcess?.id || state.filters.formationOps.processId,
+              "Selecciona proceso"
+            )}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="formation-ops-level">Paso del proceso</label>
+          <select id="formation-ops-level">
+            ${renderOptions(
+              getFormationSortedLevels_().map((level) => ({
+                value: level.id,
+                label: `${level.name} (${level.order})`
+              })),
+              state.filters.formationOps.levelId,
+              "Selecciona paso"
+            )}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="formation-ops-offering">Paso en operación</label>
+          <select id="formation-ops-offering">
+            ${renderOptions(
+              filteredOfferings.map((offering) => ({
+                value: offering.id,
+                label: `${offering.levelName} | ${offering.name}`
+              })),
+              selectedOffering?.id || state.filters.formationOps.offeringId,
+              "Selecciona paso en operación"
+            )}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="formation-ops-session">Sesión del paso</label>
+          <select id="formation-ops-session" ${selectedOffering ? "" : "disabled"}>
+            ${renderOptions(sessionOptions, currentSessionNumber, "Selecciona sesión")}
+          </select>
+        </div>
+      </div>
+
+      <div class="summary-strip attendance-formation-strip">
+        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedProcess?.name || "Sin proceso activo")}</span>
+        <span class="context-item"><strong>Paso en operación:</strong> ${escapeHtml(selectedOffering?.name || "Sin paso")}</span>
+        <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
+        <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
+      </div>
+    </article>
+
+    <article class="detail-card module-section-anchor" id="formation-operations-attendance">
+      <div class="panel-head">
+        <div>
+          <h2>Captura del paso</h2>
+          <p>Activa la sesión correcta y luego captura en manual, QR asistido o kiosko.</p>
+        </div>
+        ${selectedOffering ? `<span class="pill neutral">${escapeHtml(selectedOffering.name || "Paso activo")}</span>` : `<span class="pill dark">Sin paso activo</span>`}
+      </div>
+
+      ${selectedOffering
+        ? renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants, {
+          compact: true
+        })
+        : `<div class="empty-state">Selecciona primero el Proceso de Formación y el paso en operación para habilitar la asistencia.</div>`
+      }
+    </article>
+  `;
+}
+
 function resolveConnectionAttendanceMode_() {
   if (state.currentView === "qr") {
     return state.filters.qr.surface === "kiosk" ? "kiosk" : "qr";
@@ -5729,9 +5936,19 @@ function resolveFormationAttendanceMode_() {
   return mode === "kiosk" ? "kiosk" : (mode === "qr" ? "qr" : "manual");
 }
 
+function isAttendanceConnectionSectionActive_() {
+  return state.currentView === "attendance" && getActiveAttendanceCenterSection_() === "connection";
+}
+
+function isAttendanceFormationSectionActive_() {
+  return state.currentView === "attendance" && getActiveAttendanceCenterSection_() === "formation";
+}
+
 function isFormationOperationsQrActive_() {
-  return state.currentView === "formation"
-    && getActiveFormationSection_() === "attendance"
+  return (
+    isAttendanceFormationSectionActive_()
+    || (state.currentView === "formation" && getActiveFormationSection_() === "attendance")
+  )
     && resolveFormationAttendanceMode_() !== "manual";
 }
 
@@ -6960,7 +7177,6 @@ function renderFormationView_() {
   const routeVisibleCount = Array.isArray(candidates) ? candidates.length : 0;
   const processCount = Array.isArray(state.formationProcesses) ? state.formationProcesses.length : 0;
   const levelsCount = Array.isArray(state.formationCatalog) ? state.formationCatalog.length : 0;
-  const isAttendanceSection = activeSection === "attendance";
   const overviewCards = [
     {
       chip: "Ruta a Encuentro",
@@ -6996,24 +7212,19 @@ function renderFormationView_() {
             ? "Aquí administras los inscritos del Paso 1, compartes cuenta, PIN y QR y confirmas que su acceso al portal ya quedó listo."
             : activeSection === "operations"
               ? "Aquí ves el camino completo del inscrito: qué pasos ya acreditó, cuál cursa hoy y cómo va avanzando dentro del proceso."
-              : activeSection === "attendance"
-                ? "Esta ficha queda dedicada solo a operar asistencia: eliges proceso, paso y sesión y escaneas QR en una experiencia rápida, limpia y móvil."
-                : "Aquí administras la estructura del Proceso de Formación sin tocar la operación diaria de asistencia.",
+              : "Aquí administras la estructura del Proceso de Formación sin tocar la operación diaria de asistencia.",
         badge: {
-          label: activeSection === "attendance" ? "Operación móvil" : "Ruta pastoral",
-          kind: activeSection === "attendance" ? "success" : "dark"
+          label: "Ruta pastoral",
+          kind: "dark"
         },
-        metrics: isAttendanceSection
-          ? []
-          : [
-            { label: "Ruta", value: String(routeVisibleCount) },
-            { label: "Inscritos", value: String(portalVisibleCount) },
-            { label: "Camino", value: String(operationsVisibleCount) },
-            { label: "Catálogos", value: String(processCount + levelsCount) }
-          ]
+        metrics: [
+          { label: "Ruta", value: String(routeVisibleCount) },
+          { label: "Inscritos", value: String(portalVisibleCount) },
+          { label: "Camino", value: String(operationsVisibleCount) },
+          { label: "Catálogos", value: String(processCount + levelsCount) }
+        ]
       })}
 
-      ${!isAttendanceSection ? `
       <div class="stats-grid assistants-stats-grid">
         ${overviewCards.map((card) => `
           <article class="stat-card">
@@ -7023,7 +7234,6 @@ function renderFormationView_() {
           </article>
         `).join("")}
       </div>
-      ` : ""}
 
       ${renderFormationWorkspaceTabs_(activeSection, {
         routeCount: routeVisibleCount,
@@ -7052,10 +7262,6 @@ function renderFormationView_() {
         seasonId
       }) : ""}
 
-      ${activeSection === "attendance" ? renderFormationAttendanceWorkspace_({
-        seasonId
-      }) : ""}
-
       ${activeSection === "levels" ? renderFormationLevelsWorkspace_({
         editingLevel
       }) : ""}
@@ -7079,11 +7285,6 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
       key: "operations",
       label: "Camino Proceso de Formación",
       description: `${counts.operationsCount || 0} siguiendo su camino`
-    },
-    {
-      key: "attendance",
-      label: "Asistencia",
-      description: "rápida, móvil y protegida"
     },
     {
       key: "levels",
@@ -9240,10 +9441,11 @@ function renderFormationPortalAdminModal_() {
   `;
 }
 
-function renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants) {
+function renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants, options = {}) {
   const attendanceContext = String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering?.id || "")
     ? state.formationAttendanceContext
     : null;
+  const compact = Boolean(options.compact);
   const mode = resolveFormationAttendanceMode_();
   const isScanMode = mode !== "manual";
   const isKiosk = mode === "kiosk";
@@ -9322,7 +9524,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
 
   return `
     <div class="formation-attendance-panel ${isScanMode ? "is-scan-mode" : "is-manual-mode"}">
-      ${!isScanMode ? `
+      ${!isScanMode && !compact ? `
       <div class="formation-attendance-summary-grid">
         <article class="formation-attendance-summary-card">
           <span class="status-chip neutral">Operación actual</span>
@@ -9377,7 +9579,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       </div>
       ` : ""}
 
-      ${!isScanMode ? `
+      ${!isScanMode && !compact ? `
       <div class="formation-attendance-steps">
         <span class="context-item"><strong>Paso 1:</strong> elige el paso en operación</span>
         <span class="context-item"><strong>Paso 2:</strong> confirma la sesión</span>
@@ -9400,7 +9602,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
         <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
         <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
       </div>
-      ${!isScanMode ? `<div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>` : ""}
+      ${!isScanMode && !compact ? `<div class="formation-attendance-mode-copy">${escapeHtml(modeMeta.copy)}</div>` : ""}
 
       ${mode === "manual" ? `
       <form id="formation-level-attendance-form">
@@ -18490,9 +18692,30 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-attendance-center-section") {
+      state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(button.dataset.sectionKey || "");
+      state.qrScanner.enabled = false;
+      clearQrScannerFeedbackResult_();
+      stopQrScannerRuntime_(true);
+      renderApp();
+      await ensureAttendanceHubViewData_({
+        force: false,
+        showLoading: false
+      });
+      renderApp();
+      scrollViewportToTop_();
+      return;
+    }
+
     if (action === "navigate") {
       state.currentView = button.dataset.view;
       state.ui.welcomeModal = null;
+      state.qrScanner.enabled = false;
+      clearQrScannerFeedbackResult_();
+      stopQrScannerRuntime_(true);
+      if (state.currentView === "attendance") {
+        state.ui.attendanceCenterSection = "home";
+      }
       if (state.currentView === "congregants-new") {
         primeWelcomeNewView_();
       }
@@ -19834,6 +20057,7 @@ async function handleClick(event) {
       state.filters.qr.surface = "scanner";
       state.filters.attendance.mode = "qr";
       state.currentView = "attendance";
+      state.ui.attendanceCenterSection = "connection";
       await loadQrSummary();
       renderApp();
       scrollViewportToTop_();
@@ -19845,6 +20069,7 @@ async function handleClick(event) {
       state.filters.qr.surface = "kiosk";
       state.filters.attendance.mode = "kiosk";
       state.currentView = "attendance";
+      state.ui.attendanceCenterSection = "connection";
       await loadQrSummary();
       renderApp();
       scrollViewportToTop_();
@@ -19857,6 +20082,7 @@ async function handleClick(event) {
         : (button.dataset.mode === "qr" ? "qr" : "manual");
 
       state.filters.attendance.mode = nextMode;
+      state.ui.attendanceCenterSection = "connection";
 
       if (nextMode === "manual") {
         state.currentView = "attendance";
@@ -19989,7 +20215,7 @@ async function handleClick(event) {
     }
 
     if (action === "refresh-formation-operations") {
-      if (state.ui.formationSection === "attendance") {
+      if (isAttendanceFormationSectionActive_() || state.ui.formationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId || "",
@@ -20951,7 +21177,10 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-process") {
-      const activeFormationSection = getActiveFormationSection_();
+      const activeFormationSection = state.currentView === "formation"
+        ? getActiveFormationSection_()
+        : "";
+      const attendanceFormationSection = isAttendanceFormationSectionActive_();
       state.filters.formationOps.processId = target.value || "";
       state.filters.formationOps.levelId = "";
       state.filters.formationOps.offeringId = "";
@@ -20959,7 +21188,7 @@ async function handleChange(event) {
       state.ui.editingFormationOfferingId = "";
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
-      if (activeFormationSection === "attendance") {
+      if (attendanceFormationSection || activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
@@ -21001,13 +21230,16 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-level") {
-      const activeFormationSection = getActiveFormationSection_();
+      const activeFormationSection = state.currentView === "formation"
+        ? getActiveFormationSection_()
+        : "";
+      const attendanceFormationSection = isAttendanceFormationSectionActive_();
       state.filters.formationOps.levelId = target.value;
       state.filters.formationOps.offeringId = "";
       state.ui.selectedFormationOfferingId = "";
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
-      if (activeFormationSection === "attendance") {
+      if (attendanceFormationSection || activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
@@ -21041,12 +21273,15 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-offering") {
-      const activeFormationSection = getActiveFormationSection_();
+      const activeFormationSection = state.currentView === "formation"
+        ? getActiveFormationSection_()
+        : "";
+      const attendanceFormationSection = isAttendanceFormationSectionActive_();
       state.filters.formationOps.offeringId = target.value;
       state.ui.selectedFormationOfferingId = target.value;
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
-      if (activeFormationSection === "attendance") {
+      if (attendanceFormationSection || activeFormationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
@@ -21071,7 +21306,7 @@ async function handleChange(event) {
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
 
-      if (getActiveFormationSection_() === "attendance" && state.filters.formationOps.offeringId) {
+      if ((isAttendanceFormationSectionActive_() || getActiveFormationSection_() === "attendance") && state.filters.formationOps.offeringId) {
         await loadFormationAttendanceContext_(state.filters.formationOps.offeringId, {
           force: true,
           showLoading: false,
@@ -21279,7 +21514,11 @@ async function bootstrapApplication(options = {}) {
   } else {
     await withLoading(
       task,
-      options.message || (state.currentView === "dashboard" ? "Cargando Dashboard Iglesia..." : "Preparando dashboard...")
+      options.message || (
+        state.currentView === "dashboard"
+          ? "Cargando Dashboard Iglesia..."
+          : (state.currentView === "attendance" ? "Preparando Centro de Asistencias..." : "Preparando dashboard...")
+      )
     );
   }
 
@@ -21333,12 +21572,7 @@ async function loadCurrentViewData(options = {}) {
       await ensureParticipantsViewData_(options);
       return;
     case "attendance":
-      if (resolveConnectionAttendanceMode_() === "manual") {
-        await loadActiveSession();
-        await loadAttendanceData(options);
-      } else {
-        await ensureQrViewData_(options);
-      }
+      await ensureAttendanceHubViewData_(options);
       return;
     case "qr":
       await ensureQrViewData_(options);
@@ -22236,7 +22470,7 @@ async function loadFormationAttendanceBootstrap_(options = {}) {
     ]);
 
     if (!state.filters.formationOps.processId && state.formationProcesses.length) {
-      state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
+      state.filters.formationOps.processId = String(getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "");
     }
 
     const processId = String(options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || "")).trim();
@@ -23344,6 +23578,58 @@ async function ensureQrViewData_(options = {}) {
   }
 
   await loadQrSummary(options);
+}
+
+async function ensureAttendanceHubViewData_(options = {}) {
+  const activeSection = getActiveAttendanceCenterSection_();
+
+  if (activeSection === "home") {
+    return;
+  }
+
+  if (activeSection === "connection") {
+    if (resolveConnectionAttendanceMode_() === "manual") {
+      await loadActiveSession();
+      await loadAttendanceData(options);
+    } else {
+      await ensureQrViewData_(options);
+    }
+    return;
+  }
+
+  const task = async () => {
+    await loadFormationAttendanceBootstrap_({
+      force: options.force,
+      showLoading: false,
+      processId: state.filters.formationOps.processId || ""
+    });
+
+    const selectedOffering = getSelectedFormationOffering_();
+
+    if (!selectedOffering?.id) {
+      state.formationAttendanceContext = null;
+      state.loaded.formationAttendanceContext = false;
+      state.cacheKeys.formationAttendanceContext = "";
+      state.formationEnrollments = [];
+      state.loaded.formationEnrollments = false;
+      state.cacheKeys.formationEnrollments = "";
+      return;
+    }
+
+    await loadFormationAttendanceContext_(selectedOffering.id, {
+      force: options.force,
+      showLoading: false,
+      sessionNumber: state.filters.formationOps.sessionNumber || "1",
+      autoActivate: true
+    });
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, options.message || "Preparando asistencia del Proceso de Formación...");
 }
 
 async function ensureFormationOperationsViewData_(options = {}) {
@@ -28046,7 +28332,7 @@ function scheduleFormationAttendanceContextRefresh_(offeringId, sessionNumber, d
 
 function scanQrFrame_() {
   const connectionScannerActive = state.currentView === "qr"
-    || (state.currentView === "attendance" && resolveConnectionAttendanceMode_() !== "manual");
+    || (isAttendanceConnectionSectionActive_() && resolveConnectionAttendanceMode_() !== "manual");
   const formationScannerActive = isFormationOperationsQrActive_();
 
   if (!state.qrScanner.enabled || (!connectionScannerActive && !formationScannerActive)) {
@@ -32341,6 +32627,7 @@ function resetRuntimeState() {
   state.selectedBulkPeople = [];
   state.ui = {
     mobileNavOpen: false,
+    attendanceCenterSection: "home",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
     editingGroupId: "",
