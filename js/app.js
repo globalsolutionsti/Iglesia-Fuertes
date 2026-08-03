@@ -527,6 +527,8 @@ const qrScannerRuntime = {
   clearFrameCount: 0,
   feedbackResult: null,
   feedbackUntil: 0,
+  fixedCardResult: null,
+  fixedCardUntil: 0,
   duplicateSuppressValue: "",
   duplicateSuppressUntil: 0
 };
@@ -28180,6 +28182,10 @@ function getQrScannerInlineStyle_(tone) {
 }
 
 function getQrScannerFeedbackResult_() {
+  if (qrScannerRuntime.fixedCardResult && Date.now() < qrScannerRuntime.fixedCardUntil) {
+    return qrScannerRuntime.fixedCardResult;
+  }
+
   if (qrScannerRuntime.feedbackResult && Date.now() < qrScannerRuntime.feedbackUntil) {
     return qrScannerRuntime.feedbackResult;
   }
@@ -28193,6 +28199,8 @@ function setQrScannerFeedbackResult_(result) {
   state.qrScanner.displayResult = normalizedResult;
   qrScannerRuntime.feedbackResult = normalizedResult;
   qrScannerRuntime.feedbackUntil = normalizedResult ? Date.now() + 3200 : 0;
+  qrScannerRuntime.fixedCardResult = normalizedResult;
+  qrScannerRuntime.fixedCardUntil = normalizedResult ? Date.now() + 3200 : 0;
 }
 
 function clearQrScannerFeedbackResult_() {
@@ -28200,6 +28208,8 @@ function clearQrScannerFeedbackResult_() {
   state.qrScanner.displayResult = null;
   qrScannerRuntime.feedbackResult = null;
   qrScannerRuntime.feedbackUntil = 0;
+  qrScannerRuntime.fixedCardResult = null;
+  qrScannerRuntime.fixedCardUntil = 0;
 }
 
 function getActiveQrScannerRoot_() {
