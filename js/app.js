@@ -538,7 +538,8 @@ const qrScannerRuntime = {
   duplicateSuppressUntil: 0
 };
 
-const FORMATION_QR_SUCCESS_HOLD_MS = 1500;
+const FORMATION_QR_PROCESSING_MIN_MS = 1000;
+const FORMATION_QR_SUCCESS_HOLD_MS = 3000;
 const FORMATION_QR_ERROR_HOLD_MS = 1500;
 
 const formationAttendanceScannerRuntime = {
@@ -564,7 +565,8 @@ const formationAttendanceScannerRuntime = {
   status: "idle",
   message: "Activa la cámara para comenzar el registro automático.",
   requestPersonId: "",
-  requestStartedAt: 0
+  requestStartedAt: 0,
+  fastRouteSupported: null
 };
 
 const credentialRenderRuntime = {
@@ -28758,6 +28760,8 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
   const cleanPersonId = String(personId || "").trim();
   const formationContext = resolveFormationQrContext_();
   const attendanceContext = state.formationAttendanceContext || null;
+  const requestStartedAt = Date.now();
+  let qrResponse = null;
 
   if (!formationContext?.offeringId) {
     const missingContextResult = buildFormationQrFailureResult_(
@@ -28787,19 +28791,26 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
   }
 
   try {
-    try {
-      state.qrLastResult = await apiPost("formation.levelAttendance.registerQrFast", {
-        offeringId: formationContext.offeringId,
-        sessionNumber: formationContext.sessionNumber,
-        personId: cleanPersonId,
-        capturedBy: state.user?.name || ""
-      });
-    } catch (fastRouteError) {
-      if (!isUnknownActionError_(fastRouteError, "formation.levelAttendance.registerQrFast")) {
-        throw fastRouteError;
-      }
+    if (formationAttendanceScannerRuntime.fastRouteSupported !== false) {
+      try {
+        qrResponse = await apiPost("formation.levelAttendance.registerQrFast", {
+          offeringId: formationContext.offeringId,
+          sessionNumber: formationContext.sessionNumber,
+          personId: cleanPersonId,
+          capturedBy: state.user?.name || ""
+        });
+        formationAttendanceScannerRuntime.fastRouteSupported = true;
+      } catch (fastRouteError) {
+        if (!isUnknownActionError_(fastRouteError, "formation.levelAttendance.registerQrFast")) {
+          throw fastRouteError;
+        }
 
-      state.qrLastResult = await apiPost("formation.levelAttendance.registerQr", {
+        formationAttendanceScannerRuntime.fastRouteSupported = false;
+      }
+    }
+
+    if (!qrResponse) {
+      qrResponse = await apiPost("formation.levelAttendance.registerQr", {
         offeringId: formationContext.offeringId,
         sessionNumber: formationContext.sessionNumber,
         personId: cleanPersonId,
@@ -28808,6 +28819,11 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
       });
     }
 
+    if ((Date.now() - requestStartedAt) < FORMATION_QR_PROCESSING_MIN_MS) {
+      await waitMs_(FORMATION_QR_PROCESSING_MIN_MS - (Date.now() - requestStartedAt));
+    }
+
+    state.qrLastResult = qrResponse;
     const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, "scanner");
     applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
     state.formationQrActivity = [
