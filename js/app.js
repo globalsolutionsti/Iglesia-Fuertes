@@ -6009,7 +6009,7 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
     attendanceContext?.captureEnabled
     || (activeSession && String(activeSession.number || "") === sessionNumber)
   );
-  const feedbackState = getDedicatedFormationAttendanceScannerState_({
+  const feedbackState = getDedicatedFormationAttendanceFeedbackState_({
     offering: selectedOffering,
     sessionNumber,
     captureEnabled
