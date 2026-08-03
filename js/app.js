@@ -524,7 +524,9 @@ const qrScannerRuntime = {
   contextRefreshTimeoutId: 0,
   retryStartTimeoutId: 0,
   awaitingFrameClear: false,
-  clearFrameCount: 0
+  clearFrameCount: 0,
+  feedbackResult: null,
+  feedbackUntil: 0
 };
 
 const credentialRenderRuntime = {
@@ -9658,7 +9660,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
       </form>
       ` : `
       <div class="formation-scan-layout ${isKiosk ? "is-kiosk" : "is-assisted"}">
-        <div class="kiosk-scanner-shell formation-scan-shell">
+        <div class="kiosk-scanner-shell formation-scan-shell" data-qr-scanner-root="formation">
           <div class="kiosk-head-actions formation-scan-actions">
             <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" type="button" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}" ${captureEnabled ? "" : "disabled"}>
               ${state.qrScanner.enabled ? "Detener cámara" : "Activar cámara"}
@@ -17328,6 +17330,7 @@ function buildFormationQrSuccessResult_(response, personId, source) {
     groupName: programmedCourse.name || fallbackMeta.groupName || "Paso en operación",
     participantId: participant.id || attendance.enrollmentId || fallbackMeta.participantId || "Sin inscripción",
     personId: attendance.personId || fallbackMeta.personId || personId,
+    processName: programmedCourse.processName || state.formationAttendanceContext?.offering?.processName || "Proceso de Formación",
     sessionName: activeSession?.label || `Sesión ${sessionNumber}`,
     timestampLabel: registeredAtLabel,
     levelName: programmedCourse.levelName || fallbackMeta.levelName || "Nivel"
@@ -17384,6 +17387,7 @@ function buildFormationQrFailureResult_(error, personId) {
     groupName: fallbackMeta.groupName || "Paso en operación",
     participantId: fallbackMeta.participantId || "Pendiente",
     personId: fallbackMeta.personId || personId || "Sin dato",
+    processName: fallbackMeta.processName || state.formationAttendanceContext?.offering?.processName || "Proceso de Formación",
     sessionName: fallbackMeta.sessionName || "Formación",
     timestampLabel: formatDateTime_(new Date()),
     levelName: fallbackMeta.levelName || "Nivel"
@@ -17464,6 +17468,13 @@ function resolveFormationQrScanMeta_(personId) {
       || ""
     ).trim(),
     personId: cleanPersonId,
+    processName: String(
+      lastResult?.processName
+      || recentResult?.processName
+      || selectedOffering?.processName
+      || enrollment?.processName
+      || ""
+    ).trim(),
     sessionName: String(lastResult?.sessionName || recentResult?.sessionName || "").trim(),
     levelName: String(
       lastResult?.levelName
@@ -28173,6 +28184,10 @@ function getQrScannerInlineStyle_(tone) {
 }
 
 function getQrScannerFeedbackResult_() {
+  if (qrScannerRuntime.feedbackResult && Date.now() < qrScannerRuntime.feedbackUntil) {
+    return qrScannerRuntime.feedbackResult;
+  }
+
   return state.qrScanner.displayResult || state.qrScanner.result || null;
 }
 
@@ -28180,15 +28195,26 @@ function setQrScannerFeedbackResult_(result) {
   const normalizedResult = result || null;
   state.qrScanner.result = normalizedResult;
   state.qrScanner.displayResult = normalizedResult;
+  qrScannerRuntime.feedbackResult = normalizedResult;
+  qrScannerRuntime.feedbackUntil = normalizedResult ? Date.now() + 3200 : 0;
 }
 
 function clearQrScannerFeedbackResult_() {
   state.qrScanner.result = null;
   state.qrScanner.displayResult = null;
+  qrScannerRuntime.feedbackResult = null;
+  qrScannerRuntime.feedbackUntil = 0;
+}
+
+function getActiveQrScannerRoot_() {
+  return document.querySelector('[data-qr-scanner-root="formation"]')
+    || document.querySelector("#formation-operations-attendance");
 }
 
 function renderQrScannerFeedback_() {
-  const hasLiveScanner = document.querySelector("#formation-operations-attendance .kiosk-scanner-frame") instanceof HTMLElement;
+  const liveRoot = getActiveQrScannerRoot_();
+  const hasLiveScanner = liveRoot instanceof HTMLElement
+    && liveRoot.querySelector(".kiosk-scanner-frame") instanceof HTMLElement;
 
   if (!hasLiveScanner) {
     renderApp();
@@ -28217,16 +28243,26 @@ function getQrScannerLiveState_() {
   const badge = feedbackResult?.badge || (state.qrScanner.enabled
     ? (resolveFormationAttendanceMode_() === "kiosk" ? "Kiosko activo" : "Escaneo activo")
     : "Cámara en espera");
+  const currentOffering = state.formationAttendanceContext?.offering || getSelectedFormationOffering_() || null;
+  const processName = feedbackResult?.processName || currentOffering?.processName || "Proceso de Formación";
+  const levelName = feedbackResult?.levelName || feedbackResult?.groupName || currentOffering?.levelName || currentOffering?.name || "Paso en operación";
+  const hasResolvedParticipant = Boolean(
+    feedbackResult?.name
+    && String(feedbackResult.name).trim()
+    && String(feedbackResult.name).trim().toLowerCase() !== "sin registro"
+  );
   const name = feedbackResult?.name || (
     state.qrScanner.enabled
       ? "Esperando siguiente QR"
       : "Activa la sesión para comenzar"
   );
-  const message = feedbackResult?.message || (
-    state.qrScanner.enabled
-      ? "La cámara está lista. Acerca el QR y espera la confirmación en verde o rojo."
-      : "Activa la cámara para comenzar a registrar asistencias del curso."
-  );
+  const message = feedbackResult
+    ? (hasResolvedParticipant ? `${processName} · ${levelName}` : feedbackResult.message)
+    : (
+      state.qrScanner.enabled
+        ? "La cámara está lista. Acerca el QR y espera la confirmación en verde o rojo."
+        : "Activa la cámara para comenzar a registrar asistencias del curso."
+    );
   const sessionName = feedbackResult?.sessionName || `Sesión ${state.filters.formationOps.sessionNumber || "1"}`;
   const participantId = feedbackResult?.participantId || "";
 
@@ -28242,7 +28278,12 @@ function getQrScannerLiveState_() {
 function syncQrScannerLiveFeedback_() {
   try {
     const stateSnapshot = getQrScannerLiveState_();
-    const frame = document.querySelector("#formation-operations-attendance .kiosk-scanner-frame");
+    const root = getActiveQrScannerRoot_();
+    if (!(root instanceof HTMLElement)) {
+      return;
+    }
+
+    const frame = root.querySelector(".kiosk-scanner-frame");
     if (frame instanceof HTMLElement) {
       frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
       frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
@@ -28250,7 +28291,7 @@ function syncQrScannerLiveFeedback_() {
       frame.style.cssText = getQrScannerFrameInlineStyle_(stateSnapshot.tone);
     }
 
-    const inline = document.querySelector("#formation-operations-attendance .formation-scan-inline");
+    const inline = root.querySelector(".formation-scan-inline");
     if (inline instanceof HTMLElement) {
       inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
       inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
@@ -28258,32 +28299,32 @@ function syncQrScannerLiveFeedback_() {
       inline.style.cssText = getQrScannerInlineStyle_(stateSnapshot.tone);
     }
 
-    const badgeNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="badge"]');
+    const badgeNode = root.querySelector('[data-qr-feedback="badge"]');
     if (badgeNode instanceof HTMLElement) {
       badgeNode.textContent = stateSnapshot.badge;
     }
 
-    const nameNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="name"]');
+    const nameNode = root.querySelector('[data-qr-feedback="name"]');
     if (nameNode instanceof HTMLElement) {
       nameNode.textContent = stateSnapshot.name;
     }
 
-    const messageNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="message"]');
+    const messageNode = root.querySelector('[data-qr-feedback="message"]');
     if (messageNode instanceof HTMLElement) {
       messageNode.textContent = stateSnapshot.message;
     }
 
-    const metaNode = document.querySelector('#formation-operations-attendance [data-qr-feedback="meta"]');
+    const metaNode = root.querySelector('[data-qr-feedback="meta"]');
     if (metaNode instanceof HTMLElement) {
       metaNode.textContent = stateSnapshot.meta;
     }
 
-    const placeholder = document.querySelector("#formation-operations-attendance .kiosk-video-placeholder");
+    const placeholder = root.querySelector(".kiosk-video-placeholder");
     if (placeholder instanceof HTMLElement) {
       placeholder.classList.toggle("hidden", Boolean(state.qrScanner.enabled));
     }
 
-    const scanLine = document.querySelector("#formation-operations-attendance .kiosk-scan-line");
+    const scanLine = root.querySelector(".kiosk-scan-line");
     if (scanLine instanceof HTMLElement) {
       scanLine.classList.toggle("hidden", !state.qrScanner.enabled);
     }
@@ -28352,7 +28393,7 @@ function scanQrFrame_() {
     return;
   }
 
-  if ((now - qrScannerRuntime.lastScanAt) < 45) {
+  if ((now - qrScannerRuntime.lastScanAt) < 28) {
     return;
   }
 
@@ -28371,6 +28412,19 @@ function scanQrFrame_() {
             qrScannerRuntime.lastValueAt = 0;
           }
         } else {
+          const nextPersonId = extractPersonIdFromScan_(rawValue);
+          if (
+            nextPersonId
+            && nextPersonId !== qrScannerRuntime.lastValue
+            && Date.now() >= qrScannerRuntime.pausedUntil
+          ) {
+            qrScannerRuntime.awaitingFrameClear = false;
+            qrScannerRuntime.clearFrameCount = 0;
+            qrScannerRuntime.lastValue = "";
+            qrScannerRuntime.lastValueAt = 0;
+            processQrRawValue_(rawValue);
+            return;
+          }
           qrScannerRuntime.clearFrameCount = 0;
         }
         return;
