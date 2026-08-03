@@ -553,10 +553,18 @@ const formationAttendanceScannerRuntime = {
   requestPending: false,
   pausedUntil: 0,
   lastScanAt: 0,
+  lastValue: "",
+  lastValueAt: 0,
   suppressPersonId: "",
   suppressUntil: 0,
   feedback: null,
-  feedbackTimeoutId: 0
+  feedbackTimeoutId: 0,
+  activeToken: "",
+  cameraFacing: "",
+  status: "idle",
+  message: "Activa la cámara para comenzar el registro automático.",
+  requestPersonId: "",
+  requestStartedAt: 0
 };
 
 const credentialRenderRuntime = {
@@ -572,6 +580,7 @@ window.addEventListener("resize", () => {
 });
 window.addEventListener("beforeunload", () => {
   stopQrScannerRuntime_();
+  stopFormationAttendanceScanner_();
 });
 
 init();
@@ -3833,19 +3842,44 @@ async function syncRuntimeAfterRender_() {
 
   if (!state.user) {
     stopQrScannerRuntime_();
+    stopFormationAttendanceScanner_();
     return;
   }
 
   if (isStudentSession_()) {
     stopQrScannerRuntime_();
+    stopFormationAttendanceScanner_();
     return;
   }
 
   if (state.currentView === "assistants") {
     stopQrScannerRuntime_();
+    stopFormationAttendanceScanner_();
     syncCredentialQrsAfterRender_();
     return;
   }
+
+  if (isAttendanceFormationSectionActive_()) {
+    stopQrScannerRuntime_();
+
+    if (!isAttendanceFormationScannerMode_()) {
+      stopFormationAttendanceScanner_(true);
+      syncFormationAttendanceScannerFeedback_();
+      return;
+    }
+
+    if (!formationAttendanceScannerRuntime.enabled) {
+      stopFormationAttendanceScanner_(true);
+      syncFormationAttendanceScannerFeedback_();
+      return;
+    }
+
+    await ensureFormationAttendanceScannerStarted_();
+    syncFormationAttendanceScannerFeedback_();
+    return;
+  }
+
+  stopFormationAttendanceScanner_();
 
   const attendanceMode = resolveConnectionAttendanceMode_();
   const shouldKeepQrRuntime = state.currentView === "qr"
@@ -5942,12 +5976,134 @@ function renderAttendanceFormationWorkspace_() {
       </div>
 
       ${selectedOffering
-        ? renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants, {
-          compact: true
-        })
+        ? renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants)
         : `<div class="empty-state">Selecciona primero el Proceso de Formación y el paso en operación para habilitar la asistencia.</div>`
       }
     </article>
+  `;
+}
+
+function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants) {
+  const mode = resolveFormationAttendanceMode_();
+
+  if (mode === "manual") {
+    return renderFormationAttendanceCapturePanel_(selectedOffering, currentSessionNumber, attendanceParticipants, {
+      compact: true
+    });
+  }
+
+  const attendanceContext = String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering?.id || "")
+    ? state.formationAttendanceContext
+    : null;
+  const sessionNumber = String(
+    currentSessionNumber
+    || attendanceContext?.sessionNumber
+    || state.filters.formationOps.sessionNumber
+    || "1"
+  );
+  const selectedSession = attendanceContext?.selectedSession
+    || (selectedOffering?.sessionSchedule || []).find((session) => String(session.number || "") === sessionNumber)
+    || null;
+  const activeSession = attendanceContext?.activeSession || selectedOffering?.activeSession || null;
+  const captureEnabled = Boolean(
+    attendanceContext?.captureEnabled
+    || (activeSession && String(activeSession.number || "") === sessionNumber)
+  );
+  const feedbackState = getDedicatedFormationAttendanceScannerState_({
+    offering: selectedOffering,
+    sessionNumber,
+    captureEnabled
+  });
+  const frameStyle = getQrScannerFrameInlineStyle_(feedbackState.tone);
+  const inlineStyle = getQrScannerInlineStyle_(feedbackState.tone);
+  const isKiosk = mode === "kiosk";
+  const cameraFacing = formationAttendanceScannerRuntime.cameraFacing || state.filters.qr.cameraFacing || DEFAULT_QR_CAMERA_FACING;
+  const sessionLabel = selectedSession?.label || `Sesión ${sessionNumber}`;
+  const activeLabel = activeSession?.label || "Sin sesión activa";
+  const activationButtonLabel = state.ui.formationAttendanceActivating
+    ? "Activando sesión..."
+    : (captureEnabled ? "Sesión activa y lista" : "Activar sesión del paso");
+
+  return `
+    <div class="formation-attendance-panel is-scan-mode is-dedicated-formation-scan">
+      <div class="formation-attendance-scan-compact">
+        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(selectedOffering.processName || "Proceso de Formación")}</span>
+        <span class="context-item"><strong>Paso:</strong> ${escapeHtml(selectedOffering.name || selectedOffering.levelName || "Paso")}</span>
+        <span class="context-item"><strong>Sesión elegida:</strong> ${escapeHtml(sessionLabel)}</span>
+        <span class="context-item"><strong>Sesión activa:</strong> ${escapeHtml(activeLabel)}</span>
+      </div>
+
+      <div class="formation-attendance-activation-row">
+        <button
+          class="btn ${captureEnabled ? "btn-secondary" : "btn-primary"}"
+          type="button"
+          data-action="activate-formation-session"
+          data-offering-id="${escapeHtml(selectedOffering.id || "")}"
+          data-session-number="${escapeHtml(sessionNumber)}"
+          ${state.ui.formationAttendanceActivating ? "disabled" : ""}
+        >
+          ${escapeHtml(activationButtonLabel)}
+        </button>
+        <span class="footer-note">${escapeHtml(
+          captureEnabled
+            ? "La sesión está lista. Escanea un QR y espera la confirmación antes del siguiente."
+            : "Primero activa la sesión correcta para proteger el registro de asistencia."
+        )}</span>
+      </div>
+
+      <div class="toggle-group formation-attendance-toggle">
+        <button class="toggle-button" type="button" data-action="set-formation-attendance-mode" data-mode="manual">Manual</button>
+        <button class="toggle-button ${mode === "qr" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="qr">QR asistido</button>
+        <button class="toggle-button ${mode === "kiosk" ? "active" : ""}" type="button" data-action="set-formation-attendance-mode" data-mode="kiosk">Kiosko</button>
+      </div>
+
+      <div class="formation-scan-layout ${isKiosk ? "is-kiosk" : "is-assisted"}">
+        <div class="kiosk-scanner-shell formation-scan-shell" data-qr-scanner-root="formation-attendance" data-feedback-tone="${escapeHtml(feedbackState.tone)}">
+          <div class="kiosk-head-actions formation-scan-actions">
+            <button
+              class="btn ${formationAttendanceScannerRuntime.enabled ? "btn-danger" : "btn-primary"}"
+              type="button"
+              data-action="${formationAttendanceScannerRuntime.enabled ? "stop-formation-attendance-camera" : "start-formation-attendance-camera"}"
+              ${captureEnabled ? "" : "disabled"}
+            >
+              ${formationAttendanceScannerRuntime.enabled ? "Detener cámara" : "Activar cámara"}
+            </button>
+            <div class="toggle-group kiosk-toggle-group">
+              <button class="toggle-button ${cameraFacing === "front" ? "active" : ""}" type="button" data-action="set-formation-attendance-camera" data-camera-facing="front">Frontal</button>
+              <button class="toggle-button ${cameraFacing === "rear" ? "active" : ""}" type="button" data-action="set-formation-attendance-camera" data-camera-facing="rear">Trasera</button>
+            </div>
+          </div>
+
+          <div class="kiosk-scanner-frame kiosk-state-${escapeHtml(feedbackState.tone)}" data-feedback-tone="${escapeHtml(feedbackState.tone)}" style="${escapeHtml(frameStyle)}">
+            <video id="formation-attendance-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
+            <div class="kiosk-video-placeholder ${formationAttendanceScannerRuntime.enabled ? "hidden" : ""}">
+              <strong>${escapeHtml(captureEnabled ? "Cámara en espera" : "Sesión aún no activada")}</strong>
+              <span>${escapeHtml(
+                captureEnabled
+                  ? (isKiosk
+                    ? "Modo kiosko listo para recibir un QR tras otro."
+                    : "Modo asistido listo para registrar un QR a la vez.")
+                  : "Activa la sesión correcta y luego habilita la cámara."
+              )}</span>
+            </div>
+            <div class="kiosk-scan-overlay">
+              <span class="kiosk-corner kiosk-corner-tl"></span>
+              <span class="kiosk-corner kiosk-corner-tr"></span>
+              <span class="kiosk-corner kiosk-corner-bl"></span>
+              <span class="kiosk-corner kiosk-corner-br"></span>
+              <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
+            </div>
+          </div>
+
+          <div class="formation-scan-inline kiosk-tone-${escapeHtml(feedbackState.tone)}" data-feedback-tone="${escapeHtml(feedbackState.tone)}" data-formation-attendance-feedback-card="1" style="${escapeHtml(inlineStyle)}">
+            <span class="formation-scan-inline-badge" data-formation-attendance-feedback="badge">${escapeHtml(feedbackState.badge)}</span>
+            <strong data-formation-attendance-feedback="name">${escapeHtml(feedbackState.name)}</strong>
+            <span data-formation-attendance-feedback="message">${escapeHtml(feedbackState.message)}</span>
+            <small data-formation-attendance-feedback="meta">${escapeHtml(feedbackState.meta)}</small>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -5976,11 +6132,12 @@ function isAttendanceFormationSectionActive_() {
   return state.currentView === "attendance" && getActiveAttendanceCenterSection_() === "formation";
 }
 
+function isAttendanceFormationScannerMode_() {
+  return isAttendanceFormationSectionActive_() && resolveFormationAttendanceMode_() !== "manual";
+}
+
 function isFormationOperationsQrActive_() {
-  return (
-    isAttendanceFormationSectionActive_()
-    || (state.currentView === "formation" && getActiveFormationSection_() === "attendance")
-  )
+  return (state.currentView === "formation" && getActiveFormationSection_() === "attendance")
     && resolveFormationAttendanceMode_() !== "manual";
 }
 
@@ -17388,7 +17545,7 @@ function buildFormationQrProcessingResult_(personId) {
 
 function getFormationAttendanceScannerRoot_() {
   if (isAttendanceFormationSectionActive_()) {
-    return document.querySelector('#formation-operations-attendance [data-qr-scanner-root="formation"]')
+    return document.querySelector('#formation-operations-attendance [data-qr-scanner-root="formation-attendance"]')
       || document.querySelector("#formation-operations-attendance");
   }
 
@@ -17399,6 +17556,166 @@ function getFormationAttendanceScannerRoot_() {
 
   return document.querySelector('[data-qr-scanner-root="formation"]')
     || document.querySelector("#formation-operations-attendance");
+}
+
+function getDedicatedFormationAttendanceScannerRoot_() {
+  return document.querySelector('#formation-operations-attendance [data-qr-scanner-root="formation-attendance"]');
+}
+
+function getDedicatedFormationAttendanceFeedbackState_(options = {}) {
+  const offering = options.offering || getSelectedFormationOffering_() || null;
+  const sessionNumber = String(
+    options.sessionNumber
+    || state.filters.formationOps.sessionNumber
+    || "1"
+  );
+  const captureEnabled = options.captureEnabled === true;
+  const feedback = formationAttendanceScannerRuntime.feedback || null;
+  const tone = feedback?.tone || (formationAttendanceScannerRuntime.enabled ? "live" : "idle");
+  const badge = feedback?.badge || (
+    formationAttendanceScannerRuntime.enabled
+      ? (resolveFormationAttendanceMode_() === "kiosk" ? "Kiosko activo" : "QR asistido")
+      : "Cámara en espera"
+  );
+  const name = feedback?.name || (
+    captureEnabled
+      ? (formationAttendanceScannerRuntime.enabled ? "Esperando siguiente QR" : "Activa la cámara")
+      : "Activa la sesión para comenzar"
+  );
+  const message = feedback?.message || (
+    captureEnabled
+      ? (formationAttendanceScannerRuntime.enabled
+        ? "Acerca el QR y espera la confirmación visual."
+        : "Activa la cámara para registrar la asistencia.")
+      : "Primero activa la sesión del paso."
+  );
+  const sessionLabel = feedback?.sessionName || `Sesión ${sessionNumber}`;
+  const participantId = feedback?.participantId || "";
+
+  return {
+    tone,
+    badge,
+    name,
+    message,
+    meta: participantId ? `${sessionLabel} · ${participantId}` : sessionLabel
+  };
+}
+
+function applyDedicatedFormationAttendanceFeedback_(snapshot) {
+  const root = getDedicatedFormationAttendanceScannerRoot_();
+  if (!(root instanceof HTMLElement) || !snapshot) {
+    return false;
+  }
+
+  root.setAttribute("data-feedback-tone", snapshot.tone || "idle");
+
+  const frame = root.querySelector(".kiosk-scanner-frame");
+  if (frame instanceof HTMLElement) {
+    frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
+    frame.classList.add(`kiosk-state-${snapshot.tone || "idle"}`);
+    frame.setAttribute("data-feedback-tone", snapshot.tone || "idle");
+    frame.style.cssText = getQrScannerFrameInlineStyle_(snapshot.tone || "idle");
+  }
+
+  const inline = root.querySelector('[data-formation-attendance-feedback-card="1"]');
+  if (inline instanceof HTMLElement) {
+    inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+    inline.classList.add(`kiosk-tone-${snapshot.tone || "idle"}`);
+    inline.setAttribute("data-feedback-tone", snapshot.tone || "idle");
+    inline.style.cssText = getQrScannerInlineStyle_(snapshot.tone || "idle");
+  }
+
+  const placeholder = root.querySelector(".kiosk-video-placeholder");
+  if (placeholder instanceof HTMLElement) {
+    placeholder.classList.toggle("hidden", Boolean(formationAttendanceScannerRuntime.enabled));
+  }
+
+  const badgeNode = root.querySelector('[data-formation-attendance-feedback="badge"]');
+  if (badgeNode instanceof HTMLElement) {
+    badgeNode.textContent = snapshot.badge || "";
+  }
+
+  const nameNode = root.querySelector('[data-formation-attendance-feedback="name"]');
+  if (nameNode instanceof HTMLElement) {
+    nameNode.textContent = snapshot.name || "";
+  }
+
+  const messageNode = root.querySelector('[data-formation-attendance-feedback="message"]');
+  if (messageNode instanceof HTMLElement) {
+    messageNode.textContent = snapshot.message || "";
+  }
+
+  const metaNode = root.querySelector('[data-formation-attendance-feedback="meta"]');
+  if (metaNode instanceof HTMLElement) {
+    metaNode.textContent = snapshot.meta || "";
+  }
+
+  return true;
+}
+
+function syncFormationAttendanceScannerFeedback_() {
+  try {
+    const selectedOffering = getSelectedFormationOffering_();
+    const attendanceContext = selectedOffering && String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering.id || "")
+      ? state.formationAttendanceContext
+      : null;
+    const captureEnabled = Boolean(
+      attendanceContext?.captureEnabled
+      || (attendanceContext?.activeSession && String(attendanceContext.activeSession.number || "") === String(state.filters.formationOps.sessionNumber || "1"))
+    );
+    applyDedicatedFormationAttendanceFeedback_(getDedicatedFormationAttendanceFeedbackState_({
+      offering: selectedOffering,
+      sessionNumber: state.filters.formationOps.sessionNumber || "1",
+      captureEnabled
+    }));
+  } catch (error) {
+    // Evitamos romper el render si el DOM se actualiza durante el escaneo.
+  }
+}
+
+function setDedicatedFormationAttendanceFeedback_(result, holdMs = 1500) {
+  formationAttendanceScannerRuntime.feedback = result || null;
+  syncFormationAttendanceScannerFeedback_();
+
+  if (formationAttendanceScannerRuntime.feedbackTimeoutId) {
+    window.clearTimeout(formationAttendanceScannerRuntime.feedbackTimeoutId);
+    formationAttendanceScannerRuntime.feedbackTimeoutId = 0;
+  }
+
+  if (holdMs > 0) {
+    formationAttendanceScannerRuntime.feedbackTimeoutId = window.setTimeout(() => {
+      formationAttendanceScannerRuntime.feedbackTimeoutId = 0;
+      clearDedicatedFormationAttendanceFeedback_(true);
+    }, holdMs);
+  }
+}
+
+function clearDedicatedFormationAttendanceFeedback_(resetToReady = false) {
+  if (formationAttendanceScannerRuntime.feedbackTimeoutId) {
+    window.clearTimeout(formationAttendanceScannerRuntime.feedbackTimeoutId);
+    formationAttendanceScannerRuntime.feedbackTimeoutId = 0;
+  }
+
+  formationAttendanceScannerRuntime.feedback = null;
+
+  if (resetToReady) {
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.requestPersonId = "";
+    formationAttendanceScannerRuntime.requestStartedAt = 0;
+    formationAttendanceScannerRuntime.pausedUntil = 0;
+    formationAttendanceScannerRuntime.lastValue = "";
+    formationAttendanceScannerRuntime.lastValueAt = 0;
+    syncFormationAttendanceScannerFeedback_();
+  }
+}
+
+function getFormationAttendanceScannerVideo_() {
+  const root = getDedicatedFormationAttendanceScannerRoot_();
+  if (!(root instanceof HTMLElement)) {
+    return null;
+  }
+  const video = root.querySelector("#formation-attendance-kiosk-video");
+  return video instanceof HTMLVideoElement ? video : null;
 }
 
 function buildQrFailureResult_(error, personId) {
@@ -18772,6 +19089,8 @@ async function handleClick(event) {
       state.qrScanner.enabled = false;
       clearQrScannerFeedbackResult_();
       stopQrScannerRuntime_(true);
+      formationAttendanceScannerRuntime.enabled = false;
+      stopFormationAttendanceScanner_();
       renderApp();
       await ensureAttendanceHubViewData_({
         force: false,
@@ -18788,6 +19107,8 @@ async function handleClick(event) {
       state.qrScanner.enabled = false;
       clearQrScannerFeedbackResult_();
       stopQrScannerRuntime_(true);
+      formationAttendanceScannerRuntime.enabled = false;
+      stopFormationAttendanceScanner_();
       if (state.currentView === "attendance") {
         state.ui.attendanceCenterSection = "home";
       }
@@ -20330,9 +20651,15 @@ async function handleClick(event) {
 
       state.filters.formationOps.captureMode = nextMode;
       clearQrScannerFeedbackResult_();
+      clearDedicatedFormationAttendanceFeedback_();
       state.formationQrActivity = [];
 
-      if (nextMode === "manual") {
+      if (isAttendanceFormationSectionActive_()) {
+        formationAttendanceScannerRuntime.enabled = false;
+        stopFormationAttendanceScanner_();
+        state.qrScanner.enabled = false;
+        stopQrScannerRuntime_(true);
+      } else if (nextMode === "manual") {
         state.qrScanner.enabled = false;
         stopQrScannerRuntime_(true);
       } else if (state.qrScanner.enabled) {
@@ -20343,6 +20670,43 @@ async function handleClick(event) {
 
       renderApp();
       scrollToSection_("formation-operations-attendance");
+      return;
+    }
+
+    if (action === "start-formation-attendance-camera") {
+      formationAttendanceScannerRuntime.enabled = true;
+      formationAttendanceScannerRuntime.status = "starting";
+      formationAttendanceScannerRuntime.message = `Preparando cámara ${getQrCameraLabel_(state.filters.qr.cameraFacing)} para el lector de Formación...`;
+      state.qrScanner.enabled = false;
+      stopQrScannerRuntime_(true);
+      clearDedicatedFormationAttendanceFeedback_();
+      renderApp();
+      return;
+    }
+
+    if (action === "stop-formation-attendance-camera") {
+      formationAttendanceScannerRuntime.enabled = false;
+      stopFormationAttendanceScanner_();
+      renderApp();
+      return;
+    }
+
+    if (action === "set-formation-attendance-camera") {
+      const nextFacing = button.dataset.cameraFacing === "front" ? "front" : "rear";
+
+      if (state.filters.qr.cameraFacing === nextFacing) {
+        return;
+      }
+
+      state.filters.qr.cameraFacing = nextFacing;
+      formationAttendanceScannerRuntime.cameraFacing = "";
+      clearDedicatedFormationAttendanceFeedback_();
+
+      if (formationAttendanceScannerRuntime.enabled) {
+        stopFormationAttendanceScanner_(true);
+      }
+
+      renderApp();
       return;
     }
 
@@ -21256,6 +21620,10 @@ async function handleChange(event) {
         ? getActiveFormationSection_()
         : "";
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
+      if (attendanceFormationSection) {
+        formationAttendanceScannerRuntime.enabled = false;
+        stopFormationAttendanceScanner_();
+      }
       state.filters.formationOps.processId = target.value || "";
       state.filters.formationOps.levelId = "";
       state.filters.formationOps.offeringId = "";
@@ -21309,6 +21677,10 @@ async function handleChange(event) {
         ? getActiveFormationSection_()
         : "";
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
+      if (attendanceFormationSection) {
+        formationAttendanceScannerRuntime.enabled = false;
+        stopFormationAttendanceScanner_();
+      }
       state.filters.formationOps.levelId = target.value;
       state.filters.formationOps.offeringId = "";
       state.ui.selectedFormationOfferingId = "";
@@ -21352,6 +21724,10 @@ async function handleChange(event) {
         ? getActiveFormationSection_()
         : "";
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
+      if (attendanceFormationSection) {
+        formationAttendanceScannerRuntime.enabled = false;
+        stopFormationAttendanceScanner_();
+      }
       state.filters.formationOps.offeringId = target.value;
       state.ui.selectedFormationOfferingId = target.value;
       clearQrScannerFeedbackResult_();
@@ -21377,6 +21753,10 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-session") {
+      if (isAttendanceFormationSectionActive_()) {
+        formationAttendanceScannerRuntime.enabled = false;
+        stopFormationAttendanceScanner_();
+      }
       state.filters.formationOps.sessionNumber = target.value || "1";
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
@@ -28024,6 +28404,442 @@ async function registerQrAttendance(personId, options = {}) {
   }
 }
 
+async function ensureFormationAttendanceScannerStarted_() {
+  if (!formationAttendanceScannerRuntime.enabled || !isAttendanceFormationScannerMode_()) {
+    return;
+  }
+
+  const video = getFormationAttendanceScannerVideo_();
+  if (!(video instanceof HTMLVideoElement)) {
+    return;
+  }
+
+  if (!window.isSecureContext && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    setDedicatedFormationAttendanceFeedback_(buildFormationQrFailureResult_(
+      new ApiError("El lector QR requiere HTTPS o localhost para abrir la cámara.", "UNSUPPORTED_QR_SCANNER"),
+      ""
+    ), FORMATION_QR_ERROR_HOLD_MS);
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setDedicatedFormationAttendanceFeedback_(buildFormationQrFailureResult_(
+      new ApiError("Este navegador no permite acceder a la cámara para escanear QR.", "UNSUPPORTED_QR_SCANNER"),
+      ""
+    ), FORMATION_QR_ERROR_HOLD_MS);
+    return;
+  }
+
+  if (!formationAttendanceScannerRuntime.detector) {
+    if ("BarcodeDetector" in window) {
+      formationAttendanceScannerRuntime.detector = new window.BarcodeDetector({
+        formats: ["qr_code"]
+      });
+      formationAttendanceScannerRuntime.engine = typeof window.jsQR === "function" ? "hybrid" : "native";
+    } else if (typeof window.jsQR === "function") {
+      formationAttendanceScannerRuntime.detector = {
+        detect() {
+          return [];
+        }
+      };
+      formationAttendanceScannerRuntime.engine = "jsqr";
+    } else {
+      setDedicatedFormationAttendanceFeedback_(buildFormationQrFailureResult_(
+        new ApiError("No se encontró un lector QR compatible en este navegador.", "UNSUPPORTED_QR_SCANNER"),
+        ""
+      ), FORMATION_QR_ERROR_HOLD_MS);
+      return;
+    }
+  }
+
+  if (!formationAttendanceScannerRuntime.stream) {
+    try {
+      formationAttendanceScannerRuntime.stream = await requestQrCameraStream_(state.filters.qr.cameraFacing);
+      await optimizeQrCameraTrack_(formationAttendanceScannerRuntime.stream, state.filters.qr.cameraFacing);
+      formationAttendanceScannerRuntime.cameraFacing = resolveQrCameraFacingFromStream_(
+        formationAttendanceScannerRuntime.stream,
+        state.filters.qr.cameraFacing
+      );
+    } catch (error) {
+      setDedicatedFormationAttendanceFeedback_(buildFormationQrFailureResult_(
+        new ApiError("No se pudo abrir la cámara. Revisa permisos e intenta nuevamente.", "CAMERA_PERMISSION_DENIED"),
+        ""
+      ), FORMATION_QR_ERROR_HOLD_MS);
+      return;
+    }
+  }
+
+  if (video.srcObject !== formationAttendanceScannerRuntime.stream) {
+    video.srcObject = formationAttendanceScannerRuntime.stream;
+  }
+
+  video.muted = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.setAttribute("playsinline", "true");
+
+  try {
+    await video.play();
+  } catch (error) {
+    setDedicatedFormationAttendanceFeedback_(buildFormationQrFailureResult_(
+      new ApiError("No fue posible iniciar el video de la cámara.", "CAMERA_PERMISSION_DENIED"),
+      ""
+    ), FORMATION_QR_ERROR_HOLD_MS);
+    return;
+  }
+
+  formationAttendanceScannerRuntime.status = "scanning";
+  formationAttendanceScannerRuntime.message = `Lector listo con cámara ${getQrCameraLabel_(formationAttendanceScannerRuntime.cameraFacing || state.filters.qr.cameraFacing)}.`;
+  syncFormationAttendanceScannerFeedback_();
+
+  if (!formationAttendanceScannerRuntime.animationFrameId) {
+    scanFormationAttendanceFrame_();
+  }
+}
+
+function stopFormationAttendanceScanner_(keepFeedback = false) {
+  if (formationAttendanceScannerRuntime.animationFrameId) {
+    window.cancelAnimationFrame(formationAttendanceScannerRuntime.animationFrameId);
+    formationAttendanceScannerRuntime.animationFrameId = 0;
+  }
+
+  if (formationAttendanceScannerRuntime.stream) {
+    formationAttendanceScannerRuntime.stream.getTracks().forEach((track) => track.stop());
+    formationAttendanceScannerRuntime.stream = null;
+  }
+
+  const video = getFormationAttendanceScannerVideo_();
+  if (video instanceof HTMLVideoElement) {
+    video.srcObject = null;
+  }
+
+  formationAttendanceScannerRuntime.busy = false;
+  formationAttendanceScannerRuntime.requestPending = false;
+  formationAttendanceScannerRuntime.requestPersonId = "";
+  formationAttendanceScannerRuntime.requestStartedAt = 0;
+  formationAttendanceScannerRuntime.pausedUntil = 0;
+  formationAttendanceScannerRuntime.lastScanAt = 0;
+  formationAttendanceScannerRuntime.lastValue = "";
+  formationAttendanceScannerRuntime.lastValueAt = 0;
+  formationAttendanceScannerRuntime.suppressPersonId = "";
+  formationAttendanceScannerRuntime.suppressUntil = 0;
+  formationAttendanceScannerRuntime.detector = null;
+  formationAttendanceScannerRuntime.engine = "";
+  formationAttendanceScannerRuntime.canvas = null;
+  formationAttendanceScannerRuntime.context = null;
+  formationAttendanceScannerRuntime.cameraFacing = "";
+  formationAttendanceScannerRuntime.status = keepFeedback && formationAttendanceScannerRuntime.enabled ? "starting" : "idle";
+  formationAttendanceScannerRuntime.message = keepFeedback && formationAttendanceScannerRuntime.enabled
+    ? "Preparando cámara..."
+    : "Activa la cámara para comenzar el registro automático.";
+
+  if (!keepFeedback) {
+    clearDedicatedFormationAttendanceFeedback_();
+  } else {
+    syncFormationAttendanceScannerFeedback_();
+  }
+}
+
+function scanFormationAttendanceFrame_() {
+  if (!formationAttendanceScannerRuntime.enabled || !isAttendanceFormationScannerMode_()) {
+    formationAttendanceScannerRuntime.animationFrameId = 0;
+    return;
+  }
+
+  formationAttendanceScannerRuntime.animationFrameId = window.requestAnimationFrame(scanFormationAttendanceFrame_);
+
+  const video = getFormationAttendanceScannerVideo_();
+  if (!(video instanceof HTMLVideoElement) || video.readyState < 2) {
+    return;
+  }
+
+  const now = Date.now();
+  if (formationAttendanceScannerRuntime.busy || formationAttendanceScannerRuntime.requestPending || now < formationAttendanceScannerRuntime.pausedUntil) {
+    return;
+  }
+
+  if ((now - formationAttendanceScannerRuntime.lastScanAt) < 90) {
+    return;
+  }
+
+  formationAttendanceScannerRuntime.lastScanAt = now;
+  formationAttendanceScannerRuntime.busy = true;
+
+  detectFormationAttendanceQrFromVideo_(video)
+    .then((rawValue) => {
+      if (!rawValue) {
+        return;
+      }
+      processFormationAttendanceQrRawValue_(rawValue);
+    })
+    .catch(() => {
+      // Continuamos con el siguiente frame.
+    })
+    .finally(() => {
+      formationAttendanceScannerRuntime.busy = false;
+    });
+}
+
+async function detectFormationAttendanceQrFromVideo_(video) {
+  if (formationAttendanceScannerRuntime.engine === "native" || formationAttendanceScannerRuntime.engine === "hybrid") {
+    const nativeValue = await detectFormationAttendanceQrWithNativeDetector_(video);
+    if (nativeValue) {
+      return nativeValue;
+    }
+  }
+
+  if (formationAttendanceScannerRuntime.engine === "jsqr" || formationAttendanceScannerRuntime.engine === "hybrid") {
+    const fallbackValue = detectFormationAttendanceQrWithJsQrFallback_(video);
+    if (fallbackValue) {
+      return fallbackValue;
+    }
+  }
+
+  return "";
+}
+
+async function detectFormationAttendanceQrWithNativeDetector_(video) {
+  const width = video.videoWidth || video.clientWidth;
+  const height = video.videoHeight || video.clientHeight;
+
+  if (!formationAttendanceScannerRuntime.detector || typeof formationAttendanceScannerRuntime.detector.detect !== "function" || !width || !height) {
+    return "";
+  }
+
+  const regions = buildPreferredQrScanRegions_(width, height, 960);
+
+  for (const region of regions) {
+    const canvas = drawFormationAttendanceQrRegionToCanvas_(video, region);
+    if (!canvas) {
+      continue;
+    }
+
+    const codes = await Promise.resolve(formationAttendanceScannerRuntime.detector.detect(canvas));
+    const detectedCode = Array.isArray(codes) ? codes.find((item) => item?.rawValue) : null;
+    if (detectedCode?.rawValue) {
+      return String(detectedCode.rawValue).trim();
+    }
+  }
+
+  const fullFrameCodes = await Promise.resolve(formationAttendanceScannerRuntime.detector.detect(video));
+  const fullFrameMatch = Array.isArray(fullFrameCodes) ? fullFrameCodes.find((item) => item?.rawValue) : null;
+  return fullFrameMatch?.rawValue ? String(fullFrameMatch.rawValue).trim() : "";
+}
+
+function detectFormationAttendanceQrWithJsQrFallback_(video) {
+  const width = video.videoWidth || video.clientWidth;
+  const height = video.videoHeight || video.clientHeight;
+
+  if (!width || !height || typeof window.jsQR !== "function") {
+    return "";
+  }
+
+  const regions = buildPreferredQrScanRegions_(width, height, 1120);
+  for (const region of regions) {
+    const decoded = decodeFormationAttendanceQrFromVideoRegion_(video, region);
+    if (decoded) {
+      return decoded;
+    }
+  }
+
+  return "";
+}
+
+function drawFormationAttendanceQrRegionToCanvas_(video, region) {
+  if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context) {
+    formationAttendanceScannerRuntime.canvas = document.createElement("canvas");
+    formationAttendanceScannerRuntime.context = formationAttendanceScannerRuntime.canvas.getContext("2d", {
+      willReadFrequently: true
+    });
+  }
+
+  if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context) {
+    return null;
+  }
+
+  const canvasWidth = Math.max(200, Math.round(region.dw || region.sw || 0));
+  const canvasHeight = Math.max(200, Math.round(region.dh || region.sh || 0));
+
+  if (formationAttendanceScannerRuntime.canvas.width !== canvasWidth || formationAttendanceScannerRuntime.canvas.height !== canvasHeight) {
+    formationAttendanceScannerRuntime.canvas.width = canvasWidth;
+    formationAttendanceScannerRuntime.canvas.height = canvasHeight;
+  }
+
+  formationAttendanceScannerRuntime.context.clearRect(0, 0, canvasWidth, canvasHeight);
+  formationAttendanceScannerRuntime.context.drawImage(
+    video,
+    region.sx,
+    region.sy,
+    region.sw,
+    region.sh,
+    0,
+    0,
+    canvasWidth,
+    canvasHeight
+  );
+
+  return formationAttendanceScannerRuntime.canvas;
+}
+
+function decodeFormationAttendanceQrFromVideoRegion_(video, region) {
+  if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context || typeof window.jsQR !== "function") {
+    return "";
+  }
+
+  const canvas = drawFormationAttendanceQrRegionToCanvas_(video, region);
+  if (!canvas) {
+    return "";
+  }
+
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
+  const imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
+  const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+    inversionAttempts: "attemptBoth"
+  });
+
+  return decoded?.data ? String(decoded.data).trim() : "";
+}
+
+function processFormationAttendanceQrRawValue_(rawValue) {
+  const extractedPersonId = extractPersonIdFromScan_(rawValue);
+  const now = Date.now();
+
+  if (
+    extractedPersonId
+    && formationAttendanceScannerRuntime.suppressPersonId === extractedPersonId
+    && now < formationAttendanceScannerRuntime.suppressUntil
+  ) {
+    return;
+  }
+
+  if (!extractedPersonId) {
+    const invalidResult = buildFormationQrFailureResult_(
+      new ApiError("El código QR no contiene un QR ID reconocible.", "INVALID_QR_VALUE"),
+      extractNumericQrIdCandidate_(rawValue) || String(rawValue || "").trim()
+    );
+    formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_ERROR_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(invalidResult, FORMATION_QR_ERROR_HOLD_MS);
+    playKioskSignal_("error");
+    return;
+  }
+
+  if (
+    formationAttendanceScannerRuntime.lastValue === extractedPersonId
+    && (now - formationAttendanceScannerRuntime.lastValueAt) < 1200
+  ) {
+    return;
+  }
+
+  if (isFormationAttendanceAlreadyRegisteredLocally_(extractedPersonId, state.filters.formationOps.sessionNumber)) {
+    const duplicateResult = buildFormationQrFailureResult_(
+      new ApiError("La asistencia ya estaba registrada en esta sesión del paso.", "DUPLICATE_FORMATION_QR_ATTENDANCE"),
+      extractedPersonId
+    );
+    formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
+    formationAttendanceScannerRuntime.suppressUntil = now + 2200;
+    formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_ERROR_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(duplicateResult, FORMATION_QR_ERROR_HOLD_MS);
+    playKioskSignal_("error");
+    return;
+  }
+
+  formationAttendanceScannerRuntime.lastValue = extractedPersonId;
+  formationAttendanceScannerRuntime.lastValueAt = now;
+  formationAttendanceScannerRuntime.requestPending = true;
+  formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
+  formationAttendanceScannerRuntime.requestStartedAt = now;
+  formationAttendanceScannerRuntime.pausedUntil = now + 5000;
+  setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
+  void submitFormationAttendanceScannerRegistration_(extractedPersonId);
+}
+
+async function submitFormationAttendanceScannerRegistration_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+  const formationContext = resolveFormationQrContext_();
+  const attendanceContext = state.formationAttendanceContext || null;
+
+  if (!formationContext?.offeringId) {
+    const missingContextResult = buildFormationQrFailureResult_(
+      new ApiError("Primero selecciona el paso en operación y la sesión correspondiente.", "MISSING_FORMATION_QR_CONTEXT"),
+      cleanPersonId
+    );
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(missingContextResult, FORMATION_QR_ERROR_HOLD_MS);
+    playKioskSignal_("error");
+    return;
+  }
+
+  if (
+    String(attendanceContext?.offering?.id || "") !== String(formationContext.offeringId || "")
+    || !attendanceContext?.captureEnabled
+  ) {
+    const inactiveSessionResult = buildFormationQrFailureResult_(
+      new ApiError("Primero activa la sesión correcta del paso antes de seguir escaneando.", "FORMATION_SESSION_NOT_ACTIVE"),
+      cleanPersonId
+    );
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(inactiveSessionResult, FORMATION_QR_ERROR_HOLD_MS);
+    playKioskSignal_("error");
+    return;
+  }
+
+  try {
+    try {
+      state.qrLastResult = await apiPost("formation.levelAttendance.registerQrFast", {
+        offeringId: formationContext.offeringId,
+        sessionNumber: formationContext.sessionNumber,
+        personId: cleanPersonId,
+        capturedBy: state.user?.name || ""
+      });
+    } catch (fastRouteError) {
+      if (!isUnknownActionError_(fastRouteError, "formation.levelAttendance.registerQrFast")) {
+        throw fastRouteError;
+      }
+
+      state.qrLastResult = await apiPost("formation.levelAttendance.registerQr", {
+        offeringId: formationContext.offeringId,
+        sessionNumber: formationContext.sessionNumber,
+        personId: cleanPersonId,
+        capturedBy: state.user?.name || "",
+        skipProgressSync: "1"
+      });
+    }
+
+    const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, "scanner");
+    applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
+    state.formationQrActivity = [
+      successResult,
+      ...state.formationQrActivity
+    ].slice(0, 8);
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.requestPersonId = "";
+    formationAttendanceScannerRuntime.requestStartedAt = 0;
+    formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 2200;
+    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
+    playKioskSignal_("success");
+    scheduleFormationAttendanceContextRefresh_(
+      formationContext.offeringId,
+      formationContext.sessionNumber,
+      12000
+    );
+  } catch (error) {
+    const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.requestPersonId = "";
+    formationAttendanceScannerRuntime.requestStartedAt = 0;
+    formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 2200;
+    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
+    playKioskSignal_("error");
+  }
+}
+
 async function ensureQrScannerStarted_() {
   if (!state.qrScanner.enabled) {
     return;
@@ -33283,10 +34099,9 @@ function handleError(error) {
 
 function showToast(title, copy, type = "success") {
   if (
-    state.qrScanner.enabled
-    && (
-      isFormationOperationsQrActive_()
-      || isAttendanceFormationSectionActive_()
+    (
+      (state.qrScanner.enabled && isFormationOperationsQrActive_())
+      || (formationAttendanceScannerRuntime.enabled && isAttendanceFormationScannerMode_())
     )
   ) {
     return;
