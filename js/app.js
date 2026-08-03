@@ -531,6 +531,9 @@ const qrScannerRuntime = {
   fixedCardUntil: 0,
   visualLockResult: null,
   visualLockUntil: 0,
+  requestPending: false,
+  requestPersonId: "",
+  requestStartedAt: 0,
   duplicateSuppressValue: "",
   duplicateSuppressUntil: 0
 };
@@ -17342,6 +17345,27 @@ function buildFormationQrSuccessResult_(response, personId, source) {
   };
 }
 
+function buildFormationQrProcessingResult_(personId) {
+  const fallbackMeta = resolveFormationQrScanMeta_(personId);
+  const selectedOffering = getSelectedFormationOffering_();
+  const currentSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
+
+  return {
+    tone: "live",
+    badge: "QR leído",
+    title: "Registrando asistencia",
+    message: "QR reconocido. Estamos guardando la asistencia en esta sesión...",
+    name: fallbackMeta.name || "Validando participante",
+    groupName: fallbackMeta.groupName || selectedOffering?.name || "Paso en operación",
+    participantId: fallbackMeta.participantId || "Validando inscripción",
+    personId: fallbackMeta.personId || String(personId || "").trim(),
+    processName: fallbackMeta.processName || selectedOffering?.processName || "Proceso de Formación",
+    sessionName: fallbackMeta.sessionName || `Sesión ${currentSessionNumber}`,
+    timestampLabel: formatDateTime_(new Date()),
+    levelName: fallbackMeta.levelName || selectedOffering?.levelName || "Nivel"
+  };
+}
+
 function buildQrFailureResult_(error, personId) {
   const normalizedCode = error instanceof ApiError ? error.code : "UNEXPECTED_ERROR";
   const tone = normalizedCode === "DUPLICATE_QR_ATTENDANCE" ? "warning" : "error";
@@ -27850,6 +27874,7 @@ async function registerQrAttendance(personId, options = {}) {
       const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
       setQrScannerFeedbackResult_(successResult);
       setFormationScannerVisualLock_(successResult, 3000);
+      clearFormationScannerRequestLock_();
       state.qrScanner.status = "success";
       state.qrScanner.message = state.qrScanner.result.message;
       qrScannerRuntime.duplicateSuppressValue = "";
@@ -27893,6 +27918,7 @@ async function registerQrAttendance(personId, options = {}) {
       const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
       setQrScannerFeedbackResult_(failureResult);
       setFormationScannerVisualLock_(failureResult, 3000);
+      clearFormationScannerRequestLock_();
       state.qrScanner.status = state.qrScanner.result.tone === "warning" ? "warning" : "error";
       state.qrScanner.message = state.qrScanner.result.message;
       qrScannerRuntime.pausedUntil = Date.now() + 3000;
@@ -28071,6 +28097,7 @@ function stopQrScannerRuntime_(keepStatus = false) {
   qrScannerRuntime.pausedUntil = 0;
   qrScannerRuntime.lastValue = "";
   qrScannerRuntime.lastValueAt = 0;
+  clearFormationScannerRequestLock_();
   qrScannerRuntime.awaitingFrameClear = false;
   qrScannerRuntime.clearFrameCount = 0;
   qrScannerRuntime.detector = null;
@@ -28144,6 +28171,18 @@ function hasFormationScannerVisualLock_() {
 function clearFormationScannerVisualLock_() {
   qrScannerRuntime.visualLockResult = null;
   qrScannerRuntime.visualLockUntil = 0;
+}
+
+function startFormationScannerRequestLock_(personId) {
+  qrScannerRuntime.requestPending = true;
+  qrScannerRuntime.requestPersonId = String(personId || "").trim();
+  qrScannerRuntime.requestStartedAt = Date.now();
+}
+
+function clearFormationScannerRequestLock_() {
+  qrScannerRuntime.requestPending = false;
+  qrScannerRuntime.requestPersonId = "";
+  qrScannerRuntime.requestStartedAt = 0;
 }
 
 function repaintFormationScannerVisualLock_() {
@@ -28502,7 +28541,7 @@ function scanQrFrame_() {
   }
 
   const now = Date.now();
-  if (qrScannerRuntime.busy || now < qrScannerRuntime.pausedUntil || !qrScannerRuntime.detector) {
+  if (qrScannerRuntime.busy || qrScannerRuntime.requestPending || now < qrScannerRuntime.pausedUntil || !qrScannerRuntime.detector) {
     return;
   }
 
@@ -28775,11 +28814,15 @@ function processQrRawValue_(rawValue) {
 
   qrScannerRuntime.lastValue = extractedPersonId;
   qrScannerRuntime.lastValueAt = now;
+  startFormationScannerRequestLock_(extractedPersonId);
   qrScannerRuntime.awaitingFrameClear = true;
   qrScannerRuntime.clearFrameCount = 0;
   qrScannerRuntime.duplicateSuppressValue = "";
   qrScannerRuntime.duplicateSuppressUntil = 0;
-  qrScannerRuntime.pausedUntil = now + 3000;
+  qrScannerRuntime.pausedUntil = now + 15000;
+  if (isFormationOperationsQrActive_()) {
+    setQrScannerFeedbackResult_(buildFormationQrProcessingResult_(extractedPersonId));
+  }
   state.qrScanner.status = "processing";
   state.qrScanner.message = "Validando asistencia y registrando acceso...";
   applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
