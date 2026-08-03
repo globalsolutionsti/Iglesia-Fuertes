@@ -2628,12 +2628,15 @@ div {
 
 .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
 .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
-  min-height: 320px;
-  max-height: 52vh;
+  min-height: 280px;
+  height: min(44vh, 280px);
+  max-height: 280px;
 }
 
 .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline {
-  margin-top: 10px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  gap: 4px;
 }
 
 @media (max-width: 900px) {
@@ -2793,10 +2796,11 @@ div {
     width: 100%;
   }
 
-  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
-  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
-    min-height: 360px;
-    max-height: none;
+.app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+.app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 260px;
+    height: min(42vh, 260px);
+    max-height: 260px;
   }
 }
 
@@ -2819,16 +2823,30 @@ div {
 
   .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
   .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
-    min-height: 300px;
+    min-height: 232px;
+    height: min(34vh, 232px);
+    max-height: 232px;
   }
 
   .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline {
-    padding: 14px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    gap: 3px;
   }
 
   .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline strong {
-    font-size: 24px;
-    line-height: 1.05;
+    font-size: 18px;
+    line-height: 1.08;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline small {
+    font-size: 10px;
+    line-height: 1.32;
   }
 }
 
