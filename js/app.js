@@ -17349,7 +17349,6 @@ function buildFormationQrSuccessResult_(response, personId, source) {
 }
 
 function buildFormationQrProcessingResult_(personId) {
-  const fallbackMeta = resolveFormationQrScanMeta_(personId);
   const selectedOffering = getSelectedFormationOffering_();
   const currentSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
 
@@ -17358,14 +17357,14 @@ function buildFormationQrProcessingResult_(personId) {
     badge: "Validando QR",
     title: "Validando asistencia",
     message: "QR reconocido. Estamos guardando la asistencia en esta sesión...",
-    name: fallbackMeta.name || "Validando participante",
-    groupName: fallbackMeta.groupName || selectedOffering?.name || "Paso en operación",
-    participantId: fallbackMeta.participantId || "Validando inscripción",
-    personId: fallbackMeta.personId || String(personId || "").trim(),
-    processName: fallbackMeta.processName || selectedOffering?.processName || "Proceso de Formación",
-    sessionName: fallbackMeta.sessionName || `Sesión ${currentSessionNumber}`,
+    name: "Espera confirmación...",
+    groupName: selectedOffering?.name || "Paso en operación",
+    participantId: "",
+    personId: String(personId || "").trim(),
+    processName: selectedOffering?.processName || "Proceso de Formación",
+    sessionName: `Sesión ${currentSessionNumber}`,
     timestampLabel: formatDateTime_(new Date()),
-    levelName: fallbackMeta.levelName || selectedOffering?.levelName || "Nivel"
+    levelName: selectedOffering?.levelName || "Nivel"
   };
 }
 
@@ -28248,7 +28247,7 @@ function getQrScannerFrameInlineStyle_(tone) {
   const cleanTone = String(tone || "").trim().toLowerCase();
 
   if (cleanTone === "success") {
-    return "border-color: rgba(74, 222, 128, 0.98); box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.34), 0 0 52px rgba(74, 222, 128, 0.34), 0 0 94px rgba(17, 168, 88, 0.22); transform: scale(1.01);";
+    return "border-color: rgba(22, 199, 96, 1); box-shadow: 0 0 0 5px rgba(22, 199, 96, 0.42), 0 0 58px rgba(22, 199, 96, 0.38), 0 0 110px rgba(11, 137, 63, 0.28); background: linear-gradient(180deg, rgba(236, 255, 243, 0.22) 0%, rgba(209, 250, 224, 0.28) 100%); transform: scale(1.01);";
   }
 
   if (cleanTone === "warning") {
@@ -28266,7 +28265,7 @@ function getQrScannerInlineStyle_(tone) {
   const cleanTone = String(tone || "").trim().toLowerCase();
 
   if (cleanTone === "success") {
-    return "background: linear-gradient(180deg, rgba(232, 251, 238, 0.99) 0%, rgba(215, 245, 224, 0.99) 100%); border-color: rgba(30, 166, 80, 0.32); box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.18), 0 18px 36px rgba(24, 145, 69, 0.22);";
+    return "background: linear-gradient(180deg, rgba(228, 255, 236, 0.99) 0%, rgba(205, 249, 220, 0.99) 100%); border-color: rgba(16, 164, 77, 0.44); box-shadow: 0 0 0 3px rgba(22, 199, 96, 0.24), 0 20px 42px rgba(13, 138, 66, 0.26);";
   }
 
   if (cleanTone === "warning") {
@@ -28508,6 +28507,11 @@ function scheduleQrScannerResultReset_(delayMs = 3000) {
     clearQrScannerFeedbackResult_({
       clearVisual: true
     });
+    qrScannerRuntime.pausedUntil = 0;
+    qrScannerRuntime.lastValue = "";
+    qrScannerRuntime.lastValueAt = 0;
+    qrScannerRuntime.awaitingFrameClear = false;
+    qrScannerRuntime.clearFrameCount = 0;
     state.qrScanner.status = "scanning";
     state.qrScanner.message = buildQrScannerReadyMessage_();
     renderQrScannerFeedback_();
