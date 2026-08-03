@@ -9685,7 +9685,6 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
               <span class="kiosk-corner kiosk-corner-tr"></span>
               <span class="kiosk-corner kiosk-corner-bl"></span>
               <span class="kiosk-corner kiosk-corner-br"></span>
-              <span class="kiosk-scan-line ${state.qrScanner.enabled ? "" : "hidden"}"></span>
               <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
             </div>
           </div>
@@ -28214,9 +28213,14 @@ function applyQrScannerLiveStateToDom_(stateSnapshot) {
     return false;
   }
 
+  root.className = root.className.replace(/\bqr-feedback-\w+\b/g, "").trim();
+  root.classList.add(`qr-feedback-${stateSnapshot.tone}`);
+  root.setAttribute("data-feedback-tone", stateSnapshot.tone);
+
   const frame = root.querySelector(".kiosk-scanner-frame");
   if (frame instanceof HTMLElement) {
     frame.className = frame.className.replace(/\bkiosk-state-\w+\b/g, "").trim();
+    void frame.offsetHeight;
     frame.classList.add(`kiosk-state-${stateSnapshot.tone}`);
     frame.setAttribute("data-feedback-tone", stateSnapshot.tone);
     frame.style.cssText = getQrScannerFrameInlineStyle_(stateSnapshot.tone);
@@ -28225,6 +28229,7 @@ function applyQrScannerLiveStateToDom_(stateSnapshot) {
   const inline = root.querySelector(".formation-scan-inline");
   if (inline instanceof HTMLElement) {
     inline.className = inline.className.replace(/\bkiosk-tone-\w+\b/g, "").trim();
+    void inline.offsetHeight;
     inline.classList.add(`kiosk-tone-${stateSnapshot.tone}`);
     inline.setAttribute("data-feedback-tone", stateSnapshot.tone);
     inline.style.cssText = getQrScannerInlineStyle_(stateSnapshot.tone);
