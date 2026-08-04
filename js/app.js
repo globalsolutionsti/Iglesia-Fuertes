@@ -4207,7 +4207,6 @@ function buildStudentPortalContext_(portal) {
   const leaderName = currentLevel?.offering?.leaderName || currentRecord?.leaderName || "Lider pendiente";
   const leaderPhone = currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone || "";
   const levelDescription = getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, currentStageName);
-  const materials = buildStudentPortalMaterials_(portal, currentLevel, currentRecord);
   const sessionItems = buildStudentPortalSessionTimeline_(currentLevel, attendance);
   const nextSession = getStudentPortalNextSession_(currentLevel, sessionItems, attendance);
   const profileMessage = currentLevel?.status === "ACREDITADO"
@@ -4238,7 +4237,6 @@ function buildStudentPortalContext_(portal) {
     leaderName,
     leaderPhone,
     levelDescription,
-    materials,
     sessionItems,
     nextSession,
     profileMessage
@@ -4260,7 +4258,7 @@ function renderStudentPortalScreenContent_(portalContext) {
   }
 
   if (activeTab === "path") {
-    return renderStudentPortalPathScreen_(portalContext);
+    return renderStudentPortalHomeScreen_(portalContext);
   }
 
   if (activeTab === "profile") {
@@ -4428,7 +4426,6 @@ function renderStudentPortalQuickMenu_(context) {
   const attendancePercent = Math.max(0, Math.min(100, Number(context?.attendancePercent || 0)));
   const items = [
     { id: "home", label: "Inicio", note: "Resumen general", icon: "home" },
-    { id: "path", label: "Mi camino", note: "Ruta de formación", icon: "path" },
     { id: "profile", label: "Mi perfil", note: "Asistencia y evaluación", icon: "profile" }
   ];
 
@@ -4536,7 +4533,6 @@ function renderStudentPortalQuickMenu_(context) {
 function renderStudentPortalBottomNav_(activeTab) {
   const items = [
     { id: "home", label: "Inicio", icon: "home" },
-    { id: "path", label: "Mi camino", icon: "path" },
     { id: "profile", label: "Perfil", icon: "profile" }
   ];
 
@@ -4565,15 +4561,13 @@ function renderStudentPortalHomeScreen_(context) {
     attendance,
     attendancePercent,
     leaderName,
-    levels,
+    nextLevel,
     supportUrl
   } = context;
   const currentStatus = String(currentLevel?.status || "BLOQUEADO").trim().toUpperCase();
-  const visibleLevels = getStudentPortalVisibleLevels_(
-    levels,
-    currentLevel?.levelId || "",
-    context.nextLevel?.levelId || ""
-  );
+  const nextStatus = String(nextLevel?.status || "BLOQUEADO").trim().toUpperCase();
+  const currentCriteria = renderStudentPortalCriteriaPills_(currentLevel);
+  const nextCriteria = nextLevel ? renderStudentPortalCriteriaPills_(nextLevel) : "";
 
   return `
     <section class="student-portal-screen student-portal-screen-home">
@@ -4608,21 +4602,42 @@ function renderStudentPortalHomeScreen_(context) {
           </div>
         </div>
 
-      </article>
-
-      <section class="student-portal-card-list">
-        <div class="student-portal-section-head">
+        <div class="student-portal-section-head compact">
           <div>
-            <h3>Tu camino de formacion</h3>
-            <p>Ve claramente lo que ya cursaste, lo que sigue y lo que aun esta bloqueado.</p>
+            <h3>Criterios de aprobacion</h3>
+            <p>Debes cumplir estas reglas para desbloquear el siguiente paso.</p>
           </div>
         </div>
+        ${currentCriteria}
 
-        <div class="student-portal-level-preview-list">
-          ${visibleLevels.map((level) => renderStudentPortalCompactLevelRow_(level, {
-            currentLevelId: currentLevel?.levelId || "",
-            nextLevelId: context.nextLevel?.levelId || ""
-          })).join("")}
+      </article>
+
+      ${nextLevel ? `
+        <article class="student-portal-home-card student-portal-stage-card">
+          <div class="student-portal-stage-card-head">
+            <div>
+              <span class="status-chip neutral">Siguiente paso</span>
+              <h3>${escapeHtml(nextLevel.levelName || "Por definir")}</h3>
+            </div>
+            ${renderStudentPortalCompactStatusBadge_(nextStatus)}
+          </div>
+
+          <p>${escapeHtml(
+            nextStatus === "BLOQUEADO"
+              ? `Este paso seguira bloqueado hasta que ${currentStageName} quede acreditado por tu lider.`
+              : "Este es tu siguiente paso disponible dentro del proceso."
+          )}</p>
+
+          ${nextCriteria}
+        </article>
+      ` : ""}
+
+      <section class="student-portal-card-list">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h3>Apoyo del lider</h3>
+            <p>Si tienes dudas, aqui tienes el contacto directo de tu acompañamiento.</p>
+          </div>
         </div>
       </section>
 
@@ -5117,6 +5132,60 @@ function getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, f
   }
 
   return `Sigue pendiente de ${fallbackName}. Tu lider ira compartiendo contigo las indicaciones conforme avances.`;
+}
+
+function getStudentPortalCriteriaItems_(level) {
+  const approvalMeta = getFormationApprovalModeMeta_(level || null);
+  const attendance = level?.attendance || {};
+  const totalSessions = Math.max(
+    Number(attendance.totalSessions || level?.offering?.totalSessions || 0),
+    0
+  );
+  const requiredSessions = Math.max(
+    Number(attendance.requiredSessions || totalSessions || 0),
+    totalSessions ? 1 : 0
+  );
+  const maxAbsences = Math.max(
+    Number(attendance.maxAbsences ?? level?.offering?.maxAbsences ?? 0),
+    0
+  );
+  const items = [];
+
+  if (totalSessions) {
+    items.push(`Asistencia requerida: ${requiredSessions}/${totalSessions}`);
+  } else {
+    items.push("Asistencia: por confirmar");
+  }
+
+  if (approvalMeta.mode === "BAPTISM_CONFIRMATION") {
+    items.push("Validacion del lider: Bautizado Si/No");
+    items.push("Examen: no aplica");
+    return items;
+  }
+
+  if (maxAbsences > 0) {
+    items.push(`Maximo de faltas: ${maxAbsences}`);
+  } else {
+    items.push("Sin faltas permitidas");
+  }
+
+  items.push(
+    approvalMeta.mode === "EXAM"
+      ? "Examen final: obligatorio"
+      : "Examen final: no requerido"
+  );
+
+  return items;
+}
+
+function renderStudentPortalCriteriaPills_(level) {
+  const items = getStudentPortalCriteriaItems_(level);
+
+  return `
+    <div class="student-portal-level-preview-list">
+      ${items.map((item) => `<span class="pill light">${escapeHtml(item)}</span>`).join("")}
+    </div>
+  `;
 }
 
 function buildStudentPortalMaterials_(portal, currentLevel, currentRecord) {
