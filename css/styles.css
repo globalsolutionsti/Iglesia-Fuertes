@@ -2677,6 +2677,287 @@ div {
   gap: 4px;
 }
 
+@media (min-width: 701px) and (max-width: 1100px) {
+  .mobile-appbar {
+    padding: calc(14px + env(safe-area-inset-top)) 20px 14px;
+  }
+
+  .mobile-appbar-brand {
+    gap: 14px;
+  }
+
+  .mobile-appbar-brand img {
+    width: 96px;
+  }
+
+  .mobile-appbar-copy strong {
+    font-size: 18px;
+    line-height: 1.08;
+  }
+
+  .mobile-appbar-label {
+    font-size: 11px;
+  }
+
+  .workspace {
+    padding: 12px 20px calc(var(--mobile-tabbar-height) + 24px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-tabbar {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .mobile-tabbar-inner {
+    display: flex;
+    width: 100%;
+    gap: 10px;
+    overflow-x: auto;
+    grid-template-columns: none;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .mobile-tabbar-inner::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-tab-button {
+    flex: 0 0 148px;
+    min-height: 58px;
+    padding: 10px 12px;
+    scroll-snap-align: start;
+  }
+
+  .mobile-tab-button strong {
+    font-size: 13px;
+    line-height: 1.1;
+  }
+
+  .mobile-tab-button small {
+    display: block;
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .app-shell.view-attendance .attendance-hub-view {
+    gap: 16px;
+  }
+
+  .app-shell.view-attendance .attendance-hub-hero {
+    padding: 20px;
+    gap: 16px;
+    border-radius: 24px;
+  }
+
+  .app-shell.view-attendance .attendance-hub-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .app-shell.view-attendance .attendance-hub-card {
+    min-height: 110px;
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .app-shell.view-attendance .attendance-hub-card strong {
+    font-size: 17px;
+    line-height: 1.12;
+  }
+
+  .app-shell.view-attendance .attendance-hub-card span {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .app-shell.view-attendance .attendance-formation-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-fields .field {
+    gap: 7px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-fields .field label {
+    font-size: 12px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-fields .field select,
+  .app-shell.view-attendance .attendance-formation-fields .field input {
+    min-height: 52px;
+    border-radius: 16px;
+    font-size: 14px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-strip .context-item {
+    min-height: 72px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    justify-content: center;
+    align-items: flex-start;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .app-shell.view-attendance .attendance-formation-strip .context-item strong {
+    display: block;
+    margin-bottom: 3px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-manual-mode .formation-attendance-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-manual-mode .formation-attendance-summary-card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-manual-mode .formation-attendance-summary-card strong {
+    font-size: 20px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-manual-mode .formation-attendance-stats strong {
+    font-size: 22px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-manual-mode .formation-attendance-steps {
+    gap: 8px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode {
+    gap: 14px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact .context-item {
+    min-height: 68px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    align-items: flex-start;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact .context-item strong {
+    display: block;
+    margin-bottom: 3px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row {
+    display: grid;
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+    gap: 12px;
+    align-items: stretch;
+    padding: 14px 16px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .btn {
+    width: 100%;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-toggle {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-toggle .toggle-button {
+    min-height: 50px;
+    border-radius: 16px;
+    font-size: 14px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-shell {
+    max-width: 100%;
+    padding: 16px;
+    border-radius: 24px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 260px);
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn {
+    min-height: 56px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-toggle-group {
+    width: 100%;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-toggle-group .toggle-button {
+    min-height: 56px;
+    font-size: 16px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 330px;
+    height: min(42svh, 360px);
+    max-height: 360px;
+    border-radius: 24px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder strong {
+    font-size: 22px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder span {
+    max-width: 28ch;
+    margin: 0 auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scan-copy {
+    font-size: 15px;
+    letter-spacing: 0.05em;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline {
+    min-height: 112px;
+    margin-top: 10px;
+    padding: 14px 16px;
+    border-radius: 18px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline-badge {
+    font-size: 11px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline strong {
+    font-size: 24px;
+    line-height: 1.05;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline span {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline small {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+}
+
 @media (max-width: 900px) {
   .attendance-hub-card-grid {
     grid-template-columns: 1fr;
@@ -11044,8 +11325,227 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .result-row {
+.result-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1180px) {
+  .app-shell {
+    grid-template-columns: 248px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    padding: 20px;
+  }
+
+  .sidebar-brand {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .sidebar-brand img {
+    width: 144px;
+  }
+
+  .sidebar-nav {
+    gap: 6px;
+  }
+
+  .nav-button {
+    min-height: 48px;
+    padding: 0 14px;
+    border-radius: 14px;
+  }
+
+  .nav-copy strong {
+    font-size: 14px;
+  }
+
+  .nav-copy small {
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .workspace {
+    padding: 18px;
+  }
+
+  .topbar {
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .topbar h1 {
+    font-size: clamp(34px, 4vw, 44px);
+  }
+
+  .topbar p {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .panel-card,
+  .detail-card {
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .stats-grid,
+  .view-grid.columns-3,
+  .dashboard-report-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-group-visual-grid,
+  .mode-card-grid,
+  .permission-grid,
+  .pending-prospect-actions,
+  .pending-prospect-overview,
+  .leader-auto-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actions-row,
+  .toolbar-actions,
+  .inline-actions {
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-shell {
+    padding: 18px;
+    border-radius: 26px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 320px;
+    height: min(38svh, 340px);
+    max-height: 340px;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 980px) {
+  .workspace {
+    padding: 12px 18px calc(var(--mobile-tabbar-height) + 22px + env(safe-area-inset-bottom));
+  }
+
+  .panel-card,
+  .detail-card {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .field-grid.two,
+  .directory-filter-grid,
+  .bulk-impact-grid,
+  .season-single-session-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-grid,
+  .dashboard-mobile-chip-grid,
+  .dashboard-report-actions,
+  .dashboard-summary-grid,
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .module-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .leader-auto-grid,
+  .pending-prospect-overview,
+  .pending-prospect-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-wrap {
+    border-radius: 20px;
+  }
+
+  .app-shell.view-attendance .attendance-hub-hero {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .app-shell.view-attendance .attendance-hub-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-shell.view-attendance .attendance-hub-card {
+    min-height: 104px;
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-toggle {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-shell {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-actions {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-actions > .btn,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-actions > .toggle-group {
+    width: 100%;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 300px;
+    height: min(34svh, 300px);
+    max-height: 300px;
+    border-radius: 22px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline {
+    min-height: 96px;
+    margin-top: 8px;
+    padding: 12px 14px;
+    border-radius: 18px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline strong {
+    font-size: 22px;
+    line-height: 1.06;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline span {
+    font-size: 13px;
+    line-height: 1.42;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline small {
+    font-size: 11px;
+    line-height: 1.35;
   }
 }
