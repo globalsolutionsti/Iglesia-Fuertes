@@ -2494,6 +2494,31 @@ div {
   color: var(--text);
 }
 
+.formation-attendance-manual-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.formation-attendance-manual-toolbar .btn {
+  flex: 1 1 180px;
+}
+
+.formation-attendance-manual-row.is-dirty {
+  background: rgba(255, 247, 216, 0.72);
+}
+
+.formation-attendance-manual-row.is-dirty td {
+  background: transparent;
+}
+
+.formation-attendance-manual-row.is-dirty select {
+  border-color: rgba(224, 168, 0, 0.35);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.08);
+  background: #fffaf0;
+}
+
 .formation-scan-shell {
   padding: 14px;
   border-radius: 24px;
@@ -11547,5 +11572,30 @@ tbody tr:hover {
   .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline small {
     font-size: 11px;
     line-height: 1.35;
+  }
+}
+
+@media (max-width: 980px) {
+  .formation-attendance-manual-toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .formation-attendance-manual-toolbar .btn {
+    width: 100%;
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 700px) {
+  .formation-attendance-manual-summary {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .formation-attendance-manual-toolbar {
+    grid-template-columns: 1fr;
   }
 }
