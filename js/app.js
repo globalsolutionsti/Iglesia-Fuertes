@@ -3996,6 +3996,11 @@ async function confirmSystemAction_() {
     return;
   }
 
+  if (confirmation.kind === "scrap-reset-formation-process") {
+    await executeScrapResetFormationProcess_(confirmation.payload.processId);
+    return;
+  }
+
   if (confirmation.kind === "scrap-delete-person") {
     await executeScrapDeletePerson_(confirmation.payload.personId, confirmation.payload.originView);
     return;
@@ -8847,6 +8852,12 @@ function renderFormationOperationsWorkspaceLegacy_(context) {
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
   const selectedApprovalMeta = getFormationApprovalModeMeta_(selectedEnrollment || selectedOffering || null);
   const selectedApprovalMode = selectedApprovalMeta.mode;
+  const selectedEvaluationLevelCode = String(
+    selectedEnrollment?.offering?.levelCode
+    || selectedOffering?.levelCode
+    || ""
+  ).trim();
+  const selectedRequiresQuestionnaires = /^5\./.test(selectedEvaluationLevelCode);
   const evaluationIntroCopy = selectedApprovalMode === "ATTENDANCE_ONLY"
     ? "Este paso se acredita en automático cuando la persona completa la asistencia requerida. Aquí solo revisas el avance."
     : selectedApprovalMode === "BAPTISM_CONFIRMATION"
@@ -9199,6 +9210,21 @@ function renderFormationOperationsWorkspaceLegacy_(context) {
                         <option value="NO" ${selectedEnrollment.examApproved === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO" ? "selected" : ""}>NO</option>
                       </select>
                     </div>
+                    ${selectedRequiresQuestionnaires ? `
+                      <div class="field">
+                        <label for="formation-evaluation-questionnaires">Cuestionarios entregados</label>
+                        <input
+                          id="formation-evaluation-questionnaires"
+                          name="questionnairesDelivered"
+                          type="number"
+                          min="0"
+                          max="${escapeHtml(String(selectedEnrollment.questionnairesRequired || selectedEnrollment.attendance?.totalSessions || 12))}"
+                          value="${escapeHtml(String(selectedEnrollment.questionnairesDelivered || ""))}"
+                          placeholder="Ej. 12"
+                        >
+                        <small class="field-help">Debe completar ${escapeHtml(String(selectedEnrollment.questionnairesRequired || selectedEnrollment.attendance?.totalSessions || 12))} de ${escapeHtml(String(selectedEnrollment.questionnairesRequired || selectedEnrollment.attendance?.totalSessions || 12))} cuestionarios para avanzar.</small>
+                      </div>
+                    ` : ""}
                   `}
                   <div class="field" style="grid-column: 1 / -1;">
                     <label for="formation-evaluation-comments">Comentarios</label>
@@ -10979,7 +11005,7 @@ function renderAdminScrapCenter_() {
         <div class="summary-box">
           <span class="status-chip neutral">Proceso de Formación demo</span>
           <strong>${escapeHtml(selectedFormationProcess?.name || "Selecciona el proceso demo")}</strong>
-          <span>Este flujo borra integralmente el Proceso de Formación seleccionado, junto con sus niveles operativos, sesiones programadas, inscripciones y asistencias por nivel. No toca el padrón base ni las cuentas portal.</span>
+          <span>Desde aquí puedes hacer dos limpiezas: borrar el proceso completo de demo o reiniciar solo la huella de Formación de sus inscritos, conservando la estructura del proceso para volver a empezar.</span>
 
           <div class="field" style="margin-top: 16px;">
             <label for="admin-scrap-formation-process">Proceso a limpiar</label>
@@ -11052,6 +11078,7 @@ function renderAdminScrapCenter_() {
               </div>
 
               <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-secondary" type="button" data-action="prompt-scrap-reset-formation-process" data-process-id="${escapeHtml(selectedFormationProcess.id || "")}">Reiniciar solo inscritos del proceso</button>
                 <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-formation-process" data-process-id="${escapeHtml(selectedFormationProcess.id || "")}">Eliminar proceso demo</button>
                 <button class="btn btn-ghost" type="button" data-action="clear-scrap-formation-process-preview">Limpiar selección</button>
               </div>
@@ -19929,6 +19956,46 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "prompt-scrap-reset-formation-process") {
+      const processId = String(button.dataset.processId || state.ui.selectedScrapFormationProcessId || "");
+      const process = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((item) => String(item.id || "") === processId);
+      let preview = null;
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!processId || !process) {
+        showToast("Proceso no disponible", "Selecciona primero el Proceso de Formación que deseas reiniciar.", "warning");
+        return;
+      }
+
+      preview = await loadScrapFormationProcessPreview_(processId, {
+        message: "Preparando reinicio exclusivo de Formación..."
+      });
+
+      openSystemConfirmation_({
+        kind: "scrap-reset-formation-process",
+        title: "Reiniciar solo datos del módulo Formación",
+        copy: "Se eliminarán únicamente las inscripciones, asistencias, cuentas portal y registros formativos de las personas ligadas a este proceso. El proceso, sus pasos, sesiones programadas y tu padrón base se conservarán intactos para volver a empezar desde cero.",
+        badge: "Reset Formación",
+        confirmLabel: "Reiniciar Formación",
+        tone: "warning",
+        notes: [
+          preview?.processName || process?.name || "Proceso activo",
+          `ID: ${preview?.processId || processId}`,
+          `Personas involucradas: ${preview?.footprint?.uniquePeople || 0}`,
+          `Inscripciones a limpiar: ${preview?.footprint?.enrollments || 0} | Asistencias a limpiar: ${preview?.footprint?.levelAttendances || 0}`,
+          "El proceso y sus pasos operativos se conservarán para reutilizarlos."
+        ],
+        payload: {
+          processId
+        }
+      });
+      return;
+    }
+
     if (action === "prompt-scrap-delete-person") {
       const personId = String(button.dataset.personId || "");
       const originView = String(button.dataset.originView || state.currentView || "");
@@ -27294,6 +27361,7 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
     enrollmentId: V(rawPayload.enrollmentId),
     examScore: V(rawPayload.examScore),
     examApproved: V(rawPayload.examApproved),
+    questionnairesDelivered: V(rawPayload.questionnairesDelivered),
     comments: V(rawPayload.comments),
     evaluatedBy: state.user?.name || ""
   };
@@ -28094,6 +28162,44 @@ function applyScrapDeleteFormationProcessLocally_(processId) {
   state.cacheKeys.formationEnrollments = "";
 }
 
+function applyScrapResetFormationProcessLocally_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  const affectedOfferingIds = new Set(
+    (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
+      .filter((offering) => String(offering?.processId || "").trim() === cleanProcessId)
+      .map((offering) => String(offering?.id || "").trim())
+      .filter(Boolean)
+  );
+
+  if (!cleanProcessId) {
+    return;
+  }
+
+  state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter(
+    (enrollment) => String(enrollment?.processId || "").trim() !== cleanProcessId
+  );
+  state.loaded.formationRecords = false;
+  state.cacheKeys.formationRecords = "";
+  state.ui.scrapFormationProcessPreview = null;
+
+  if (String(state.filters.formationOps.processId || "") === cleanProcessId) {
+    state.ui.selectedFormationEnrollmentId = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
+  }
+
+  if (
+    String(state.ui.selectedFormationOfferingId || "")
+    && affectedOfferingIds.has(String(state.ui.selectedFormationOfferingId || "").trim())
+  ) {
+    state.ui.selectedFormationEnrollmentId = "";
+  }
+
+  state.loaded.formationEnrollments = false;
+  state.cacheKeys.formationEnrollments = "";
+}
+
 function applyDeleteFormationLevelLocally_(levelId) {
   const cleanLevelId = String(levelId || "").trim();
 
@@ -28301,6 +28407,61 @@ async function executeScrapDeleteFormationProcess_(processId) {
   showToast(
     "Proceso demo eliminado",
     `${response?.processName || cleanProcessId} se eliminó con ${response?.deletedOfferings || 0} nivel(es) operativo(s), ${response?.deletedScheduledSessions || 0} sesión(es) programada(s), ${response?.deletedFormationRecords || 0} registro(s) formativo(s), ${response?.deletedEnrollments || 0} inscripción(es) y ${response?.deletedLevelAttendances || 0} asistencia(s) por nivel.`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
+}
+
+async function executeScrapResetFormationProcess_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  let response = null;
+
+  if (!cleanProcessId) {
+    showToast("Falta proceso", "Selecciona el Proceso de Formación que deseas reiniciar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteFormationProcessModuleData", {
+      processId: cleanProcessId
+    });
+
+    applyScrapResetFormationProcessLocally_(cleanProcessId);
+
+    const refreshResults = await Promise.allSettled([
+      loadScrapFormationProcessPreview_(cleanProcessId, {
+        force: true,
+        showLoading: false
+      }),
+      loadPeopleDirectory({
+        force: true,
+        showLoading: false
+      }),
+      (state.loaded.formationOfferings || state.loaded.formationEnrollments)
+        ? loadFormationOperationsData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      state.currentView === "formation"
+        ? ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve()
+    ]);
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP formation reset refresh warning", result.reason);
+      });
+  }, "Reiniciando solo datos del módulo Formación...");
+
+  showToast(
+    "Formación reiniciada",
+    `${response?.processName || cleanProcessId} conservó su estructura y limpió ${response?.deletedEnrollments || 0} inscripción(es), ${response?.deletedLevelAttendances || 0} asistencia(s), ${response?.deletedFormationRecords || 0} registro(s) y ${response?.deletedFormationAccounts || 0} cuenta(s) portal. ${response?.resetPeople || 0} persona(s) quedaron listas para iniciar de nuevo.`,
     "success"
   );
   renderApp();
