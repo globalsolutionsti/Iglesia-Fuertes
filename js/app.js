@@ -385,6 +385,7 @@ const state = {
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
     formationPortalModal: null,
+    formationAttendanceManualDraft: {},
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
@@ -2646,6 +2647,94 @@ function setAttendanceFormationHydrationState_(enabled, message = "") {
   state.ui.attendanceFormationHydratingMessage = enabled
     ? (message || "Preparando selectores de asistencia...")
     : "";
+}
+
+function resetFormationManualAttendanceDraft_() {
+  state.ui.formationAttendanceManualDraft = {};
+}
+
+function getFormationManualAttendanceDraft_() {
+  if (!state.ui.formationAttendanceManualDraft || typeof state.ui.formationAttendanceManualDraft !== "object") {
+    state.ui.formationAttendanceManualDraft = {};
+  }
+
+  return state.ui.formationAttendanceManualDraft;
+}
+
+function getFormationManualAttendanceDraftCount_() {
+  return Object.keys(getFormationManualAttendanceDraft_()).length;
+}
+
+function getFormationManualAttendanceDraftValue_(personId, fallbackValue = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return String(fallbackValue || "").trim().toUpperCase();
+  }
+
+  const draft = getFormationManualAttendanceDraft_();
+  const entry = draft[cleanPersonId];
+
+  if (!entry) {
+    return String(fallbackValue || "").trim().toUpperCase();
+  }
+
+  return String(entry.value || "").trim().toUpperCase();
+}
+
+function setFormationManualAttendanceDraftValue_(personId, nextValue, currentAttendance = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return false;
+  }
+
+  const normalizedNextValue = String(nextValue || "").trim().toUpperCase();
+  const normalizedCurrentAttendance = String(currentAttendance || "").trim().toUpperCase();
+  const draft = {
+    ...getFormationManualAttendanceDraft_()
+  };
+
+  if (normalizedNextValue === normalizedCurrentAttendance || !normalizedNextValue) {
+    if (draft[cleanPersonId]) {
+      delete draft[cleanPersonId];
+      state.ui.formationAttendanceManualDraft = draft;
+      return true;
+    }
+
+    return false;
+  }
+
+  draft[cleanPersonId] = {
+    value: normalizedNextValue,
+    currentAttendance: normalizedCurrentAttendance
+  };
+  state.ui.formationAttendanceManualDraft = draft;
+  return true;
+}
+
+function applyBulkFormationManualAttendanceDraft_(nextValue) {
+  const normalizedNextValue = String(nextValue || "").trim().toUpperCase();
+
+  if (normalizedNextValue !== "SI" && normalizedNextValue !== "NO") {
+    return 0;
+  }
+
+  const participants = Array.isArray(state.formationAttendanceContext?.participants)
+    ? state.formationAttendanceContext.participants
+    : [];
+  let changed = 0;
+
+  participants.forEach((participant) => {
+    const personId = String(participant?.personId || "").trim();
+    const currentAttendance = String(participant?.selectedSessionAttendance || "").trim().toUpperCase();
+
+    if (personId && setFormationManualAttendanceDraftValue_(personId, normalizedNextValue, currentAttendance)) {
+      changed += 1;
+    }
+  });
+
+  return changed;
 }
 
 function hydrateFormationManualAttendanceInBackground_(offeringId, options = {}) {
@@ -9817,9 +9906,14 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const scanResult = getQrScannerFeedbackResult_();
   const scannerTone = scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
-  const attendanceYesCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "SI").length;
-  const attendanceNoCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "NO").length;
+  const attendanceYesCount = attendanceParticipants.filter((participant) => {
+    return getFormationManualAttendanceDraftValue_(participant.personId || "", participant.selectedSessionAttendance || "") === "SI";
+  }).length;
+  const attendanceNoCount = attendanceParticipants.filter((participant) => {
+    return getFormationManualAttendanceDraftValue_(participant.personId || "", participant.selectedSessionAttendance || "") === "NO";
+  }).length;
   const attendancePendingCount = Math.max(attendanceParticipants.length - attendanceYesCount - attendanceNoCount, 0);
+  const manualDraftCount = getFormationManualAttendanceDraftCount_();
   const selectedSession = attendanceContext?.selectedSession
     || (selectedOffering?.sessionSchedule || []).find((session) => String(session.number || "") === String(currentSessionNumber || ""))
     || null;
@@ -9992,6 +10086,14 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
             <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
             <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
             <span><strong>Avance visible:</strong> ${escapeHtml(`${attendanceYesCount} SI · ${attendanceNoCount} NO · ${attendancePendingCount} pendientes`)}</span>
+            <span><strong>Cambios pendientes:</strong> ${escapeHtml(String(manualDraftCount))}</span>
+          </div>
+          <div class="formation-attendance-manual-toolbar">
+            <button class="btn btn-primary" type="submit" ${manualDraftCount ? "" : "disabled"}>Guardar asistencia del nivel</button>
+            <button class="btn btn-ghost" type="button" data-action="formation-manual-mark-visible" data-value="SI">Marcar visibles SI</button>
+            <button class="btn btn-ghost" type="button" data-action="formation-manual-mark-visible" data-value="NO">Marcar visibles NO</button>
+            <button class="btn btn-ghost" type="button" data-action="formation-manual-clear-draft" ${manualDraftCount ? "" : "disabled"}>Limpiar cambios</button>
+            <button class="btn btn-ghost" type="button" data-action="refresh-formation-operations">Actualizar contexto</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -10004,8 +10106,13 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
                 </tr>
               </thead>
               <tbody>
-                ${attendanceParticipants.map((participant) => `
-                  <tr>
+                ${attendanceParticipants.map((participant) => {
+                  const currentAttendance = String(participant.selectedSessionAttendance || "").trim().toUpperCase();
+                  const draftAttendance = getFormationManualAttendanceDraftValue_(participant.personId || "", currentAttendance);
+                  const isDirty = draftAttendance !== currentAttendance;
+
+                  return `
+                  <tr class="formation-attendance-manual-row ${isDirty ? "is-dirty" : ""}">
                     <td>
                       <span class="row-title">${escapeHtml(participant.personName || "Congregante")}</span>
                       <span class="row-meta">${escapeHtml(participant.personNumber || "-")} | QR ${escapeHtml(participant.personId || "-")}</span>
@@ -10016,21 +10123,18 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
                       <select
                         name="attendance_${escapeHtml(participant.personId || "")}"
                         data-formation-attendance-person="${escapeHtml(participant.personId || "")}"
-                        data-current-attendance="${escapeHtml(participant.selectedSessionAttendance || "")}"
+                        data-current-attendance="${escapeHtml(currentAttendance)}"
                       >
-                        <option value="" ${!participant.selectedSessionAttendance ? "selected" : ""}>Sin definir</option>
-                        <option value="SI" ${participant.selectedSessionAttendance === "SI" ? "selected" : ""}>SI</option>
-                        <option value="NO" ${participant.selectedSessionAttendance === "NO" ? "selected" : ""}>NO</option>
+                        <option value="" ${!draftAttendance ? "selected" : ""}>Sin definir</option>
+                        <option value="SI" ${draftAttendance === "SI" ? "selected" : ""}>SI</option>
+                        <option value="NO" ${draftAttendance === "NO" ? "selected" : ""}>NO</option>
                       </select>
                     </td>
                   </tr>
-                `).join("")}
+                `;
+                }).join("")}
               </tbody>
             </table>
-          </div>
-          <div class="actions-row" style="margin-top: 18px;">
-            <button class="btn btn-primary" type="submit">Guardar asistencia del nivel</button>
-            <button class="btn btn-ghost" type="button" data-action="refresh-formation-operations">Actualizar contexto</button>
           </div>
         ` : `
           <div class="empty-state">No hay inscritos visibles para este nivel con los filtros actuales.</div>
@@ -21244,6 +21348,26 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "formation-manual-mark-visible") {
+      const affected = applyBulkFormationManualAttendanceDraft_(button.dataset.value || "");
+      renderApp();
+      showToast(
+        "Cambios preparados",
+        affected
+          ? `Se marcaron ${affected} filas visibles para guardar en lote.`
+          : "No hubo cambios nuevos para preparar en el listado actual.",
+        affected ? "success" : "warning"
+      );
+      return;
+    }
+
+    if (action === "formation-manual-clear-draft") {
+      resetFormationManualAttendanceDraft_();
+      renderApp();
+      showToast("Cambios limpiados", "El formulario manual volvió a sus valores actuales guardados.", "success");
+      return;
+    }
+
     if (action === "activate-formation-session") {
       await activateFormationAttendanceSession_(
         button.dataset.offeringId || "",
@@ -21554,6 +21678,20 @@ async function handleChange(event) {
   }
 
   try {
+    const formationAttendancePersonId = String(target.getAttribute("data-formation-attendance-person") || "").trim();
+    if (formationAttendancePersonId) {
+      const didChangeDraft = setFormationManualAttendanceDraftValue_(
+        formationAttendancePersonId,
+        target.value,
+        target.getAttribute("data-current-attendance") || ""
+      );
+
+      if (didChangeDraft) {
+        renderApp();
+      }
+      return;
+    }
+
     if (target.id === "assistants-status") {
       state.filters.assistants.status = target.value;
       renderApp();
@@ -23703,6 +23841,7 @@ function applyFormationAttendanceContextState_(context, options = {}) {
   const offeringId = String(normalizedContext?.offering?.id || options.offeringId || "").trim();
   const sessionNumber = String(normalizedContext?.sessionNumber || options.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
 
+  resetFormationManualAttendanceDraft_();
   state.formationAttendanceContext = normalizedContext;
   state.loaded.formationAttendanceContext = Boolean(normalizedContext && offeringId);
   state.cacheKeys.formationAttendanceContext = offeringId ? `${offeringId}::${sessionNumber}` : "";
@@ -23722,6 +23861,7 @@ function applyFormationAttendanceContextState_(context, options = {}) {
 }
 
 function resetFormationAttendanceParticipantsState_() {
+  resetFormationManualAttendanceDraft_();
   state.formationEnrollments = [];
   state.loaded.formationEnrollments = false;
   state.cacheKeys.formationEnrollments = "";
@@ -27094,12 +27234,12 @@ async function saveFormationLevelAttendance_(form) {
   const currentContext = String(state.formationAttendanceContext?.offering?.id || "") === offeringId
     ? state.formationAttendanceContext
     : null;
-  const selects = Array.from(form.querySelectorAll("[data-formation-attendance-person]"));
-  const attendances = selects
-    .map((element) => ({
-      personId: String(element.getAttribute("data-formation-attendance-person") || "").trim(),
-      attended: String(element.value || "").trim().toUpperCase(),
-      currentAttendance: String(element.getAttribute("data-current-attendance") || "").trim().toUpperCase()
+  const manualDraft = getFormationManualAttendanceDraft_();
+  const attendances = Object.entries(manualDraft)
+    .map(([personId, entry]) => ({
+      personId: String(personId || "").trim(),
+      attended: String(entry?.value || "").trim().toUpperCase(),
+      currentAttendance: String(entry?.currentAttendance || "").trim().toUpperCase()
     }))
     .filter((item) => {
       return item.personId
@@ -27144,6 +27284,7 @@ async function saveFormationLevelAttendance_(form) {
     syncFormationOfferingIntoState_(response.offering);
   }
   applyFormationManualAttendancesLocally_(attendances, state.filters.formationOps.sessionNumber);
+  resetFormationManualAttendanceDraft_();
   renderApp();
   showToast("Asistencia guardada", `Se actualizaron ${response?.updated || 0} y se agregaron ${response?.inserted || 0} registros en la sesión ${state.filters.formationOps.sessionNumber}.`, "success");
 }
