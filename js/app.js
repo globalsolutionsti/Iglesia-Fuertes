@@ -508,6 +508,7 @@ const pendingResourceLoads = {
 let peopleSourcesResyncTimer = 0;
 let backgroundWarmersTimer = 0;
 let welcomePeopleLoadVersion = 0;
+let formationManualAttendanceHydrationToken = 0;
 const optimisticWelcomePeople = new Map();
 
 const qrScannerRuntime = {
@@ -2645,6 +2646,52 @@ function setAttendanceFormationHydrationState_(enabled, message = "") {
   state.ui.attendanceFormationHydratingMessage = enabled
     ? (message || "Preparando selectores de asistencia...")
     : "";
+}
+
+function hydrateFormationManualAttendanceInBackground_(offeringId, options = {}) {
+  const cleanOfferingId = String(offeringId || "").trim();
+
+  if (!cleanOfferingId) {
+    resetFormationAttendanceParticipantsState_();
+    setAttendanceFormationHydrationState_(false);
+    renderApp();
+    return;
+  }
+
+  const token = ++formationManualAttendanceHydrationToken;
+  const sessionNumber = String(
+    options.sessionNumber !== undefined
+      ? options.sessionNumber
+      : (state.filters.formationOps.sessionNumber || "1")
+  ).trim() || "1";
+
+  resetFormationAttendanceParticipantsState_();
+  setAttendanceFormationHydrationState_(true, options.message || "Cargando inscritos del paso...");
+  renderApp();
+
+  void loadFormationAttendanceContext_(cleanOfferingId, {
+    force: options.force !== false,
+    showLoading: false,
+    autoActivate: false,
+    sessionNumber
+  })
+    .then(() => {
+      if (token !== formationManualAttendanceHydrationToken) {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+    })
+    .catch((error) => {
+      if (token !== formationManualAttendanceHydrationToken) {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+      handleError(error);
+    });
 }
 
 function scheduleBackgroundWarmers_() {
@@ -9762,6 +9809,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const attendanceContext = String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering?.id || "")
     ? state.formationAttendanceContext
     : null;
+  const isManualContextHydrating = !attendanceContext && Boolean(state.ui.attendanceFormationHydrating);
   const compact = Boolean(options.compact);
   const mode = resolveFormationAttendanceMode_();
   const isScanMode = mode !== "manual";
@@ -9928,6 +9976,8 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
 
         ${!captureEnabled ? `
           <div class="empty-state">Activa primero la sesión ${escapeHtml(selectedSession?.label || currentSessionNumber)} para habilitar el guardado manual.</div>
+        ` : isManualContextHydrating ? `
+          <div class="empty-state">Cargando inscritos del paso para captura manual...</div>
         ` : !attendanceContext ? `
           <div class="empty-state">
             El listado manual todavía no se ha cargado para este paso.
@@ -20767,8 +20817,21 @@ async function handleClick(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId || "",
-          sessionNumber: state.filters.formationOps.sessionNumber || "1"
+          sessionNumber: state.filters.formationOps.sessionNumber || "1",
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_()) {
+          const selectedOffering = getSelectedFormationOffering_();
+          if (selectedOffering?.id) {
+            hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+              force: true,
+              sessionNumber: state.filters.formationOps.sessionNumber || "1",
+              message: "Cargando inscritos del paso..."
+            });
+            return;
+          }
+        }
       } else if (state.ui.formationSection === "portal") {
         await ensureFormationPortalSectionData_({
           force: true
@@ -20821,17 +20884,20 @@ async function handleClick(event) {
         stopQrScannerRuntime_(true);
       }
 
-      if (nextMode === "manual" && selectedOffering?.id) {
-        await loadFormationAttendanceContext_(selectedOffering.id, {
-          force: false,
-          sessionNumber: state.filters.formationOps.sessionNumber || "1"
-        });
-      } else if (nextMode !== "manual") {
+      if (nextMode !== "manual") {
         resetFormationAttendanceParticipantsState_();
       }
 
       renderApp();
       scrollToSection_("formation-operations-attendance");
+
+      if (nextMode === "manual" && selectedOffering?.id) {
+        hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+          force: false,
+          sessionNumber: state.filters.formationOps.sessionNumber || "1",
+          message: "Cargando inscritos del paso..."
+        });
+      }
       return;
     }
 
@@ -21813,8 +21879,21 @@ async function handleChange(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
-          sessionNumber: "1"
+          sessionNumber: "1",
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_()) {
+          const selectedOffering = getSelectedFormationOffering_();
+          if (selectedOffering?.id) {
+            hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+              force: true,
+              sessionNumber: state.filters.formationOps.sessionNumber || "1",
+              message: "Cargando inscritos del paso..."
+            });
+            return;
+          }
+        }
       } else if (activeFormationSection === "portal") {
         await ensureFormationPortalSectionData_({
           force: true,
@@ -21868,8 +21947,21 @@ async function handleChange(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
-          sessionNumber: state.filters.formationOps.sessionNumber
+          sessionNumber: state.filters.formationOps.sessionNumber,
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_()) {
+          const selectedOffering = getSelectedFormationOffering_();
+          if (selectedOffering?.id) {
+            hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+              force: true,
+              sessionNumber: state.filters.formationOps.sessionNumber || "1",
+              message: "Cargando inscritos del paso..."
+            });
+            return;
+          }
+        }
       } else if (activeFormationSection === "portal") {
         await ensureFormationPortalSectionData_({
           force: true,
@@ -21914,8 +22006,18 @@ async function handleChange(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
-          sessionNumber: state.filters.formationOps.sessionNumber
+          sessionNumber: state.filters.formationOps.sessionNumber,
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_() && target.value) {
+          hydrateFormationManualAttendanceInBackground_(target.value, {
+            force: true,
+            sessionNumber: state.filters.formationOps.sessionNumber || "1",
+            message: "Cargando inscritos del paso..."
+          });
+          return;
+        }
       } else if (activeFormationSection === "portal") {
         await loadFormationOperationsData_({
           force: false,
@@ -21944,11 +22046,13 @@ async function handleChange(event) {
         && state.filters.formationOps.offeringId
         && shouldLoadFormationAttendanceParticipants_()
       ) {
-        await loadFormationAttendanceContext_(state.filters.formationOps.offeringId, {
+        renderApp();
+        hydrateFormationManualAttendanceInBackground_(state.filters.formationOps.offeringId, {
           force: true,
-          showLoading: false,
-          sessionNumber: state.filters.formationOps.sessionNumber
+          sessionNumber: state.filters.formationOps.sessionNumber,
+          message: "Actualizando inscritos de la sesión..."
         });
+        return;
       } else if (!shouldLoadFormationAttendanceParticipants_()) {
         resetFormationAttendanceParticipantsState_();
       }
@@ -26749,6 +26853,7 @@ async function saveFormationProcess_(rawPayload) {
 async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
   const cleanOfferingId = String(offeringId || "").trim();
   const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const shouldHydrateManual = shouldLoadFormationAttendanceParticipants_();
   let response = null;
 
   if (!cleanOfferingId) {
@@ -26764,7 +26869,7 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
       offeringId: cleanOfferingId,
       sessionNumber: cleanSessionNumber,
       activatedBy: state.user?.name || "",
-      includeContext: shouldLoadFormationAttendanceParticipants_() ? "1" : "0"
+      includeContext: "0"
     });
 
     state.filters.formationOps.offeringId = cleanOfferingId;
@@ -26778,7 +26883,7 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
         offeringId: cleanOfferingId,
         sessionNumber: state.filters.formationOps.sessionNumber
       });
-    } else if (!shouldLoadFormationAttendanceParticipants_()) {
+    } else if (!shouldHydrateManual) {
       resetFormationAttendanceParticipantsState_();
     }
 
@@ -26790,6 +26895,14 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
   } finally {
     state.ui.formationAttendanceActivating = false;
     renderApp();
+  }
+
+  if (shouldHydrateManual) {
+    hydrateFormationManualAttendanceInBackground_(cleanOfferingId, {
+      force: true,
+      sessionNumber: state.filters.formationOps.sessionNumber,
+      message: "Cargando inscritos del paso..."
+    });
   }
 }
 
@@ -27033,15 +27146,6 @@ async function saveFormationLevelAttendance_(form) {
   applyFormationManualAttendancesLocally_(attendances, state.filters.formationOps.sessionNumber);
   renderApp();
   showToast("Asistencia guardada", `Se actualizaron ${response?.updated || 0} y se agregaron ${response?.inserted || 0} registros en la sesión ${state.filters.formationOps.sessionNumber}.`, "success");
-
-  void loadFormationAttendanceContext_(offeringId, {
-    force: true,
-    showLoading: false,
-    sessionNumber: state.filters.formationOps.sessionNumber,
-    autoActivate: false
-  }).then(() => {
-    renderApp();
-  }).catch(() => {});
 }
 
 async function saveFormationEnrollmentEvaluation_(rawPayload) {
