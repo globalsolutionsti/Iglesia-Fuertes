@@ -352,6 +352,8 @@ const state = {
   ui: {
     mobileNavOpen: false,
     attendanceCenterSection: "home",
+    attendanceFormationHydrating: false,
+    attendanceFormationHydratingMessage: "",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
     editingGroupId: "",
@@ -2638,6 +2640,13 @@ function setDashboardHydrationState_(enabled, message = "") {
     : "";
 }
 
+function setAttendanceFormationHydrationState_(enabled, message = "") {
+  state.ui.attendanceFormationHydrating = Boolean(enabled);
+  state.ui.attendanceFormationHydratingMessage = enabled
+    ? (message || "Preparando selectores de asistencia...")
+    : "";
+}
+
 function scheduleBackgroundWarmers_() {
   if (!state.user) {
     return;
@@ -2770,6 +2779,40 @@ function loadViewDataInBackground_(view) {
         renderApp();
       }
 
+      handleError(error);
+    });
+}
+
+function hydrateAttendanceFormationInBackground_(options = {}) {
+  const token = ++state.viewLoadToken;
+  const targetView = state.currentView;
+
+  setAttendanceFormationHydrationState_(true, options.message || "Preparando selectores de asistencia...");
+  renderApp();
+
+  void loadFormationAttendanceSectionData_({
+    force: options.force,
+    showLoading: false,
+    processId: options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""),
+    sessionNumber: options.sessionNumber !== undefined ? options.sessionNumber : (state.filters.formationOps.sessionNumber || "1"),
+    captureMode: options.captureMode !== undefined ? options.captureMode : resolveFormationAttendanceMode_(),
+    skipParticipants: options.skipParticipants !== false
+  })
+    .then(() => {
+      if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView || getActiveAttendanceCenterSection_() !== "formation") {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+    })
+    .catch((error) => {
+      if (token !== state.viewLoadToken || state.currentView !== targetView || getActiveAttendanceCenterSection_() !== "formation") {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
       handleError(error);
     });
 }
@@ -5930,6 +5973,8 @@ function renderAttendanceHubView_() {
 }
 
 function renderAttendanceFormationWorkspace_() {
+  const attendanceHydrating = Boolean(state.ui.attendanceFormationHydrating);
+  const attendanceHydratingMessage = state.ui.attendanceFormationHydratingMessage || "Preparando selectores de asistencia...";
   const selectedProcess = getSelectedFormationProcess_();
   const availableLevels = getFormationOperationalLevelsForSelectedProcess_();
   const filteredOfferings = getFilteredFormationOfferings_();
@@ -5979,10 +6024,17 @@ function renderAttendanceFormationWorkspace_() {
         <span class="pill ${captureEnabled ? "success" : "warning"}">${escapeHtml(captureEnabled ? "Sesión lista" : "Revisa sesión")}</span>
       </div>
 
+      ${attendanceHydrating ? `
+        <div class="inline-banner neutral" style="margin-bottom: 18px;">
+          <strong>${escapeHtml(attendanceHydratingMessage)}</strong>
+          <span>La ficha ya abrió. Los procesos, pasos y sesiones terminarán de aparecer en segundo plano.</span>
+        </div>
+      ` : ""}
+
       <div class="field-grid two attendance-formation-fields">
         <div class="field">
           <label for="formation-ops-process">Proceso de Formación</label>
-          <select id="formation-ops-process">
+          <select id="formation-ops-process" ${attendanceHydrating && !state.formationProcesses.length ? "disabled" : ""}>
             ${renderOptions(
               state.formationProcesses.map((process) => ({
                 value: process.id,
@@ -5996,7 +6048,7 @@ function renderAttendanceFormationWorkspace_() {
 
         <div class="field">
           <label for="formation-ops-level">Paso del proceso</label>
-          <select id="formation-ops-level">
+          <select id="formation-ops-level" ${attendanceHydrating && !availableLevels.length ? "disabled" : ""}>
             ${renderOptions(
               availableLevels.map((level) => ({
                 value: level.id,
@@ -6010,7 +6062,7 @@ function renderAttendanceFormationWorkspace_() {
 
         <div class="field">
           <label for="formation-ops-offering">Paso en operación</label>
-          <select id="formation-ops-offering">
+          <select id="formation-ops-offering" ${attendanceHydrating && !filteredOfferings.length ? "disabled" : ""}>
             ${renderOptions(
               filteredOfferings.map((offering) => ({
                 value: offering.id,
@@ -6024,7 +6076,7 @@ function renderAttendanceFormationWorkspace_() {
 
         <div class="field">
           <label for="formation-ops-session">Sesión del paso</label>
-          <select id="formation-ops-session" ${selectedOffering ? "" : "disabled"}>
+          <select id="formation-ops-session" ${(selectedOffering && !(attendanceHydrating && !sessionOptions.length)) ? "" : "disabled"}>
             ${renderOptions(sessionOptions, currentSessionNumber, "Selecciona sesión")}
           </select>
         </div>
@@ -9876,6 +9928,15 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
 
         ${!captureEnabled ? `
           <div class="empty-state">Activa primero la sesión ${escapeHtml(selectedSession?.label || currentSessionNumber)} para habilitar el guardado manual.</div>
+        ` : !attendanceContext ? `
+          <div class="empty-state">
+            El listado manual todavía no se ha cargado para este paso.
+            <div class="actions-row" style="margin-top: 14px;">
+              <button class="btn btn-primary" type="button" data-action="load-formation-manual-context" data-offering-id="${escapeHtml(selectedOffering.id || "")}">
+                Cargar inscritos del paso
+              </button>
+            </div>
+          </div>
         ` : attendanceParticipants.length ? `
           <div class="formation-attendance-manual-summary">
             <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
@@ -19172,6 +19233,17 @@ async function handleClick(event) {
       formationAttendanceScannerRuntime.enabled = false;
       stopFormationAttendanceScanner_();
       renderApp();
+
+      if (state.ui.attendanceCenterSection === "formation") {
+        hydrateAttendanceFormationInBackground_({
+          force: false,
+          captureMode: resolveFormationAttendanceMode_(),
+          skipParticipants: true
+        });
+        scrollViewportToTop_();
+        return;
+      }
+
       await ensureAttendanceHubViewData_({
         force: false,
         showLoading: false
@@ -21090,6 +21162,22 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "load-formation-manual-context") {
+      const offeringId = String(button.dataset.offeringId || state.filters.formationOps.offeringId || "").trim();
+      if (!offeringId) {
+        return;
+      }
+
+      await loadFormationAttendanceContext_(offeringId, {
+        force: true,
+        showLoading: false,
+        sessionNumber: state.filters.formationOps.sessionNumber || "1"
+      });
+
+      renderApp();
+      return;
+    }
+
     if (action === "activate-formation-session") {
       await activateFormationAttendanceSession_(
         button.dataset.offeringId || "",
@@ -22984,14 +23072,26 @@ async function loadFormationCatalog_(options = {}) {
 }
 
 async function loadFormationProcesses_(options = {}) {
+  const requestedMode = options.summaryOnly ? "summary" : "full";
+  const currentMode = String(state.cacheKeys.formationProcesses || "");
+
   if (!options.force && state.loaded.formationProcesses) {
-    return state.formationProcesses;
+    if (requestedMode === "summary") {
+      return state.formationProcesses;
+    }
+    if (currentMode === "full") {
+      return state.formationProcesses;
+    }
   }
 
   const task = () => runSharedLoad_("formationProcesses", async () => {
     try {
-      state.formationProcesses = await apiGet("formation.processes.list");
+      state.formationProcesses = await apiGet(
+        "formation.processes.list",
+        options.summaryOnly ? { includeOfferings: "0" } : {}
+      );
       state.loaded.formationProcesses = true;
+      state.cacheKeys.formationProcesses = requestedMode;
       return state.formationProcesses;
     } catch (error) {
       if (!isUnknownActionError_(error, "formation.processes.list")) {
@@ -23013,7 +23113,8 @@ async function loadFormationAttendanceBootstrap_(options = {}) {
   const task = async () => {
     await Promise.all([
       state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
-        showLoading: false
+        showLoading: false,
+        summaryOnly: true
       })
     ]);
 
@@ -23567,6 +23668,71 @@ function applyFormationQrAttendanceLocally_(response, sessionNumber) {
   });
 }
 
+function applyFormationManualAttendancesLocally_(attendances, sessionNumber) {
+  const selectedSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const updatesByPerson = Array.isArray(attendances)
+    ? attendances.reduce((accumulator, item) => {
+      const personId = String(item?.personId || "").trim();
+      const attended = String(item?.attended || "").trim().toUpperCase();
+
+      if (personId && (attended === "SI" || attended === "NO")) {
+        accumulator[personId] = attended;
+      }
+
+      return accumulator;
+    }, {})
+    : {};
+
+  if (!Object.keys(updatesByPerson).length || !state.formationAttendanceContext || !Array.isArray(state.formationAttendanceContext.participants)) {
+    return;
+  }
+
+  const nextParticipants = state.formationAttendanceContext.participants.map((participant) => {
+    const personId = String(participant?.personId || "").trim();
+    const nextAttendance = String(updatesByPerson[personId] || "").trim().toUpperCase();
+
+    if (!personId || !nextAttendance) {
+      return participant;
+    }
+
+    const previousSelectedAttendance = String(participant?.selectedSessionAttendance || "").trim().toUpperCase();
+    const previousBySessionAttendance = String(participant?.attendanceBySession?.[selectedSessionNumber] || "").trim().toUpperCase();
+    const previousAttendance = previousBySessionAttendance || previousSelectedAttendance;
+    const currentAttendance = participant?.attendance || {};
+    const attendedSessions = Math.max(Number(currentAttendance?.attendedSessions || 0), 0);
+    let nextAttendedSessions = attendedSessions;
+
+    if (previousAttendance !== nextAttendance) {
+      if (previousAttendance === "SI" && nextAttendance !== "SI") {
+        nextAttendedSessions = Math.max(attendedSessions - 1, 0);
+      } else if (previousAttendance !== "SI" && nextAttendance === "SI") {
+        nextAttendedSessions = attendedSessions + 1;
+      }
+    }
+
+    return {
+      ...participant,
+      selectedSessionAttendance: nextAttendance,
+      attendanceBySession: {
+        ...(participant?.attendanceBySession || {}),
+        [selectedSessionNumber]: nextAttendance
+      },
+      attendance: {
+        ...currentAttendance,
+        attendedSessions: nextAttendedSessions
+      }
+    };
+  });
+
+  applyFormationAttendanceContextState_({
+    ...(state.formationAttendanceContext || {}),
+    participants: nextParticipants
+  }, {
+    offeringId: state.formationAttendanceContext?.offering?.id || "",
+    sessionNumber: selectedSessionNumber
+  });
+}
+
 function isFormationAttendanceAlreadyRegisteredLocally_(personId, sessionNumber) {
   const cleanPersonId = String(personId || "").trim();
   const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
@@ -23656,7 +23822,8 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
 
 async function loadFormationAttendanceSectionData_(options = {}) {
   const task = async () => {
-    const shouldLoadParticipants = shouldLoadFormationAttendanceParticipants_(options.captureMode);
+    const shouldLoadParticipants = !options.skipParticipants
+      && shouldLoadFormationAttendanceParticipants_(options.captureMode);
 
     await loadFormationAttendanceBootstrap_({
       force: options.force,
@@ -26852,6 +27019,7 @@ async function saveFormationLevelAttendance_(form) {
       offeringId,
       sessionNumber,
       capturedBy: state.user?.name || "",
+      includeContext: "0",
       attendances
     });
   }, "Guardando asistencia del nivel...");
@@ -26862,20 +27030,18 @@ async function saveFormationLevelAttendance_(form) {
   if (response?.offering) {
     syncFormationOfferingIntoState_(response.offering);
   }
-  if (response?.context) {
-    applyFormationAttendanceContextState_(response.context, {
-      offeringId,
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
-  } else {
-    await loadFormationAttendanceContext_(offeringId, {
-      force: true,
-      showLoading: false,
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
-  }
+  applyFormationManualAttendancesLocally_(attendances, state.filters.formationOps.sessionNumber);
   renderApp();
   showToast("Asistencia guardada", `Se actualizaron ${response?.updated || 0} y se agregaron ${response?.inserted || 0} registros en la sesión ${state.filters.formationOps.sessionNumber}.`, "success");
+
+  void loadFormationAttendanceContext_(offeringId, {
+    force: true,
+    showLoading: false,
+    sessionNumber: state.filters.formationOps.sessionNumber,
+    autoActivate: false
+  }).then(() => {
+    renderApp();
+  }).catch(() => {});
 }
 
 async function saveFormationEnrollmentEvaluation_(rawPayload) {
@@ -33916,6 +34082,8 @@ function resetRuntimeState() {
     window.clearTimeout(backgroundWarmersTimer);
     backgroundWarmersTimer = 0;
   }
+  state.ui.attendanceFormationHydrating = false;
+  state.ui.attendanceFormationHydratingMessage = "";
   state.ui.dashboardHydrating = false;
   state.ui.dashboardHydratingMessage = "";
   state.ui.welcomeNewRefreshing = false;
@@ -34017,6 +34185,8 @@ function resetRuntimeState() {
   state.ui = {
     mobileNavOpen: false,
     attendanceCenterSection: "home",
+    attendanceFormationHydrating: false,
+    attendanceFormationHydratingMessage: "",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
     editingGroupId: "",
