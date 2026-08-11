@@ -510,6 +510,7 @@ let peopleSourcesResyncTimer = 0;
 let backgroundWarmersTimer = 0;
 let welcomePeopleLoadVersion = 0;
 let formationManualAttendanceHydrationToken = 0;
+const inputRerenderTimers = Object.create(null);
 const optimisticWelcomePeople = new Map();
 
 const qrScannerRuntime = {
@@ -3049,7 +3050,6 @@ function renderApp() {
         ${renderCurrentView()}
       </main>
 
-      ${renderMobileTabBar_()}
     </div>
 
     ${renderSystemConfirmationDialog_()}
@@ -22732,20 +22732,20 @@ function handleInput(event) {
 
   if (target.id === "formation-search") {
     getFormationFilterDraft_().search = target.value;
-    rerenderPreservingInput_(target);
+    rerenderPreservingInputDebounced_(target, "formation-search");
     return;
   }
 
   if (target.id === "formation-ops-search") {
     state.filters.formationOps.search = target.value;
     syncFormationOperationsSelection_();
-    rerenderPreservingInput_(target);
+    rerenderPreservingInputDebounced_(target, "formation-ops-search");
     return;
   }
 
   if (target.id === "formation-ops-person-search") {
     state.filters.formationOps.personSearch = target.value;
-    rerenderPreservingInput_(target);
+    rerenderPreservingInputDebounced_(target, "formation-ops-person-search");
     return;
   }
 
@@ -34502,6 +34502,26 @@ function rerenderPreservingInput_(target) {
   const focusSnapshot = captureInputFocusSnapshot_(target);
   renderApp();
   restoreInputFocusSnapshot_(focusSnapshot);
+}
+
+function rerenderPreservingInputDebounced_(target, timerKey, delayMs = 220) {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    renderApp();
+    return;
+  }
+
+  const resolvedKey = String(timerKey || target.id || "generic");
+  const focusSnapshot = captureInputFocusSnapshot_(target);
+
+  if (inputRerenderTimers[resolvedKey]) {
+    window.clearTimeout(inputRerenderTimers[resolvedKey]);
+  }
+
+  inputRerenderTimers[resolvedKey] = window.setTimeout(() => {
+    delete inputRerenderTimers[resolvedKey];
+    renderApp();
+    restoreInputFocusSnapshot_(focusSnapshot);
+  }, Math.max(120, Number(delayMs) || 220));
 }
 
 function captureInputFocusSnapshot_(target) {
