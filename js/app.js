@@ -27618,24 +27618,23 @@ async function assignFormationEnrollment_(personId) {
 
   state.filters.formationOps.personSearch = "";
   state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || "";
-  if (getActiveFormationSection_() === "attendance") {
-    await loadFormationAttendanceSectionData_({
-      force: true,
-      processId: state.filters.formationOps.processId || "",
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
-  } else {
-    await loadFormationOperationsData_({
-      force: true,
-      showLoading: false,
-      offeringId: selectedOffering.id,
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
-    await loadFormationAttendanceTransitionRoster_({
-      force: true,
-      showLoading: false
-    });
-  }
+  state.filters.formationOps.processId = String(response?.enrollment?.processId || selectedOffering?.processId || state.filters.formationOps.processId || "").trim();
+  state.filters.formationOps.levelId = String(response?.enrollment?.levelId || selectedOffering?.levelId || state.filters.formationOps.levelId || "").trim();
+  state.filters.formationOps.offeringId = String(response?.enrollment?.offeringId || selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
+  state.ui.selectedFormationOfferingId = state.filters.formationOps.offeringId;
+  state.filters.formationOps.enrollmentStatus = "ALL";
+  state.filters.formationOps.search = cleanPersonId;
+  state.ui.pendingFormationEnrollmentPersonId = "";
+  state.ui.formationSection = "portal";
+
+  await ensureFormationPortalSectionData_({
+    force: true
+  });
+
+  await loadFormationAttendanceTransitionRoster_({
+    force: true,
+    showLoading: false
+  });
 
   if (String(state.formationProfile?.person?.id || "") === cleanPersonId) {
     await loadFormationProfile_(cleanPersonId, {
@@ -27660,16 +27659,13 @@ async function assignFormationEnrollment_(personId) {
     state.formationCandidates = state.formationCandidates.filter((candidate) => String(candidate?.personId || "") !== cleanPersonId);
   }
 
-  if (pendingCandidate && String(pendingCandidate.personId || "") === cleanPersonId) {
-    state.ui.pendingFormationEnrollmentPersonId = "";
-  }
-
   renderApp();
+  scrollToSection_("formation-portal-workspace");
   showToast(
-    response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción guardada",
+    response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción confirmada",
     response?.account?.temporaryPin
-      ? `La persona quedó inscrita. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya puedes abrir Inscritos y portal para enviarlo por WhatsApp.`
-      : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita a ${selectedOffering.levelName || "este nivel"}.`,
+      ? `La persona quedó inscrita en ${response?.enrollment?.offeringName || response?.enrollment?.levelName || selectedOffering?.levelName || "este paso"}. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya te abrí Inscritos y portal para validarlo.`
+      : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita en ${response?.enrollment?.offeringName || response?.enrollment?.levelName || selectedOffering?.levelName || "este paso"}. Ya te abrí Inscritos y portal para validarlo.`,
     "success"
   );
 }
