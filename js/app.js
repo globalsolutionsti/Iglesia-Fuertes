@@ -9197,6 +9197,17 @@ function renderFormationOperationsWorkspaceLegacy_(context) {
             ` : `
               <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
                 <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+                <div class="summary-box" style="margin-bottom: 18px;">
+                  <span class="status-chip warning">Evaluación del paso actual</span>
+                  <strong>${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Paso actual")}</strong>
+                  <span>${escapeHtml(
+                    selectedApprovalMode === "BAPTISM_CONFIRMATION"
+                      ? "Aquí indicas si la persona ya fue bautizada para abrir el siguiente paso."
+                      : selectedRequiresQuestionnaires
+                        ? "Aquí capturas examen, cuestionarios y observaciones para validar su avance."
+                        : "Aquí capturas examen y observaciones para validar su avance al siguiente paso."
+                  )}</span>
+                </div>
                 <div class="field-grid two">
                   ${selectedApprovalMode === "BAPTISM_CONFIRMATION" ? `
                     <div class="field">
@@ -9753,6 +9764,19 @@ function renderFormationOperationsWorkspace_(context) {
 
         <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
           <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+          <div class="summary-box" style="margin-bottom: 18px;">
+            <span class="status-chip warning">Evaluación del paso actual</span>
+            <strong>${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Paso actual")}</strong>
+            <span>${escapeHtml(
+              selectedApprovalMode === "BAPTISM_CONFIRMATION"
+                ? "Aquí indicas si la persona ya fue bautizada para abrir el siguiente paso."
+                : selectedRequiresQuestionnaires
+                  ? "Aquí capturas examen, cuestionarios y observaciones para validar su avance."
+                  : selectedApprovalMode === "ATTENDANCE_ONLY"
+                    ? "Este paso se acredita por asistencia, pero puedes dejar observaciones administrativas."
+                    : "Aquí capturas examen y observaciones para validar su avance al siguiente paso."
+            )}</span>
+          </div>
           <div class="field-grid two">
             ${selectedApprovalMode === "BAPTISM_CONFIRMATION" ? `
               <div class="field">
@@ -34549,7 +34573,7 @@ function restoreInputFocusSnapshot_(snapshot) {
       return;
     }
 
-    target.focus({ preventScroll: true });
+    safeFocusInput_(target);
 
     if (snapshot.selectionStart === null || snapshot.selectionEnd === null) {
       return;
@@ -34575,7 +34599,7 @@ function focusInputById_(inputId) {
       return;
     }
 
-    target.focus({ preventScroll: true });
+    safeFocusInput_(target);
 
     try {
       const endPosition = target.value.length;
@@ -34584,6 +34608,25 @@ function focusInputById_(inputId) {
       // Some input types do not support cursor positioning.
     }
   });
+}
+
+function safeFocusInput_(target) {
+  if (!target || typeof target.focus !== "function") {
+    return;
+  }
+
+  try {
+    target.focus({ preventScroll: true });
+    return;
+  } catch (error) {
+    void error;
+  }
+
+  try {
+    target.focus();
+  } catch (error) {
+    void error;
+  }
 }
 
 function toOptionalNumber_(value) {
