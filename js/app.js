@@ -24662,8 +24662,9 @@ async function loadFormationOperationsData_(options = {}) {
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
   const shouldLoadAttendanceContext = options.loadAttendanceContext !== false;
   const shouldLoadEnrollments = options.loadEnrollments !== false;
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
   const offeringsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}`;
-  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "AUTO"}::${requestedSessionNumber || "1"}`;
+  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "AUTO"}`;
 
   if (
     !options.force
@@ -24778,7 +24779,7 @@ async function loadFormationOperationsData_(options = {}) {
     try {
       enrollments = await apiGet("formation.enrollments.list", {
         ...enrollmentsParams,
-        skipSync: getActiveFormationSection_() === "attendance" ? "1" : ""
+        skipSync: shouldSkipSync || getActiveFormationSection_() === "attendance" ? "1" : ""
       });
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
@@ -24800,7 +24801,7 @@ async function loadFormationOperationsData_(options = {}) {
 
     state.formationEnrollments = Array.isArray(enrollments) ? enrollments : [];
     state.loaded.formationEnrollments = true;
-    state.cacheKeys.formationEnrollments = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${effectiveOfferingId || "ALL"}::${requestedSessionNumber || "1"}`;
+    state.cacheKeys.formationEnrollments = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${effectiveOfferingId || "ALL"}`;
 
     if (effectiveOfferingId && shouldLoadAttendanceContext) {
       await loadFormationAttendanceContext_(effectiveOfferingId, {
@@ -25100,7 +25101,8 @@ async function ensureFormationOperationsViewData_(options = {}) {
       levelId: options.levelId,
       offeringId: options.offeringId,
       sessionNumber: options.sessionNumber,
-      loadAttendanceContext: options.loadAttendanceContext
+      loadAttendanceContext: options.loadAttendanceContext,
+      skipSync: options.skipSync
     });
 
     if (options.includeProcessRoster) {
@@ -25127,8 +25129,9 @@ async function ensureFormationPortalSectionData_(options = {}) {
     offeringId: state.filters.formationOps.offeringId || "",
     sessionNumber: state.filters.formationOps.sessionNumber || "1",
     includeProcessRoster: false,
-    includePeopleDirectory: true,
-    loadAttendanceContext: false
+    includePeopleDirectory: false,
+    loadAttendanceContext: false,
+    skipSync: true
   });
 
   const previousOfferingId = String(state.filters.formationOps.offeringId || "").trim();
@@ -25142,7 +25145,15 @@ async function ensureFormationPortalSectionData_(options = {}) {
       levelId: state.filters.formationOps.levelId || "",
       offeringId: state.filters.formationOps.offeringId || "",
       sessionNumber: state.filters.formationOps.sessionNumber || "1",
-      loadAttendanceContext: false
+      loadAttendanceContext: false,
+      skipSync: true
+    });
+  }
+
+  const selectedOffering = getSelectedFormationOffering_();
+  if (selectedOffering && Number(selectedOffering.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
+    await loadPeopleDirectory({
+      showLoading: false
     });
   }
 }
@@ -25169,7 +25180,8 @@ async function ensureFormationJourneySectionData_(options = {}) {
     offeringId: "",
     sessionNumber: state.filters.formationOps.sessionNumber || "1",
     loadAttendanceContext: false,
-    loadEnrollments: false
+    loadEnrollments: false,
+    skipSync: true
   });
 
   await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
