@@ -2725,7 +2725,7 @@ div {
   }
 
   .workspace {
-    padding: 12px 20px calc(var(--mobile-tabbar-height) + 24px + env(safe-area-inset-bottom));
+    padding: 12px 20px calc(26px + env(safe-area-inset-bottom));
   }
 
   .mobile-tabbar {
@@ -7439,9 +7439,12 @@ tbody tr:hover {
   }
 
   .mobile-appbar,
-  .mobile-tabbar,
   .sidebar-mobile-head {
     display: flex;
+  }
+
+  .mobile-tabbar {
+    display: none;
   }
 
   .mobile-nav-backdrop {
@@ -7487,7 +7490,7 @@ tbody tr:hover {
   }
 
   .workspace {
-    padding: 10px 18px calc(var(--mobile-tabbar-height) + 22px + env(safe-area-inset-bottom));
+    padding: 10px 18px calc(24px + env(safe-area-inset-bottom));
   }
 
   .topbar {
@@ -11453,7 +11456,7 @@ tbody tr:hover {
 
 @media (min-width: 701px) and (max-width: 980px) {
   .workspace {
-    padding: 12px 18px calc(var(--mobile-tabbar-height) + 22px + env(safe-area-inset-bottom));
+    padding: 12px 18px calc(24px + env(safe-area-inset-bottom));
   }
 
   .panel-card,
@@ -11586,9 +11589,182 @@ tbody tr:hover {
     width: 100%;
     min-height: 48px;
   }
+
+  .app-shell.view-formation .module-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .app-shell.view-formation .module-tabs .module-tab {
+    min-height: 56px;
+    padding: 12px 14px;
+    border-radius: 18px;
+  }
+
+  .app-shell.view-formation .module-tabs .module-tab strong {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .app-shell.view-formation .module-tabs .module-tab span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.view-formation .formation-ops-toolbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .app-shell.view-formation .formation-ledger-card,
+  .app-shell.view-formation .formation-route-card {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .app-shell.view-formation .formation-ledger-card-head {
+    gap: 8px;
+  }
+
+  .app-shell.view-formation .formation-ledger-card-head h3,
+  .app-shell.view-formation .formation-route-identity h3 {
+    font-size: 20px;
+    line-height: 1.08;
+  }
+
+  .app-shell.view-attendance .attendance-formation-shell {
+    gap: 12px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .footer-note {
+    font-size: 12px;
+    line-height: 1.4;
+  }
 }
 
 @media (max-width: 700px) {
+  .app-shell.view-formation .module-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-formation .module-tabs .module-tab {
+    min-height: 52px;
+    padding: 11px 12px;
+  }
+
+  .app-shell.view-formation .formation-ledger-row,
+  .app-shell.view-formation .formation-ledger-row-route {
+    padding: 14px 12px;
+    gap: 12px;
+  }
+
+  .app-shell.view-formation .formation-ledger-cell small,
+  .app-shell.view-formation .formation-ledger-route-note,
+  .app-shell.view-formation .formation-ledger-route-code,
+  .app-shell.view-formation .formation-ledger-route-chip {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.view-attendance .attendance-formation-fields {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-strip {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .app-shell.view-attendance .attendance-formation-strip .context-item {
+    min-height: 60px;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact .context-item {
+    min-height: 0;
+    padding: 8px 10px;
+    border-radius: 14px;
+    font-size: 11px;
+    line-height: 1.32;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-toggle {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-toggle .toggle-button {
+    min-height: 46px;
+    font-size: 14px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-shell {
+    padding: 12px;
+    border-radius: 20px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-actions {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-toggle-group {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scanner-frame,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video {
+    min-height: 240px;
+    height: min(34svh, 250px);
+    max-height: 250px;
+    border-radius: 18px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder strong {
+    font-size: 16px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-video-placeholder span,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .kiosk-scan-copy {
+    font-size: 11px;
+    line-height: 1.32;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline {
+    min-height: 88px;
+    margin-top: 6px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline-badge {
+    min-height: 26px;
+    font-size: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline strong {
+    font-size: 17px;
+    line-height: 1.08;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-inline small {
+    font-size: 10px;
+    line-height: 1.28;
+  }
+
   .formation-attendance-manual-summary {
     display: grid;
     grid-template-columns: 1fr;
