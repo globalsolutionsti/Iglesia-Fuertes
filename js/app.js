@@ -705,6 +705,11 @@ function canUseScrapDelete_() {
   return (roleKey === "admin" || roleKey === "administrador") && hasUserPermission_(DELETE_SCRAP_PERMISSION);
 }
 
+function canAdminCorrectFormationEnrollment_() {
+  const roleKey = normalizeText(state.user?.role || "");
+  return roleKey === "admin" || roleKey === "administrador";
+}
+
 function getNormalizedUserRole_() {
   return normalizeText(state.user?.role || "");
 }
@@ -4013,6 +4018,11 @@ async function confirmSystemAction_() {
 
   if (confirmation.kind === "delete-formation-offering") {
     await executeDeleteFormationOffering_(confirmation.payload.offeringId);
+    return;
+  }
+
+  if (confirmation.kind === "formation-admin-remove-enrollment") {
+    await executeFormationAdminRemoveEnrollment_(confirmation.payload.enrollmentId, confirmation.payload.personId);
   }
 }
 
@@ -9444,11 +9454,18 @@ function buildFormationJourneyRows_(rows) {
       seasonName: resolveSeasonName_(current?.seasonId) || current?.seasonId || "Sin temporada",
       currentStepName: current?.offeringName || current?.levelName || "Sin paso",
       currentStepStatus: current?.status || "EN_CURSO",
+      currentEnrollmentId: current?.id || "",
+      currentEnrollment: current,
       currentAttendance: current?.attendance || {
         attendedSessions: 0,
         totalSessions: 0,
         completed: false
       },
+      currentSessionProgress: Array.isArray(current?.attendance?.sessionProgress)
+        ? current.attendance.sessionProgress
+        : [],
+      currentFollowup: current ? getFormationEnrollmentFollowupSummary_(current) : null,
+      currentApprovalMeta: current ? getFormationApprovalModeMeta_(current) : getFormationApprovalModeMeta_(null),
       currentEvaluation: current?.examApproved
         ? "Examen acreditado"
         : (current?.baptismConfirmed ? "Bautismo confirmado" : (current?.evaluatedAt ? "Evaluación registrada" : "Evaluación pendiente")),
@@ -9476,6 +9493,45 @@ function buildFormationJourneyRows_(rows) {
   }).sort((left, right) => String(left.personName || "").localeCompare(String(right.personName || "")));
 }
 
+function getSelectedFormationJourneyEnrollment_(journeyRows) {
+  const rows = Array.isArray(journeyRows) ? journeyRows : [];
+  const requestedId = String(state.ui.selectedFormationEnrollmentId || "").trim();
+  const activeRows = rows.filter((journey) => journey?.currentEnrollment);
+
+  if (requestedId) {
+    const match = activeRows.find((journey) => String(journey?.currentEnrollmentId || "").trim() === requestedId);
+    if (match?.currentEnrollment) {
+      return match.currentEnrollment;
+    }
+  }
+
+  return activeRows[0]?.currentEnrollment || null;
+}
+
+function renderFormationSessionProgressSummary_(sessionProgress) {
+  const rows = Array.isArray(sessionProgress) ? sessionProgress : [];
+
+  if (!rows.length) {
+    return `<span class="formation-journey-chip is-empty">Sin sesiones registradas todavía</span>`;
+  }
+
+  return rows.map((session) => {
+    const status = String(session?.status || "").trim().toUpperCase();
+    const toneClass = status === "SI"
+      ? "success"
+      : (status === "NO" ? "danger" : "is-empty");
+    const label = status === "SI"
+      ? "Asistió"
+      : (status === "NO" ? "Faltó" : "Pendiente");
+
+    return `
+      <span class="formation-journey-chip ${toneClass}">
+        ${escapeHtml(session?.label || `Sesión ${session?.number || ""}`)} · ${escapeHtml(label)}
+      </span>
+    `;
+  }).join("");
+}
+
 function renderFormationJourneyRow_(journey) {
   const approvedPreview = journey.approvedLabels.length
     ? journey.approvedLabels.slice(0, 4).map((label) => `<span class="formation-journey-chip">${escapeHtml(label)}</span>`).join("")
@@ -9486,6 +9542,9 @@ function renderFormationJourneyRow_(journey) {
     completed: false
   };
   const attendanceSummary = `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} asistencias`;
+  const actionLabel = getFormationEnrollmentActionLabel_(journey.currentEnrollment || null);
+  const followup = journey.currentFollowup || null;
+  const sessionProgress = renderFormationSessionProgressSummary_(journey.currentSessionProgress);
 
   return `
     <article class="formation-journey-row">
@@ -9506,7 +9565,8 @@ function renderFormationJourneyRow_(journey) {
           <div>${renderWorkflowStatusPill_(journey.currentStepStatus || "EN_CURSO")}</div>
         </div>
         <span>${escapeHtml(attendanceSummary)}</span>
-        <span>${escapeHtml(journey.currentEvaluation || "Seguimiento pendiente")}</span>
+        <span>${escapeHtml(followup?.title || journey.currentEvaluation || "Seguimiento pendiente")}</span>
+        <div class="formation-journey-approved-list">${sessionProgress}</div>
       </div>
       <div class="formation-journey-approved">
         <small>Pasos ya aprobados</small>
@@ -9515,8 +9575,21 @@ function renderFormationJourneyRow_(journey) {
       </div>
       <div class="formation-journey-actions">
         <small>Acciones</small>
+        <button class="btn btn-primary" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}">${escapeHtml(actionLabel)}</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(journey.personId || "")}">Gestionar portal</button>
         <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(journey.personId || "")}">Ver perfil</button>
+        ${canAdminCorrectFormationEnrollment_() ? `
+          <button
+            class="btn btn-danger"
+            data-action="prompt-formation-admin-remove-enrollment"
+            data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}"
+            data-person-id="${escapeHtml(journey.personId || "")}"
+            data-person-name="${escapeHtml(journey.personName || "")}"
+            data-step-name="${escapeHtml(journey.currentStepName || "")}"
+          >
+            Corregir paso
+          </button>
+        ` : ""}
       </div>
     </article>
   `;
@@ -9526,6 +9599,17 @@ function renderFormationOperationsWorkspace_(context) {
   const selectedProcess = getSelectedFormationProcess_();
   const summary = buildFormationOperationsSummary_();
   const journeyRows = buildFormationJourneyRows_(state.formationProcessRoster);
+  const selectedEnrollment = getSelectedFormationJourneyEnrollment_(journeyRows);
+  const selectedApprovalMeta = getFormationApprovalModeMeta_(selectedEnrollment || null);
+  const selectedApprovalMode = selectedApprovalMeta.mode;
+  const selectedRequiresQuestionnaires = Number(selectedEnrollment?.questionnairesRequired || 0) > 0;
+  const selectedSessionProgress = renderFormationSessionProgressSummary_(selectedEnrollment?.attendance?.sessionProgress || []);
+  const selectedFollowup = selectedEnrollment ? getFormationEnrollmentFollowupSummary_(selectedEnrollment) : null;
+  const selectedQuestionnairesTarget = Math.max(
+    Number(selectedEnrollment?.questionnairesRequired || 0),
+    Number(selectedEnrollment?.attendance?.totalSessions || 0),
+    0
+  );
 
   return `
     <article class="panel-card module-section-anchor" id="formation-operations-workspace">
@@ -9631,6 +9715,117 @@ function renderFormationOperationsWorkspace_(context) {
         <div class="empty-state">Todavía no hay inscritos visibles para el proceso y filtros actuales.</div>
       `}
     </article>
+
+    <article class="detail-card module-section-anchor" id="formation-operation-evaluation">
+      <div class="panel-head">
+        <div>
+          <h2>Validación del participante</h2>
+          <p>${escapeHtml(selectedApprovalMeta.description || "Aquí validas el criterio pastoral del paso actual y el sistema moverá automáticamente a la persona cuando cumpla la regla.")}</p>
+        </div>
+        ${selectedEnrollment ? renderWorkflowStatusPill_(selectedEnrollment.status || "EN_CURSO") : `<span class="pill dark">Selecciona un inscrito</span>`}
+      </div>
+
+      ${selectedEnrollment ? `
+        <div class="summary-strip">
+          <span class="context-item"><strong>Participante:</strong> ${escapeHtml(selectedEnrollment.personName || "Congregante")}</span>
+          <span class="context-item"><strong>Paso actual:</strong> ${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Sin paso")}</span>
+          <span class="context-item"><strong>Asistencia:</strong> ${escapeHtml(`${selectedEnrollment.attendance?.attendedSessions || 0}/${selectedEnrollment.attendance?.totalSessions || 0}`)}</span>
+          <span class="context-item"><strong>Regla:</strong> ${escapeHtml(selectedApprovalMeta.title || "Seguimiento")}</span>
+        </div>
+
+        <div class="summary-stack" style="margin-top: 18px;">
+          <div class="summary-box">
+            <span class="status-chip neutral">Congregante</span>
+            <strong>${escapeHtml(selectedEnrollment.personName || "Congregante")}</strong>
+            <span>${escapeHtml(selectedEnrollment.personNumber || "-")} | QR ${escapeHtml(selectedEnrollment.personId || "-")} | ${escapeHtml(selectedEnrollment.personPhone || "Sin teléfono")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Seguimiento del paso</span>
+            <strong>${escapeHtml(selectedFollowup?.title || "Pendiente")}</strong>
+            <span>${escapeHtml(selectedFollowup?.detail || "Revisa asistencia, examen o bautismo según la regla de este paso.")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Sesiones del paso</span>
+            <strong>${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Sin paso")}</strong>
+            <div class="formation-journey-approved-list">${selectedSessionProgress}</div>
+          </div>
+        </div>
+
+        <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
+          <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+          <div class="field-grid two">
+            ${selectedApprovalMode === "BAPTISM_CONFIRMATION" ? `
+              <div class="field">
+                <label for="formation-evaluation-approved">Bautizado</label>
+                <select id="formation-evaluation-approved" name="examApproved">
+                  <option value="">Selecciona</option>
+                  <option value="SI" ${selectedEnrollment.baptismConfirmed ? "selected" : ""}>SI</option>
+                  <option value="NO" ${(selectedEnrollment.baptismConfirmed === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO") ? "selected" : ""}>NO</option>
+                </select>
+              </div>
+            ` : selectedApprovalMode === "ATTENDANCE_ONLY" ? `
+              <div class="field">
+                <label for="formation-evaluation-comments">Observaciones</label>
+                <textarea id="formation-evaluation-comments" name="comments" rows="3" placeholder="Anota observaciones pastorales si hace falta dejar evidencia del paso.">${escapeHtml(selectedEnrollment.comments || "")}</textarea>
+              </div>
+            ` : `
+              <div class="field">
+                <label for="formation-evaluation-score">Calificación del examen</label>
+                <input id="formation-evaluation-score" name="examScore" value="${escapeHtml(selectedEnrollment.examScore || "")}" placeholder="Ej. 95">
+              </div>
+              <div class="field">
+                <label for="formation-evaluation-approved">Examen aprobado</label>
+                <select id="formation-evaluation-approved" name="examApproved">
+                  <option value="">Selecciona</option>
+                  <option value="SI" ${selectedEnrollment.examApproved ? "selected" : ""}>SI</option>
+                  <option value="NO" ${selectedEnrollment.examApproved === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO" ? "selected" : ""}>NO</option>
+                </select>
+              </div>
+              ${selectedRequiresQuestionnaires ? `
+                <div class="field">
+                  <label for="formation-evaluation-questionnaires">Cuestionarios entregados</label>
+                  <input
+                    id="formation-evaluation-questionnaires"
+                    name="questionnairesDelivered"
+                    type="number"
+                    min="0"
+                    max="${escapeHtml(String(selectedQuestionnairesTarget || 12))}"
+                    value="${escapeHtml(String(selectedEnrollment.questionnairesDelivered || ""))}"
+                    placeholder="Ej. ${escapeHtml(String(selectedQuestionnairesTarget || 12))}"
+                  >
+                  <small class="field-help">Debe completar ${escapeHtml(String(selectedQuestionnairesTarget || 12))} cuestionarios para continuar.</small>
+                </div>
+              ` : ""}
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="formation-evaluation-comments">Observaciones</label>
+                <textarea id="formation-evaluation-comments" name="comments" rows="3" placeholder="Anota resultado del examen, observaciones del líder o si repetirá el paso.">${escapeHtml(selectedEnrollment.comments || "")}</textarea>
+              </div>
+            `}
+          </div>
+
+          <div class="actions-row" style="margin-top: 18px;">
+            <button class="btn btn-primary" type="submit">
+              ${escapeHtml(selectedApprovalMode === "ATTENDANCE_ONLY" ? "Validar participante" : "Guardar evaluación")}
+            </button>
+            ${canAdminCorrectFormationEnrollment_() ? `
+              <button
+                class="btn btn-danger"
+                type="button"
+                data-action="prompt-formation-admin-remove-enrollment"
+                data-enrollment-id="${escapeHtml(selectedEnrollment.id || "")}"
+                data-person-id="${escapeHtml(selectedEnrollment.personId || "")}"
+                data-person-name="${escapeHtml(selectedEnrollment.personName || "")}"
+                data-step-name="${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "")}"
+              >
+                Quitar del paso actual
+              </button>
+            ` : ""}
+          </div>
+        </form>
+      ` : `
+        <div class="empty-state">Selecciona un inscrito del listado para revisar su paso actual, sus asistencias y validar si debe avanzar al siguiente.</div>
+      `}
+    </article>
   `;
 }
 
@@ -9639,6 +9834,14 @@ function renderFormationPortalWorkspace_(context) {
   const selectedOffering = getSelectedFormationOffering_();
   const filteredOfferings = getFilteredFormationOfferings_();
   const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
+  const showManualEnrollment = Boolean(selectedOffering && Number(selectedOffering.levelOrder || 0) <= 1);
+  const manualCandidates = showManualEnrollment ? getFormationManualEnrollmentCandidates_(selectedOffering) : [];
+  const selectedBulkSet = new Set((Array.isArray(state.selectedBulkPeople) ? state.selectedBulkPeople : []).map((personId) => String(personId || "")));
+  const selectedPeople = getSelectedBulkPeople_().filter((person) => {
+    return showManualEnrollment
+      && canAssignPersonToFormationOffering_(person?.id || "", selectedOffering)
+      && !roster.some((enrollment) => String(enrollment?.personId || "").trim() === String(person?.id || "").trim());
+  });
 
   return `
     <article class="panel-card module-section-anchor" id="formation-portal-workspace">
@@ -9739,6 +9942,94 @@ function renderFormationPortalWorkspace_(context) {
           <button class="btn btn-secondary" data-action="download-formation-portal-qr-batch" ${roster.length ? "" : "disabled"}>Preparar QR masivos</button>
           <span class="footer-note">Salida rápida para compartir: primero abre el chat correcto y luego descarga o comparte el QR correspondiente.</span>
         </div>
+
+        ${showManualEnrollment ? `
+          <article class="detail-card" style="margin-top: 18px;">
+            <div class="panel-head">
+              <div>
+                <h2>Inscripción manual excepcional al Paso 1</h2>
+                <p>Por esta ocasión puedes construir un lote y registrar manualmente a las personas en ${escapeHtml(selectedOffering?.offeringName || selectedOffering?.name || selectedOffering?.levelName || "Ahora Qué 1 y Ahora Qué 2")}.</p>
+              </div>
+              <div class="actions-row">
+                <span class="pill warning">${escapeHtml(String(manualCandidates.length))} disponibles</span>
+                <span class="pill dark">${escapeHtml(String(selectedPeople.length))} en lote</span>
+              </div>
+            </div>
+
+            <div class="summary-strip">
+              <span class="context-item"><strong>Uso:</strong> solo para el arranque real cuando necesitas inscribir manualmente a los 80 participantes.</span>
+              <span class="context-item"><strong>Protección:</strong> si ya están dentro del proceso, aquí ya no volverán a aparecer.</span>
+              <span class="context-item"><strong>Portal:</strong> al guardar, se genera o conserva su cuenta automáticamente.</span>
+            </div>
+
+            <div class="field-grid two formation-ops-toolbar" style="margin-top: 18px;">
+              <div class="field">
+                <label for="formation-ops-person-search">Buscar persona a inscribir</label>
+                <input id="formation-ops-person-search" value="${escapeHtml(state.filters.formationOps.personSearch || "")}" placeholder="Nombre, QR ID, número o teléfono">
+              </div>
+              <div class="field">
+                <label>Lote listo</label>
+                <div class="actions-row">
+                  <button class="btn btn-secondary" type="button" data-action="formation-select-visible-bulk" ${manualCandidates.length ? "" : "disabled"}>Seleccionar visibles</button>
+                  <button class="btn btn-ghost" type="button" data-action="formation-clear-bulk-selection" ${selectedPeople.length ? "" : "disabled"}>Vaciar lote</button>
+                  <button class="btn btn-primary" type="button" data-action="formation-assign-selected-bulk" ${selectedPeople.length ? "" : "disabled"}>Inscribir lote</button>
+                </div>
+              </div>
+            </div>
+
+            ${selectedPeople.length ? `
+              <div class="results-list participants-picker-results" style="margin-top: 16px;">
+                ${selectedPeople.map((person) => `
+                  <article class="result-card participant-picker-card">
+                    <div class="result-row">
+                      <div class="result-copy-stack">
+                        <div class="result-title-row">
+                          <span class="row-title">${escapeHtml(person?.nombreCompleto || person?.name || person?.nombre || "Congregante")}</span>
+                          <span class="pill success">En lote</span>
+                        </div>
+                        <span class="row-meta">${escapeHtml(person?.numero || "-")} | QR ${escapeHtml(person?.id || "-")} | ${escapeHtml(person?.telefono || person?.phone || "Sin teléfono")}</span>
+                      </div>
+                      <div class="participant-action-stack">
+                        <button class="btn btn-ghost" type="button" data-action="formation-remove-bulk-person" data-person-id="${escapeHtml(String(person?.id || ""))}">Quitar</button>
+                      </div>
+                    </div>
+                  </article>
+                `).join("")}
+              </div>
+            ` : `
+              <div class="empty-state" style="margin-top: 16px;">Arma el lote buscando y agregando personas. Cuando confirmes, todas quedarán inscritas a este Paso 1.</div>
+            `}
+
+            <div class="results-list participants-picker-results" style="margin-top: 16px;">
+              ${manualCandidates.length ? manualCandidates.slice(0, 60).map((person) => `
+                <article class="result-card participant-picker-card ${selectedBulkSet.has(String(person?.id || "")) ? "result-card-muted" : ""}">
+                  <div class="result-row">
+                    <div class="result-copy-stack">
+                      <div class="result-title-row">
+                        <span class="row-title">${escapeHtml(person?.nombreCompleto || person?.name || person?.nombre || "Congregante")}</span>
+                        ${selectedBulkSet.has(String(person?.id || "")) ? `<span class="pill dark">Seleccionado</span>` : ""}
+                      </div>
+                      <span class="row-meta">${escapeHtml(person?.numero || "-")} | QR ${escapeHtml(person?.id || "-")} | ${escapeHtml(person?.telefono || person?.phone || "Sin teléfono")}</span>
+                      <span class="row-meta">${escapeHtml(getPersonTypeDisplayLabel_(person?.tipoPersona || person?.type || "CONGREGANTE"))}</span>
+                    </div>
+                    <div class="participant-action-stack">
+                      <button
+                        class="btn ${selectedBulkSet.has(String(person?.id || "")) ? "btn-secondary" : "btn-primary"}"
+                        type="button"
+                        data-action="${selectedBulkSet.has(String(person?.id || "")) ? "formation-remove-bulk-person" : "formation-add-bulk-person"}"
+                        data-person-id="${escapeHtml(String(person?.id || ""))}"
+                      >
+                        ${selectedBulkSet.has(String(person?.id || "")) ? "Quitar" : "Agregar al lote"}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              `).join("") : `
+                <div class="empty-state">${state.filters.formationOps.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya quedaron inscritas en este proceso." : "Escribe un nombre, QR ID, número o teléfono para empezar a formar el lote del Paso 1."}</div>
+              `}
+            </div>
+          </article>
+        ` : ""}
 
         ${roster.length ? `
           <div class="formation-portal-roster">
@@ -21195,6 +21486,43 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "formation-add-bulk-person") {
+      toggleBulkSelection(String(button.dataset.personId || ""), true);
+      renderApp();
+      focusInputById_("formation-ops-person-search");
+      return;
+    }
+
+    if (action === "formation-remove-bulk-person") {
+      toggleBulkSelection(String(button.dataset.personId || ""), false);
+      renderApp();
+      focusInputById_("formation-ops-person-search");
+      return;
+    }
+
+    if (action === "formation-clear-bulk-selection") {
+      state.selectedBulkPeople = [];
+      renderApp();
+      focusInputById_("formation-ops-person-search");
+      return;
+    }
+
+    if (action === "formation-select-visible-bulk") {
+      const selectedOffering = getSelectedFormationOffering_();
+      const visibleCandidates = getFormationManualEnrollmentCandidates_(selectedOffering).slice(0, 60);
+      visibleCandidates.forEach((person) => {
+        toggleBulkSelection(String(person?.id || ""), true);
+      });
+      renderApp();
+      showToast("Lote preparado", `${visibleCandidates.length} personas quedaron listas para inscribirse al Paso 1.`, "success");
+      return;
+    }
+
+    if (action === "formation-assign-selected-bulk") {
+      await assignFormationSelectedBulk_();
+      return;
+    }
+
     if (action === "continue-connection-encounter-enrollment") {
       await continueConnectionEncounterEnrollment_();
       return;
@@ -21447,6 +21775,26 @@ async function handleClick(event) {
       state.ui.selectedFormationEnrollmentId = String(button.dataset.enrollmentId || "");
       renderApp();
       scrollToSection_("formation-operation-evaluation");
+      return;
+    }
+
+    if (action === "prompt-formation-admin-remove-enrollment") {
+      openSystemConfirmation_({
+        kind: "formation-admin-remove-enrollment",
+        title: "Corregir inscripción del paso",
+        copy: `Se quitará a ${button.dataset.personName || "este participante"} del paso ${button.dataset.stepName || "actual"} sin tocar sus datos personales ni Grupos de Conexión.`,
+        badge: "Solo administrador",
+        tone: "danger",
+        confirmLabel: "Quitar del paso",
+        notes: [
+          "Úsalo solo para corregir un avance automático o manual incorrecto.",
+          "El sistema conservará el historial previo y recalculará el estado formativo restante."
+        ],
+        payload: {
+          enrollmentId: String(button.dataset.enrollmentId || ""),
+          personId: String(button.dataset.personId || "")
+        }
+      });
       return;
     }
   } catch (error) {
@@ -24779,7 +25127,7 @@ async function ensureFormationPortalSectionData_(options = {}) {
     offeringId: state.filters.formationOps.offeringId || "",
     sessionNumber: state.filters.formationOps.sessionNumber || "1",
     includeProcessRoster: false,
-    includePeopleDirectory: false,
+    includePeopleDirectory: true,
     loadAttendanceContext: false
   });
 
@@ -27295,6 +27643,68 @@ async function assignFormationEnrollmentsBulk_() {
   );
 }
 
+async function assignFormationSelectedBulk_() {
+  const selectedOffering = getSelectedFormationOffering_();
+  const selectedPeople = getSelectedBulkPeople_().filter((person) => {
+    return canAssignPersonToFormationOffering_(person?.id || "", selectedOffering);
+  });
+  const personIds = selectedPeople
+    .map((person) => String(person?.id || "").trim())
+    .filter(Boolean);
+  const seasonId = state.filters.formation.seasonId
+    || state.filters.participants.seasonId
+    || getLatestSeason()?.id
+    || "";
+  let response = null;
+
+  if (!selectedOffering?.id) {
+    showToast("Selecciona un paso", "Primero elige el Paso 1 donde vas a inscribir manualmente a las personas.", "warning");
+    return;
+  }
+
+  if (Number(selectedOffering?.levelOrder || 0) > 1) {
+    showToast("Solo para Paso 1", "La inscripción manual masiva quedó habilitada únicamente para Ahora Qué 1 y Ahora Qué 2.", "warning");
+    return;
+  }
+
+  if (!personIds.length) {
+    showToast("Sin personas en lote", "Agrega primero participantes al lote antes de confirmar la inscripción.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("formation.enrollment.assignBulk", {
+      offeringId: selectedOffering.id,
+      personIds,
+      seasonId,
+      enrolledBy: state.user?.name || ""
+    });
+  }, `Inscribiendo ${personIds.length} personas al Paso 1...`);
+
+  state.selectedBulkPeople = [];
+  state.filters.formationOps.personSearch = "";
+  await ensureFormationPortalSectionData_({
+    force: true,
+    showLoading: false,
+    processId: state.filters.formationOps.processId,
+    levelId: state.filters.formationOps.levelId,
+    offeringId: selectedOffering.id,
+    sessionNumber: state.filters.formationOps.sessionNumber || "1"
+  });
+  await ensureFormationJourneySectionData_({
+    force: true,
+    showLoading: false,
+    processId: state.filters.formationOps.processId,
+    levelId: ""
+  });
+  renderApp();
+  showToast(
+    "Inscripción manual completada",
+    `${response?.created || 0} nuevos, ${response?.alreadyExisting || 0} ya estaban inscritos y ${response?.errors || 0} quedaron para revisión.`,
+    response?.errors ? "warning" : "success"
+  );
+}
+
 async function saveFormationLevelAttendance_(form) {
   const offeringId = String(form.offeringId?.value || "").trim();
   const sessionNumber = String(form.sessionNumber?.value || state.filters.formationOps.sessionNumber || "1").trim();
@@ -27383,6 +27793,11 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
     offeringId: state.filters.formationOps.offeringId,
     sessionNumber: state.filters.formationOps.sessionNumber
   });
+  await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
+    force: true,
+    showLoading: false,
+    levelId: state.filters.formationOps.levelId || ""
+  });
 
   if (response?.enrollment?.personId && String(state.formationProfile?.person?.id || "") === String(response.enrollment.personId || "")) {
     await loadFormationProfile_(response.enrollment.personId, {
@@ -27420,6 +27835,58 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
           ? "La confirmación quedó guardada. Mientras siga en NO, el siguiente paso permanecerá bloqueado."
           : "La evaluación quedó guardada. Recuerda que solo se acredita cuando tiene todas las asistencias y examen aprobado.")),
     response?.accredited ? "success" : "warning"
+  );
+}
+
+async function executeFormationAdminRemoveEnrollment_(enrollmentId, personId) {
+  const cleanEnrollmentId = String(enrollmentId || "").trim();
+  const cleanPersonId = String(personId || "").trim();
+  let response = null;
+
+  if (!cleanEnrollmentId) {
+    showToast("Inscripción no disponible", "No fue posible ubicar el paso que quieres corregir.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("formation.enrollment.adminRemove", {
+      enrollmentId: cleanEnrollmentId,
+      removedBy: state.user?.name || ""
+    });
+  }, "Corrigiendo inscripción...");
+
+  if (cleanPersonId) {
+    clearStudentPortalByPersonCache_(cleanPersonId);
+  }
+
+  if (cleanPersonId && String(state.formationProfile?.person?.id || "") === cleanPersonId) {
+    await loadFormationProfile_(cleanPersonId, {
+      force: true,
+      seasonId: state.filters.formation.seasonId,
+      showLoading: false
+    });
+  }
+
+  await ensureFormationPortalSectionData_({
+    force: true,
+    showLoading: false,
+    processId: state.filters.formationOps.processId,
+    levelId: state.filters.formationOps.levelId,
+    offeringId: state.filters.formationOps.offeringId,
+    sessionNumber: state.filters.formationOps.sessionNumber || "1"
+  });
+  await ensureFormationJourneySectionData_({
+    force: true,
+    showLoading: false,
+    processId: state.filters.formationOps.processId,
+    levelId: state.filters.formationOps.levelId || ""
+  });
+  state.ui.selectedFormationEnrollmentId = "";
+  renderApp();
+  showToast(
+    "Paso corregido",
+    `${response?.person?.name || "La persona"} ya salió del paso actual. El sistema recalculó su estado formativo restante.`,
+    "success"
   );
 }
 
@@ -30824,7 +31291,16 @@ function getParticipantSeasonAssignmentState_(personId, currentGroupId, currentS
 }
 
 function getSelectedBulkPeople_() {
-  const selectedMap = new Map(state.people.map((person) => [String(person.id), person]));
+  const selectedMap = new Map();
+
+  (Array.isArray(state.people) ? state.people : []).forEach((person) => {
+    selectedMap.set(String(person?.id || ""), person);
+  });
+  (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).forEach((person) => {
+    if (!selectedMap.has(String(person?.id || ""))) {
+      selectedMap.set(String(person?.id || ""), person);
+    }
+  });
 
   return state.selectedBulkPeople
     .map((personId) => selectedMap.get(String(personId)) || null)
@@ -32095,6 +32571,77 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
     .slice(0, pendingCandidate ? 1 : 8);
 
   return matchingPeople;
+}
+
+function getFormationManualEnrollmentCandidates_(selectedOffering) {
+  const cleanOfferingId = String(selectedOffering?.id || "").trim();
+  const cleanProcessId = String(selectedOffering?.processId || "").trim();
+  const search = normalizeText(state.filters.formationOps.personSearch);
+  const sourceMap = new Map();
+  (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).forEach((person) => {
+    const personId = String(person?.id || "").trim();
+    if (personId) {
+      sourceMap.set(personId, person);
+    }
+  });
+  (Array.isArray(state.people) ? state.people : []).forEach((person) => {
+    const personId = String(person?.id || "").trim();
+    if (personId && !sourceMap.has(personId)) {
+      sourceMap.set(personId, person);
+    }
+  });
+  const sourcePeople = Array.from(sourceMap.values());
+  const isFirstStep = Number(selectedOffering?.levelOrder || 0) <= 1;
+
+  if (!cleanOfferingId || !sourcePeople.length) {
+    return [];
+  }
+
+  const enrolledInOffering = new Set(
+    (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [])
+      .filter((enrollment) => String(enrollment?.offeringId || "").trim() === cleanOfferingId)
+      .map((enrollment) => String(enrollment?.personId || "").trim())
+      .filter(Boolean)
+  );
+  const enrolledInProcess = new Set(
+    (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : [])
+      .filter((enrollment) => !cleanProcessId || String(enrollment?.processId || "").trim() === cleanProcessId)
+      .map((enrollment) => String(enrollment?.personId || "").trim())
+      .filter(Boolean)
+  );
+
+  return sourcePeople
+    .filter((person) => {
+      const personId = String(person?.id || "").trim();
+
+      if (!personId || enrolledInOffering.has(personId) || enrolledInProcess.has(personId)) {
+        return false;
+      }
+
+      if (!canAssignPersonToFormationOffering_(personId, selectedOffering)) {
+        return false;
+      }
+
+      if (!search) {
+        return isFirstStep;
+      }
+
+      const haystack = normalizeText([
+        person?.id,
+        person?.numero,
+        person?.nombreCompleto,
+        person?.nombre,
+        person?.name,
+        person?.telefono,
+        person?.email,
+        person?.tipoPersona,
+        person?.type
+      ].join(" "));
+
+      return haystack.includes(search);
+    })
+    .sort((left, right) => String(left?.name || left?.nombreCompleto || left?.nombre || "").localeCompare(String(right?.name || right?.nombreCompleto || right?.nombre || "")))
+    .slice(0, search ? 80 : 120);
 }
 
 function buildFormationOperationsSummary_() {
