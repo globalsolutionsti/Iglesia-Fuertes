@@ -385,6 +385,7 @@ const state = {
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
     formationPortalModal: null,
+    lastFormationEnrolledOfferingId: "",
     formationAttendanceManualDraft: {},
     formationFilterBusy: false,
     formationFilterMessage: "",
@@ -1089,6 +1090,7 @@ function getPreferredActiveFormationProcess_() {
 
 function ensureFormationPortalDefaultOffering_(options = {}) {
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const lastEnrolledOfferingId = String(state.ui.lastFormationEnrolledOfferingId || "").trim();
 
   if (currentOfferingId) {
     const currentOfferingExists = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).some((offering) => {
@@ -1102,6 +1104,22 @@ function ensureFormationPortalDefaultOffering_(options = {}) {
 
   if (currentOfferingId && !options.force) {
     return false;
+  }
+
+  if (lastEnrolledOfferingId) {
+    const lastEnrolledOffering = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).find((offering) => {
+      return String(offering?.id || "").trim() === lastEnrolledOfferingId;
+    }) || null;
+
+    if (lastEnrolledOffering?.id) {
+      state.filters.formationOps.levelId = String(lastEnrolledOffering.levelId || "");
+      state.filters.formationOps.offeringId = String(lastEnrolledOffering.id || "");
+      state.ui.selectedFormationOfferingId = String(lastEnrolledOffering.id || "");
+      if (!state.filters.formationOps.sessionNumber) {
+        state.filters.formationOps.sessionNumber = "1";
+      }
+      return true;
+    }
   }
 
   const preferred = getFormationPortalDefaultOffering_();
@@ -2394,6 +2412,30 @@ function applyFormationRecordToLocalState_(record, extra = {}) {
   } else if (extra.portalAccount) {
     clearFormationProfileCache_(personId, seasonId);
   }
+}
+
+function applyFormationEnrollmentToLocalState_(enrollment) {
+  if (!enrollment?.id) {
+    return;
+  }
+
+  const enrollmentId = String(enrollment.id || "").trim();
+  const nextRows = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((item) => {
+    return String(item?.id || "").trim() !== enrollmentId;
+  });
+
+  nextRows.unshift(enrollment);
+  state.formationEnrollments = nextRows.sort((left, right) => {
+    const leftOrder = Number(left?.levelOrder || 0);
+    const rightOrder = Number(right?.levelOrder || 0);
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return String(right?.enrolledAt || "").localeCompare(String(left?.enrolledAt || ""));
+  });
+  state.loaded.formationEnrollments = true;
 }
 
 function markFormationEncounterEnrollmentLocally_(personId, enrollment = null, record = null) {
@@ -8099,6 +8141,7 @@ function renderFormationRouteWorkspace_(context) {
 
 function renderFormationRouteResultRow_(candidate, activePersonId) {
   const isActive = String(candidate?.personId || "") === String(activePersonId || "");
+  const isPendingEnrollment = String(state.ui.pendingFormationEnrollmentPersonId || "").trim() === String(candidate?.personId || "").trim();
   const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
   const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
   const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
@@ -8115,21 +8158,29 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
     "Liderazgo pendiente"
   );
   const inviteLabel = candidate?.invitedAt ? "Reenviar invitación" : "Enviar invitación";
-  const encounterLabel = candidate?.encounterRegisteredAt
+  const encounterLabel = isPendingEnrollment
+    ? "Inscribiendo..."
+    : candidate?.encounterRegisteredAt
     ? "Encuentro registrado"
     : (candidate?.invitedAt ? "Continuar inscripción" : "Invita primero");
   const inviteDisabled = candidate?.personPhone ? "" : "disabled";
-  const encounterDisabled = candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled";
+  const encounterDisabled = isPendingEnrollment
+    ? "disabled"
+    : (candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled");
   const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
   const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
-  const followupTitle = candidate?.encounterRegisteredAt
+  const followupTitle = isPendingEnrollment
+    ? "Inscribiendo a Encuentro..."
+    : candidate?.encounterRegisteredAt
     ? `Encuentro registrado ${formatDate(candidate.encounterRegisteredAt)}`
     : (candidate?.invitedAt
       ? `Invitación enviada ${formatDate(candidate.invitedAt)}`
       : (candidate?.leaderNotifiedAt
         ? `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`
         : "Pendiente de invitación"));
-  const followupMeta = candidate?.encounterRegisteredAt
+  const followupMeta = isPendingEnrollment
+    ? "Espera unos segundos. El sistema está confirmando la inscripción y preparando el reflejo en Inscritos y portal."
+    : candidate?.encounterRegisteredAt
     ? "La persona ya quedó inscrita. Cuando termines con todos, abre Inscritos y portal y selecciona Encuentro."
     : (candidate?.invitedAt
       ? "Solo falta confirmar y registrar el Encuentro."
@@ -27606,13 +27657,11 @@ async function assignFormationEnrollment_(personId) {
   const selectedOffering = getSelectedFormationOffering_();
   const rosterPerson = (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : []).find((item) => String(item?.personId || "") === cleanPersonId) || null;
   const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || rosterPerson || null;
-  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
   const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId)
     || state.filters.formation.seasonId
     || state.filters.participants.seasonId
     || getLatestSeason()?.id
     || "";
-  const previousLevel = getPreviousFormationLevel_(selectedOffering?.levelId || "");
   let response = null;
 
   if (!cleanPersonId) {
@@ -27625,28 +27674,11 @@ async function assignFormationEnrollment_(personId) {
     return;
   }
 
+  state.ui.pendingFormationEnrollmentPersonId = cleanPersonId;
+  renderApp();
+
   try {
     await withLoading(async () => {
-      if (previousLevel?.id) {
-        const previousEnrollment = getLatestFormationEnrollmentByPersonLevel_(cleanPersonId, previousLevel.id);
-        const previousStatus = String(previousEnrollment?.status || "").trim().toUpperCase();
-        const previousApprovalMode = resolveFormationApprovalMode_(previousEnrollment);
-        const previousAttendanceCompleted = Boolean(previousEnrollment?.attendance?.completed);
-
-        if (
-          previousEnrollment?.id
-          && previousStatus !== "ACREDITADO"
-          && previousApprovalMode === "ATTENDANCE_ONLY"
-          && previousAttendanceCompleted
-        ) {
-          await apiPost("formation.enrollment.evaluate", {
-            enrollmentId: previousEnrollment.id,
-            comments: "Acreditación automática previa a la inscripción del siguiente paso.",
-            evaluatedBy: state.user?.name || "Sistema"
-          });
-        }
-      }
-
       response = await apiPost("formation.enrollment.assign", {
         personId: cleanPersonId,
         offeringId: selectedOffering.id,
@@ -27658,16 +27690,22 @@ async function assignFormationEnrollment_(personId) {
     }, "Inscribiendo al paso...");
   } catch (error) {
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "PREVIOUS_LEVEL_REQUIRED") {
+      state.ui.pendingFormationEnrollmentPersonId = "";
+      renderApp();
       const previousLevelName = String(error.details?.previousLevelName || "el nivel anterior");
       showToast("Primero acredita el paso anterior", `Esta persona debe acreditar ${previousLevelName} antes de entrar a ${selectedOffering.levelName || "este paso"}.`, "warning");
       return;
     }
 
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "DUPLICATE_LEVEL_ENROLLMENT") {
+      state.ui.pendingFormationEnrollmentPersonId = "";
+      renderApp();
       showToast("Ya está inscrito en ese paso", "La persona ya tiene una inscripción activa o acreditada para este mismo paso.", "warning");
       return;
     }
 
+    state.ui.pendingFormationEnrollmentPersonId = "";
+    renderApp();
     throw error;
   }
 
@@ -27677,6 +27715,7 @@ async function assignFormationEnrollment_(personId) {
   state.filters.formationOps.levelId = String(response?.enrollment?.levelId || selectedOffering?.levelId || state.filters.formationOps.levelId || "").trim();
   state.filters.formationOps.offeringId = String(response?.enrollment?.offeringId || selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
   state.ui.selectedFormationOfferingId = state.filters.formationOps.offeringId;
+  state.ui.lastFormationEnrolledOfferingId = state.filters.formationOps.offeringId;
   state.filters.formationOps.enrollmentStatus = "ALL";
   state.filters.formationOps.search = "";
   state.ui.pendingFormationEnrollmentPersonId = "";
@@ -27694,6 +27733,10 @@ async function assignFormationEnrollment_(personId) {
     applyStudentPortalSnapshot_(response.portal);
   } else {
     clearStudentPortalByPersonCache_(cleanPersonId);
+  }
+
+  if (response?.enrollment) {
+    applyFormationEnrollmentToLocalState_(response.enrollment);
   }
 
   if (response?.record) {
@@ -28103,11 +28146,12 @@ async function registerFormationEncounter_(candidate) {
   const preferredProcessId = String(state.filters.formationOps.processId || state.formationProcesses[0]?.id || "").trim();
   state.ui.pendingFormationEnrollmentPersonId = candidate.personId;
   state.ui.selectedFormationPersonId = candidate.personId;
-  state.ui.formationSection = "operations";
+  state.ui.formationSection = "route";
   state.filters.formationOps.processId = preferredProcessId;
   state.filters.formationOps.levelId = "";
   state.filters.formationOps.offeringId = "";
   state.filters.formationOps.personSearch = "";
+  renderApp();
 
   await loadFormationOperationsData_({
     force: false,
@@ -28128,9 +28172,8 @@ async function registerFormationEncounter_(candidate) {
     syncFormationOperationsSelection_();
   }
 
-  renderApp();
-
   if (!firstEligibleOffering) {
+    state.ui.pendingFormationEnrollmentPersonId = "";
     state.ui.formationSection = "levels";
     renderApp();
     showToast(
