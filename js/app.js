@@ -20822,6 +20822,7 @@ async function handleClick(event) {
 
     if (action === "set-formation-section") {
       state.ui.formationSection = normalizeFormationSection_(button.dataset.sectionKey || "");
+      setFormationFilterBusy_(false, "");
       if (state.ui.formationSection === "route") {
         clearFormationProfileSelection_();
       }
@@ -25274,7 +25275,8 @@ async function loadFormationCandidates_(options = {}) {
         try {
           candidates = await apiGet("formation.candidates.list", {
             seasonId: filter.seasonId,
-            groupId: shouldSyncCandidates ? requestedGroupId : ""
+            groupId: shouldSyncCandidates ? requestedGroupId : "",
+            includeEligibility: shouldSyncCandidates ? "1" : "0"
           });
         } catch (error) {
           if (!isUnknownActionError_(error, "formation.candidates.list")) {
@@ -25327,6 +25329,9 @@ async function loadFormationData_(options = {}) {
   };
 
   if (state.currentView === "formation") {
+    if (!options.syncCandidates) {
+      setFormationFilterBusy_(false, "");
+    }
     const sectionKey = getActiveFormationSection_() === "report" ? "report" : "route";
     await withFormationSectionLoading_(sectionKey, {
       title: sectionKey === "report" ? "Abriendo Reporte Pre-Encuentro..." : "Abriendo Ruta a Encuentro...",
