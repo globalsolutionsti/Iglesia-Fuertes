@@ -594,22 +594,44 @@ init();
 
 async function init() {
   initializeDateFilters_();
-  await resolveApiUrlConfiguration_();
   renderApp();
+  const apiConfigWarmup = warmupApiConfiguration_();
 
   if (state.user) {
     if (isStudentSession_()) {
-      void bootstrapStudentPortal_().catch(handleError);
+      void apiConfigWarmup.finally(() => {
+        void bootstrapStudentPortal_().catch(handleError);
+      });
     } else {
-      bootstrapApplicationInBackground_({
-        message: state.currentView === "dashboard"
-          ? "Preparando Dashboard Iglesia..."
-          : (state.currentView === "attendance"
-            ? "Preparando Centro de Asistencias..."
-            : "Preparando tu grupo de conexión...")
+      void apiConfigWarmup.finally(() => {
+        bootstrapApplicationInBackground_({
+          message: state.currentView === "dashboard"
+            ? "Preparando Dashboard Iglesia..."
+            : (state.currentView === "attendance"
+              ? "Preparando Centro de Asistencias..."
+              : "Preparando tu grupo de conexión...")
+        });
       });
     }
   }
+}
+
+async function warmupApiConfiguration_() {
+  const configTask = resolveApiUrlConfiguration_()
+    .then(() => {
+      renderApp();
+    })
+    .catch(() => {
+      renderApp();
+    });
+
+  try {
+    await Promise.race([configTask, waitForAnimationDelay_(1200)]);
+  } catch (error) {
+    void error;
+  }
+
+  return configTask;
 }
 
 async function resolveApiUrlConfiguration_() {
@@ -2148,6 +2170,23 @@ function resolveFormationNextLevelFromLoadedData_(currentLevelName = "", current
   }
 
   return levels[currentIndex] || levels[0];
+}
+
+function resolveFormationSequentialNextLevelName_(currentLevelName = "") {
+  const levels = getFormationSortedLevels_();
+
+  if (!levels.length) {
+    return "Sin siguiente paso";
+  }
+
+  const normalizedLevelName = normalizeText(currentLevelName);
+  const currentIndex = levels.findIndex((level) => normalizeText(level.name) === normalizedLevelName);
+
+  if (currentIndex === -1) {
+    return levels[0]?.name || "Sin siguiente paso";
+  }
+
+  return levels[currentIndex + 1]?.name || "Ruta completada";
 }
 
 function buildFormationProfileFromLoadedData_(personId, seasonId = "") {
@@ -9480,6 +9519,8 @@ function buildFormationJourneyRows_(rows) {
       currentEvaluation: current?.examApproved
         ? "Examen acreditado"
         : (current?.baptismConfirmed ? "Bautismo confirmado" : (current?.evaluatedAt ? "Evaluación registrada" : "Evaluación pendiente")),
+      approvedStepName: approvedLabels.length ? approvedLabels[approvedLabels.length - 1] : "Todavía no acredita pasos",
+      nextStepName: resolveFormationSequentialNextLevelName_(current?.offeringName || current?.levelName || ""),
       approvedLabels,
       approvedCount: approvedLabels.length,
       enrollments: sorted
@@ -9570,11 +9611,14 @@ function renderFormationJourneyRow_(journey) {
         </div>
       </div>
       <div class="formation-journey-stage">
-        <small>Paso que cursa</small>
+        <small>Ruta visible</small>
         <div class="formation-journey-stage-head">
           <strong>${escapeHtml(journey.currentStepName || "Sin paso")}</strong>
           <div>${renderWorkflowStatusPill_(journey.currentStepStatus || "EN_CURSO")}</div>
         </div>
+        <span><strong>Paso actual:</strong> ${escapeHtml(journey.currentStepName || "Sin paso")}</span>
+        <span><strong>Paso aprobado:</strong> ${escapeHtml(journey.approvedStepName || "Todavía no acredita pasos")}</span>
+        <span><strong>Siguiente paso:</strong> ${escapeHtml(journey.nextStepName || "Sin siguiente paso")}</span>
         <span>${escapeHtml(attendanceSummary)}</span>
         <span>${escapeHtml(followup?.title || journey.currentEvaluation || "Seguimiento pendiente")}</span>
         <div class="formation-journey-approved-list">${sessionProgress}</div>
@@ -9611,6 +9655,9 @@ function renderFormationOperationsWorkspace_(context) {
   const summary = buildFormationOperationsSummary_();
   const journeyRows = buildFormationJourneyRows_(state.formationProcessRoster);
   const selectedEnrollment = getSelectedFormationJourneyEnrollment_(journeyRows);
+  const selectedJourney = selectedEnrollment
+    ? journeyRows.find((journey) => String(journey?.currentEnrollmentId || "") === String(selectedEnrollment?.id || "")) || null
+    : null;
   const selectedApprovalMeta = getFormationApprovalModeMeta_(selectedEnrollment || null);
   const selectedApprovalMode = selectedApprovalMeta.mode;
   const selectedRequiresQuestionnaires = Number(selectedEnrollment?.questionnairesRequired || 0) > 0;
@@ -9740,6 +9787,8 @@ function renderFormationOperationsWorkspace_(context) {
         <div class="summary-strip">
           <span class="context-item"><strong>Participante:</strong> ${escapeHtml(selectedEnrollment.personName || "Congregante")}</span>
           <span class="context-item"><strong>Paso actual:</strong> ${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Sin paso")}</span>
+          <span class="context-item"><strong>Paso aprobado:</strong> ${escapeHtml(selectedJourney?.approvedStepName || "Todavía no acredita pasos")}</span>
+          <span class="context-item"><strong>Siguiente paso:</strong> ${escapeHtml(selectedJourney?.nextStepName || "Sin siguiente paso")}</span>
           <span class="context-item"><strong>Asistencia:</strong> ${escapeHtml(`${selectedEnrollment.attendance?.attendedSessions || 0}/${selectedEnrollment.attendance?.totalSessions || 0}`)}</span>
           <span class="context-item"><strong>Regla:</strong> ${escapeHtml(selectedApprovalMeta.title || "Seguimiento")}</span>
         </div>
