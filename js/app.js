@@ -1090,6 +1090,16 @@ function getPreferredActiveFormationProcess_() {
 function ensureFormationPortalDefaultOffering_(options = {}) {
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "").trim();
 
+  if (currentOfferingId) {
+    const currentOfferingExists = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).some((offering) => {
+      return String(offering?.id || "").trim() === currentOfferingId;
+    });
+
+    if (currentOfferingExists) {
+      return false;
+    }
+  }
+
   if (currentOfferingId && !options.force) {
     return false;
   }
@@ -2384,6 +2394,45 @@ function applyFormationRecordToLocalState_(record, extra = {}) {
   } else if (extra.portalAccount) {
     clearFormationProfileCache_(personId, seasonId);
   }
+}
+
+function markFormationEncounterEnrollmentLocally_(personId, enrollment = null, record = null) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  const registeredAt = String(
+    record?.encounterRegisteredAt
+    || enrollment?.registeredAt
+    || enrollment?.enrolledAt
+    || new Date().toISOString()
+  ).trim();
+  const nextLevelName = String(
+    enrollment?.offeringName
+    || enrollment?.levelName
+    || record?.levelName
+    || "Encuentro"
+  ).trim();
+  const nextStatus = String(
+    record?.status
+    || enrollment?.status
+    || "EN_CURSO"
+  ).trim();
+
+  state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).map((candidate) => {
+    if (String(candidate?.personId || "").trim() !== cleanPersonId) {
+      return candidate;
+    }
+
+    return {
+      ...candidate,
+      formationStatus: nextStatus,
+      currentLevel: nextLevelName,
+      encounterRegisteredAt: registeredAt
+    };
+  });
 }
 
 function applyPortalAccountToFormationProfile_(personId, account, options = {}) {
@@ -8054,7 +8103,9 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
   const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
   const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
-  const levelName = getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
+  const levelName = candidate?.encounterRegisteredAt
+    ? "Inscrito a Encuentro"
+    : getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
   const seasonName = resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada";
   const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
   const leaderSummary = sanitizeFormationDisplayText_(
@@ -8079,7 +8130,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
         ? `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`
         : "Pendiente de invitación"));
   const followupMeta = candidate?.encounterRegisteredAt
-    ? "La persona ya quedó registrada para continuar su proceso."
+    ? "La persona ya quedó inscrita. Cuando termines con todos, abre Inscritos y portal y selecciona Encuentro."
     : (candidate?.invitedAt
       ? "Solo falta confirmar y registrar el Encuentro."
       : leaderNotice);
@@ -21555,7 +21606,11 @@ async function handleClick(event) {
         return;
       }
       await registerFormationEncounter_(candidate || null);
-      scrollToSection_("formation-operations-workspace");
+      scrollToSection_(
+        state.ui.formationSection === "route"
+          ? "formation-route-workspace"
+          : "formation-operations-workspace"
+      );
       return;
     }
 
@@ -27623,18 +27678,9 @@ async function assignFormationEnrollment_(personId) {
   state.filters.formationOps.offeringId = String(response?.enrollment?.offeringId || selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
   state.ui.selectedFormationOfferingId = state.filters.formationOps.offeringId;
   state.filters.formationOps.enrollmentStatus = "ALL";
-  state.filters.formationOps.search = cleanPersonId;
+  state.filters.formationOps.search = "";
   state.ui.pendingFormationEnrollmentPersonId = "";
-  state.ui.formationSection = "portal";
-
-  await ensureFormationPortalSectionData_({
-    force: true
-  });
-
-  await loadFormationAttendanceTransitionRoster_({
-    force: true,
-    showLoading: false
-  });
+  state.ui.formationSection = "route";
 
   if (String(state.formationProfile?.person?.id || "") === cleanPersonId) {
     await loadFormationProfile_(cleanPersonId, {
@@ -27652,20 +27698,18 @@ async function assignFormationEnrollment_(personId) {
 
   if (response?.record) {
     applyFormationRecordToLocalState_(response.record, {
-      portalAccount: response?.account || null,
-      removeCandidatePersonId: cleanPersonId
+      portalAccount: response?.account || null
     });
-  } else if (pendingCandidate && String(pendingCandidate.personId || "") === cleanPersonId) {
-    state.formationCandidates = state.formationCandidates.filter((candidate) => String(candidate?.personId || "") !== cleanPersonId);
   }
+  markFormationEncounterEnrollmentLocally_(cleanPersonId, response?.enrollment || null, response?.record || null);
 
   renderApp();
-  scrollToSection_("formation-portal-workspace");
+  scrollToSection_("formation-route-workspace");
   showToast(
     response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción confirmada",
     response?.account?.temporaryPin
-      ? `La persona quedó inscrita en ${response?.enrollment?.offeringName || response?.enrollment?.levelName || selectedOffering?.levelName || "este paso"}. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya te abrí Inscritos y portal para validarlo.`
-      : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita en ${response?.enrollment?.offeringName || response?.enrollment?.levelName || selectedOffering?.levelName || "este paso"}. Ya te abrí Inscritos y portal para validarlo.`,
+      ? `La persona quedó inscrita en ${response?.enrollment?.offeringName || response?.enrollment?.levelName || selectedOffering?.levelName || "este paso"}. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Sigue con los demás y después entra a Inscritos y portal, elige Encuentro y pulsa Actualizar inscritos.`
+      : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita en ${response?.enrollment?.offeringName || response?.enrollment?.levelName || selectedOffering?.levelName || "este paso"}. Sigue con los demás y después entra a Inscritos y portal, elige Encuentro y pulsa Actualizar inscritos.`,
     "success"
   );
 }
@@ -28098,11 +28142,7 @@ async function registerFormationEncounter_(candidate) {
     return;
   }
 
-  showToast(
-    "Paso listo",
-    `Ahora confirma el Proceso de Formación y completa la inscripción de ${candidate.personName || "la persona"} en ${firstEligibleOffering.levelName || "el Paso 1"}.`,
-    "success"
-  );
+  await assignFormationEnrollment_(candidate.personId);
 }
 
 function downloadPeopleTemplate_() {
