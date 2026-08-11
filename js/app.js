@@ -985,7 +985,7 @@ function getActiveAttendanceCenterSection_() {
 
 function normalizeFormationSection_(value) {
   const cleanValue = String(value || "").trim().toLowerCase();
-  return ["route", "portal", "operations", "levels"].includes(cleanValue) ? cleanValue : "route";
+  return ["route", "report", "portal", "operations", "levels"].includes(cleanValue) ? cleanValue : "route";
 }
 
 function getActiveFormationSection_() {
@@ -8061,7 +8061,7 @@ function renderWelcomeProspectsView_() {
 function renderFormationView_() {
   const activeSection = getActiveFormationSection_();
   const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
-  const needsRouteData = activeSection === "route";
+  const needsRouteData = activeSection === "route" || activeSection === "report";
   const formationDraft = needsRouteData ? getFormationFilterDraft_() : {};
   const formationFilterDirty = needsRouteData ? isFormationFilterDirty_() : false;
   const candidates = needsRouteData ? getFilteredFormationCandidates_() : [];
@@ -8121,6 +8121,8 @@ function renderFormationView_() {
         title: "Proceso de Formación",
         copy: activeSection === "route"
           ? "Aquí empieza la ruta pastoral: primero se detecta al congregante listo para invitación y desde aquí se mueve al proceso real."
+          : activeSection === "report"
+            ? "Aquí generas el reporte ejecutivo de Pre-Encuentro agrupado por grupos de conexión y lo exportas a PDF o Excel."
           : activeSection === "portal"
             ? "Aquí administras los inscritos del Paso 1, compartes cuenta, PIN y QR y confirmas que su acceso al portal ya quedó listo."
             : activeSection === "operations"
@@ -8167,6 +8169,13 @@ function renderFormationView_() {
         activePersonId: selectedCandidate?.personId || profile?.person?.id || ""
       }) : ""}
 
+      ${activeSection === "report" ? renderFormationPreEncounterReportWorkspace_({
+        seasonId,
+        formationDraft,
+        formationFilterDirty,
+        candidates
+      }) : ""}
+
       ${activeSection === "portal" ? renderFormationPortalWorkspace_({
         seasonId
       }) : ""}
@@ -8188,6 +8197,11 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
       key: "route",
       label: "Ruta a Encuentro",
       description: `${counts.routeCount || 0} listos para invitar`
+    },
+    {
+      key: "report",
+      label: "Reporte Pre-Encuentro",
+      description: `${counts.routeCount || 0} en reporte`
     },
     {
       key: "portal",
@@ -8576,6 +8590,188 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
         <span class="formation-ledger-action-note">Orden sugerido: perfil, invitación y luego inscripción.</span>
       </div>
     </article>
+  `;
+}
+
+function renderFormationPreEncounterReportWorkspace_(context) {
+  const {
+    seasonId,
+    formationDraft,
+    formationFilterDirty,
+    candidates
+  } = context;
+  const report = buildFormationPreEncounterReportModel_(candidates);
+  const groups = report?.groups || [];
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-pre-encounter-report-filter">
+      <div class="panel-head">
+        <div>
+          <h2>Filtro del reporte</h2>
+          <p>Elige temporada y, si quieres, un grupo específico. El reporte siempre se organiza por grupos de conexión para que el Pastor lo consulte de forma ejecutiva.</p>
+        </div>
+        <div class="actions-row">
+          <span class="status-chip neutral formation-filter-status">
+            ${state.ui.formationFilterBusy ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}
+            ${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : (formationFilterDirty ? "Cambios pendientes" : "Reporte listo"))}
+          </span>
+          <button class="btn btn-primary" data-action="apply-formation-filters" ${state.ui.formationFilterBusy ? "disabled" : ""}>
+            ${state.ui.formationFilterBusy ? "Actualizando..." : "Aplicar y actualizar"}
+          </button>
+        </div>
+      </div>
+
+      <div class="field-grid two">
+        ${renderSeasonSelect("formation-season", formationDraft.seasonId || seasonId)}
+        <div class="field">
+          <label for="formation-group">Grupo</label>
+          <select id="formation-group">
+            ${renderOptions(
+              state.catalogs.groups.map((group) => ({
+                value: String(group.id),
+                label: `${group.name} (${group.id})`
+              })),
+              formationDraft.groupId,
+              "Todos los grupos"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-status-filter">Estatus</label>
+          <select id="formation-status-filter">
+            ${renderOptions([
+              { value: "ALL", label: "Todos los estatus" },
+              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Encuentro" },
+              { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
+              { value: "PROSPECTO GF", label: "Prospecto GF" }
+            ], formationDraft.status, "Todos los estatus")}
+          </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="formation-search">Buscar</label>
+          <input id="formation-search" value="${escapeHtml(formationDraft.search)}" placeholder="Nombre, QR ID, número, grupo o estatus">
+        </div>
+      </div>
+    </article>
+
+    <article class="detail-card formation-encounter-card module-section-anchor" id="formation-pre-encounter-report-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>Reporte agrupado de Pre-Encuentro</h2>
+          <p>Aquí ves a todas las personas que ya cumplieron la regla de 3 asistencias consecutivas, agrupadas por su grupo de conexión y listas para consulta o exportación.</p>
+        </div>
+        <div class="actions-row">
+          <span class="pill dark">${escapeHtml(String(report?.total || 0))} personas</span>
+          <button class="btn btn-secondary" data-action="refresh-formation">Actualizar reporte</button>
+          <button class="btn btn-ghost" data-action="export-formation-pre-encounter-excel" ${(report?.total || 0) ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-formation-pre-encounter-pdf" ${(report?.total || 0) ? "" : "disabled"}>PDF</button>
+        </div>
+      </div>
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip neutral">Personas en Pre-Encuentro</span>
+          <strong>${escapeHtml(String(report?.total || 0))}</strong>
+          <span>Cumplieron la regla y están en seguimiento para su invitación.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip warning">Grupos involucrados</span>
+          <strong>${escapeHtml(String(report?.groupCount || 0))}</strong>
+          <span>Bloques agrupados por liderazgo para consulta rápida del Pastor.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip success">Telegram entregado</span>
+          <strong>${escapeHtml(String(report?.sentCount || 0))}</strong>
+          <span>Casos donde el liderazgo ya recibió el aviso automático.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip danger">Telegram pendiente</span>
+          <strong>${escapeHtml(String(report?.pendingCount || 0))}</strong>
+          <span>Casos que todavía requieren revisión o seguimiento manual.</span>
+        </article>
+      </div>
+
+      ${groups.length ? `
+        <div class="formation-route-groups">
+          ${groups.map((group) => renderFormationPreEncounterReportGroup_(group)).join("")}
+        </div>
+      ` : `
+        <div class="empty-state">Todavía no hay personas clasificadas para Pre-Encuentro dentro del filtro actual.</div>
+      `}
+    </article>
+  `;
+}
+
+function renderFormationPreEncounterReportGroup_(group) {
+  return `
+    <section class="formation-route-group-block">
+      <div class="formation-route-context">
+        <div class="formation-route-context-head">
+          <div>
+            <small>Grupo de conexión</small>
+            <strong>${escapeHtml(group.groupName || "Sin grupo")}</strong>
+            <span>Bloque ejecutivo del reporte de Pre-Encuentro para este liderazgo.</span>
+          </div>
+          <span class="pill neutral">${escapeHtml(`${group.total} persona${group.total === 1 ? "" : "s"}`)}</span>
+        </div>
+        <div class="formation-route-context-meta">
+          <span class="context-item"><strong>Telegram OK:</strong> ${escapeHtml(String(group.sentCount || 0))}</span>
+          <span class="context-item"><strong>Telegram pendiente:</strong> ${escapeHtml(String(group.pendingCount || 0))}</span>
+          ${group.contacts.length
+            ? group.contacts.map((contact) => `
+                <span class="context-item">
+                  <strong>${escapeHtml(contact.label)}:</strong> ${escapeHtml(contact.value)}
+                </span>
+              `).join("")
+            : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="dashboard-group-roster-table">
+          <thead>
+            <tr>
+              <th>Congregante</th>
+              <th>Contacto</th>
+              <th>Asistencia</th>
+              <th>Telegram</th>
+              <th>Estatus</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${group.candidates.map((candidate) => renderFormationPreEncounterReportRow_(candidate)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderFormationPreEncounterReportRow_(candidate) {
+  const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+  return `
+    <tr>
+      <td>
+        <strong>${escapeHtml(candidate?.personName || "Congregante")}</strong><br>
+        ${escapeHtml(candidate?.personNumber || "Sin número")} · QR ${escapeHtml(candidate?.personId || "-")}
+      </td>
+      <td>
+        ${escapeHtml(candidate?.personPhone || "Sin teléfono")}<br>
+        ${escapeHtml(candidate?.leaderName || "Sin líder registrado")}
+      </td>
+      <td>
+        ${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`)}<br>
+        ${escapeHtml(`${candidate?.consecutiveAttendances || 0} consecutivas`)}
+      </td>
+      <td>
+        <strong>${escapeHtml(telegramUi.label)}</strong><br>
+        ${escapeHtml(telegramUi.detail)}
+      </td>
+      <td>
+        ${escapeHtml(candidate?.formationStatus || "CANDIDATO_ENCUENTRO")}<br>
+        ${escapeHtml(getFormationPreEncounterFollowupLabel_(candidate))}
+      </td>
+    </tr>
   `;
 }
 
@@ -19331,6 +19527,68 @@ function buildConnectionEncounterCandidatesReportModel_() {
   };
 }
 
+function getFormationPreEncounterFollowupLabel_(candidate) {
+  if (candidate?.encounterRegisteredAt) {
+    return `Inscrito ${formatDate(candidate.encounterRegisteredAt)}`;
+  }
+
+  if (candidate?.invitedAt) {
+    return `Invitación ${formatDate(candidate.invitedAt)}`;
+  }
+
+  if (candidate?.leaderNotifiedAt) {
+    return `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`;
+  }
+
+  return "Pendiente de invitación";
+}
+
+function buildFormationPreEncounterReportModel_(candidatesInput) {
+  const seasonId = String(state.filters.formation.seasonId || getLatestSeason()?.id || "").trim();
+  const candidates = Array.isArray(candidatesInput) ? candidatesInput.slice() : getFilteredFormationCandidates_();
+
+  const sortedCandidates = candidates.slice().sort((left, right) => {
+    const groupCompare = String(getFormationRouteGroupName_(left) || "").localeCompare(
+      String(getFormationRouteGroupName_(right) || ""),
+      "es",
+      { sensitivity: "base" }
+    );
+
+    if (groupCompare !== 0) {
+      return groupCompare;
+    }
+
+    return String(left?.personName || "").localeCompare(String(right?.personName || ""), "es", { sensitivity: "base" });
+  });
+
+  const groups = buildFormationRouteGroups_(sortedCandidates).map((group) => {
+    const items = Array.isArray(group.items) ? group.items.slice() : [];
+    const sentCount = items.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+    return {
+      groupId: group.groupId,
+      groupName: group.groupName,
+      contacts: Array.isArray(group.contacts) ? group.contacts.slice() : [],
+      total: items.length,
+      sentCount,
+      pendingCount: Math.max(items.length - sentCount, 0),
+      candidates: items
+    };
+  });
+
+  const sentCount = sortedCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+
+  return {
+    seasonId,
+    seasonName: resolveSeasonName_(seasonId) || seasonId || "Temporada",
+    generatedAt: new Date(),
+    total: sortedCandidates.length,
+    groupCount: groups.length,
+    sentCount,
+    pendingCount: Math.max(sortedCandidates.length - sentCount, 0),
+    groups
+  };
+}
+
 function escapeCsvValue_(value) {
   const raw = String(value ?? "");
   return `"${raw.replace(/"/g, "\"\"")}"`;
@@ -19444,6 +19702,113 @@ function buildConnectionEncounterCandidatesExcelHtml_(report) {
   `;
 }
 
+function buildFormationPreEncounterReportExcelHtml_(report) {
+  const logoUrl = getReportLogoAssetUrl_();
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Reporte Pre-Encuentro - ${escapeHtml(report?.seasonName || "Temporada")}</title>
+      <style>
+        body { font-family: Manrope, Arial, sans-serif; padding: 24px; color: #111; }
+        .head { display: grid; gap: 12px; padding: 24px; border-radius: 24px; background: #111; color: #fff; }
+        .head img { width: 180px; filter: brightness(0) invert(1); }
+        .meta { display: flex; flex-wrap: wrap; gap: 10px; }
+        .meta span { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.1); font-size: 12px; }
+        .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+        .card { border: 1px solid #ddd; border-radius: 18px; padding: 16px; }
+        .card strong { font-size: 28px; display: block; margin-top: 8px; }
+        .group { margin-top: 24px; border: 1px solid #ddd; border-radius: 22px; overflow: hidden; }
+        .group-head { padding: 18px 20px; background: #f7f7f7; }
+        .group-head h2 { margin: 0 0 8px; font-size: 22px; }
+        .group-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+        .group-meta span { padding: 7px 11px; border-radius: 999px; background: #fff; border: 1px solid #ddd; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; vertical-align: top; }
+        th { background: #111; color: #fff; }
+      </style>
+    </head>
+    <body>
+      <section class="head">
+        <img src="${escapeHtml(logoUrl)}" alt="Fuertes">
+        <div>
+          <h1>Reporte Pre-Encuentro</h1>
+          <p>${escapeHtml(report?.seasonName || "Temporada")}</p>
+        </div>
+        <div class="meta">
+          <span>Total personas: ${escapeHtml(String(report?.total || 0))}</span>
+          <span>Grupos: ${escapeHtml(String(report?.groupCount || 0))}</span>
+          <span>Telegram OK: ${escapeHtml(String(report?.sentCount || 0))}</span>
+          <span>Telegram pendiente: ${escapeHtml(String(report?.pendingCount || 0))}</span>
+          <span>Generado: ${escapeHtml(formatDateTime_(report?.generatedAt || new Date()))}</span>
+        </div>
+      </section>
+      <section class="grid">
+        <div class="card"><span>Total en Pre-Encuentro</span><strong>${escapeHtml(String(report?.total || 0))}</strong></div>
+        <div class="card"><span>Grupos involucrados</span><strong>${escapeHtml(String(report?.groupCount || 0))}</strong></div>
+        <div class="card"><span>Telegram OK</span><strong>${escapeHtml(String(report?.sentCount || 0))}</strong></div>
+        <div class="card"><span>Telegram pendiente</span><strong>${escapeHtml(String(report?.pendingCount || 0))}</strong></div>
+      </section>
+      ${(report?.groups || []).map((group) => `
+        <section class="group">
+          <div class="group-head">
+            <h2>${escapeHtml(group.groupName || "Sin grupo")}</h2>
+            <div class="group-meta">
+              <span>Total: ${escapeHtml(String(group.total || 0))}</span>
+              <span>Telegram OK: ${escapeHtml(String(group.sentCount || 0))}</span>
+              <span>Telegram pendiente: ${escapeHtml(String(group.pendingCount || 0))}</span>
+              ${group.contacts.map((contact) => `<span>${escapeHtml(contact.label)}: ${escapeHtml(contact.value)}</span>`).join("")}
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Congregante</th>
+                <th>Contacto</th>
+                <th>Asistencia</th>
+                <th>Telegram</th>
+                <th>Estatus</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${group.candidates.map((candidate) => {
+                const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+                return `
+                  <tr>
+                    <td>
+                      <strong>${escapeHtml(candidate?.personName || "")}</strong><br>
+                      ${escapeHtml(candidate?.personNumber || "")} · QR ${escapeHtml(candidate?.personId || "")}
+                    </td>
+                    <td>
+                      ${escapeHtml(candidate?.personPhone || "Sin teléfono")}<br>
+                      ${escapeHtml(candidate?.leaderName || "Sin líder registrado")}
+                    </td>
+                    <td>
+                      ${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`)}<br>
+                      ${escapeHtml(`${candidate?.consecutiveAttendances || 0} consecutivas`)}
+                    </td>
+                    <td>
+                      <strong>${escapeHtml(telegramUi.label)}</strong><br>
+                      ${escapeHtml(telegramUi.detail)}
+                    </td>
+                    <td>
+                      ${escapeHtml(candidate?.formationStatus || "")}<br>
+                      ${escapeHtml(getFormationPreEncounterFollowupLabel_(candidate))}
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </section>
+      `).join("")}
+    </body>
+    </html>
+  `;
+}
+
 function buildConnectionEncounterCandidatesWhatsappText_(report) {
   return [
     "Ruta a Encuentro - Grupo de Conexión",
@@ -19552,6 +19917,135 @@ async function downloadConnectionEncounterCandidatesPdf_(report) {
   const fileName = buildDashboardBinaryExportFileName_(
     "RUTA_ENCUENTRO",
     `${report?.groupName || "grupo"}_${report?.seasonName || "temporada"}`,
+    "pdf"
+  );
+  downloadBlob_(doc.output("blob"), fileName);
+}
+
+async function downloadFormationPreEncounterReportPdf_(report) {
+  const JsPdf = getDashboardPdfConstructor_();
+
+  if (!JsPdf) {
+    throw new Error("JSPDF_UNAVAILABLE");
+  }
+
+  const doc = new JsPdf({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+    compress: true
+  });
+
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+  }
+
+  const logoDataUrl = await loadLightAssetAsDataUrl_(getReportLogoAssetUrl_()) || await loadAssetAsDataUrl_(getReportLogoAssetUrl_());
+
+  doc.setFillColor(17, 17, 17);
+  doc.roundedRect(28, 24, 539, 112, 22, 22, "F");
+
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", 44, 40, 118, 38, undefined, "FAST");
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("Reporte Pre-Encuentro", 180, 62);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`${report?.seasonName || "Temporada"}`, 180, 82);
+  doc.text(`Generado: ${formatDateTime_(report?.generatedAt || new Date())}`, 180, 98);
+
+  doc.setTextColor(17, 17, 17);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(`Total personas: ${report?.total || 0}`, 40, 166);
+  doc.text(`Grupos: ${report?.groupCount || 0}`, 180, 166);
+  doc.text(`Telegram OK: ${report?.sentCount || 0}`, 300, 166);
+  doc.text(`Telegram pendiente: ${report?.pendingCount || 0}`, 430, 166);
+
+  let currentY = 190;
+
+  (report?.groups || []).forEach((group, index) => {
+    if (index > 0 && currentY > 640) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(group.groupName || "Sin grupo", 32, currentY);
+    currentY += 16;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    const leaderLine = group.contacts?.length
+      ? group.contacts.map((contact) => `${contact.label}: ${contact.value}`).join(" | ")
+      : "Sin liderazgo registrado en Catálogos.";
+    doc.text(`Total: ${group.total || 0} | Telegram OK: ${group.sentCount || 0} | Telegram pendiente: ${group.pendingCount || 0}`, 32, currentY);
+    currentY += 12;
+    doc.text(leaderLine, 32, currentY, { maxWidth: 530 });
+    currentY += 10;
+
+    doc.autoTable({
+      startY: currentY + 8,
+      head: [[
+        "Congregante",
+        "Contacto",
+        "Asistencia",
+        "Telegram",
+        "Estatus"
+      ]],
+      body: (group.candidates || []).map((candidate) => {
+        const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+        return [
+          `${candidate?.personName || ""}\n${candidate?.personNumber || ""} · QR ${candidate?.personId || ""}`,
+          `${candidate?.personPhone || "Sin teléfono"}\n${candidate?.leaderName || "Sin líder"}`,
+          `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0}\n${candidate?.consecutiveAttendances || 0} consecutivas`,
+          `${telegramUi.label}\n${telegramUi.detail}`,
+          `${candidate?.formationStatus || ""}\n${getFormationPreEncounterFollowupLabel_(candidate)}`
+        ];
+      }),
+      theme: "grid",
+      margin: {
+        left: 28,
+        right: 28
+      },
+      styles: {
+        font: "helvetica",
+        fontSize: 8.1,
+        cellPadding: 6,
+        lineColor: [224, 224, 224],
+        lineWidth: 0.1,
+        overflow: "linebreak",
+        textColor: [33, 33, 33],
+        valign: "middle"
+      },
+      headStyles: {
+        fillColor: [17, 17, 17],
+        textColor: [255, 255, 255],
+        fontStyle: "bold"
+      },
+      alternateRowStyles: {
+        fillColor: [248, 248, 248]
+      },
+      columnStyles: {
+        0: { cellWidth: 116 },
+        1: { cellWidth: 104 },
+        2: { cellWidth: 82 },
+        3: { cellWidth: 120 },
+        4: { cellWidth: 110 }
+      }
+    });
+
+    currentY = (doc.lastAutoTable?.finalY || currentY) + 24;
+  });
+
+  const fileName = buildDashboardBinaryExportFileName_(
+    "PRE_ENCUENTRO",
+    `${report?.seasonName || "temporada"}`,
     "pdf"
   );
   downloadBlob_(doc.output("blob"), fileName);
@@ -21761,6 +22255,37 @@ async function handleClick(event) {
         syncCandidates: true,
         requireGroup: false
       });
+      return;
+    }
+
+    if (action === "export-formation-pre-encounter-excel") {
+      const report = buildFormationPreEncounterReportModel_();
+
+      if (!report?.total) {
+        showToast("Sin datos", "Primero aplica el filtro y carga personas en Pre-Encuentro para exportar.", "warning");
+        return;
+      }
+
+      downloadExcelHtmlFile_(
+        buildFormationPreEncounterReportExcelHtml_(report),
+        buildDashboardBinaryExportFileName_("PRE_ENCUENTRO", `${report.seasonName || "temporada"}`, "xls")
+      );
+      showToast("Excel listo", "Se descargó el reporte agrupado de Pre-Encuentro.", "success");
+      return;
+    }
+
+    if (action === "export-formation-pre-encounter-pdf") {
+      const report = buildFormationPreEncounterReportModel_();
+
+      if (!report?.total) {
+        showToast("Sin datos", "Primero aplica el filtro y carga personas en Pre-Encuentro para exportar.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        await downloadFormationPreEncounterReportPdf_(report);
+      }, "Descargando reporte PDF...");
+      showToast("PDF listo", "Se descargó el reporte agrupado de Pre-Encuentro.", "success");
       return;
     }
 
