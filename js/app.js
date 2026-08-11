@@ -928,7 +928,7 @@ function resolveDashboardGroupReportScope_() {
 
 function getFirstAccessibleView_(views) {
   const allowed = views.find((view) => canAccessView_(view));
-  return allowed || "dashboard";
+  return allowed || "attendance";
 }
 
 function getDefaultViewForModule_(moduleId) {
@@ -23032,9 +23032,10 @@ async function handleSubmit(event) {
 
       state.user = data.user;
       setStoredUser(data.user);
-      state.currentView = canAccessView_("dashboard")
-        ? "dashboard"
+      state.currentView = canAccessView_("attendance")
+        ? "attendance"
         : getFirstAccessibleView_(ACCESSIBLE_VIEWS);
+      state.ui.attendanceCenterSection = "home";
       state.ui.mobileNavOpen = false;
       if (state.currentView === "dashboard") {
         setDashboardHydrationState_(true, "Preparando Dashboard Iglesia...");
@@ -23044,9 +23045,11 @@ async function handleSubmit(event) {
       renderApp();
       showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
       bootstrapApplicationInBackground_({
-        message: state.currentView === "dashboard"
-          ? "Preparando Dashboard Iglesia..."
-          : "Preparando tu grupo de conexión..."
+        message: state.currentView === "attendance"
+          ? "Preparando Centro de Asistencias..."
+          : (state.currentView === "dashboard"
+            ? "Preparando Dashboard Iglesia..."
+            : "Preparando tu grupo de conexión...")
       });
       scrollViewportToTop_();
 
