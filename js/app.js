@@ -28730,15 +28730,23 @@ function applyScrapResetFormationProcessLocally_(processId) {
   state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter(
     (enrollment) => String(enrollment?.processId || "").trim() !== cleanProcessId
   );
+  state.formationProcessRoster = (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : []).filter(
+    (row) => String(row?.processId || "").trim() !== cleanProcessId
+  );
   state.loaded.formationRecords = false;
   state.cacheKeys.formationRecords = "";
   state.ui.scrapFormationProcessPreview = null;
 
   if (String(state.filters.formationOps.processId || "") === cleanProcessId) {
     state.ui.selectedFormationEnrollmentId = "";
+    state.ui.selectedFormationOfferingId = "";
+    state.filters.formationOps.offeringId = "";
     state.formationAttendanceContext = null;
     state.loaded.formationAttendanceContext = false;
     state.cacheKeys.formationAttendanceContext = "";
+    state.formationProcessRoster = [];
+    state.loaded.formationProcessRoster = false;
+    state.cacheKeys.formationProcessRoster = "";
   }
 
   if (
@@ -28746,10 +28754,17 @@ function applyScrapResetFormationProcessLocally_(processId) {
     && affectedOfferingIds.has(String(state.ui.selectedFormationOfferingId || "").trim())
   ) {
     state.ui.selectedFormationEnrollmentId = "";
+    state.ui.selectedFormationOfferingId = "";
+    state.filters.formationOps.offeringId = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
   }
 
   state.loaded.formationEnrollments = false;
   state.cacheKeys.formationEnrollments = "";
+  state.loaded.formationProcessRoster = false;
+  state.cacheKeys.formationProcessRoster = "";
 }
 
 function applyDeleteFormationLevelLocally_(levelId) {
