@@ -393,6 +393,9 @@ const state = {
     formationPortalModal: null,
     lastFormationEnrolledOfferingId: "",
     formationRouteEnrollmentBusyPersonId: "",
+    formationRouteEnrollmentProgressPercent: 0,
+    formationRouteEnrollmentProgressMessage: "",
+    formationRouteEnrollmentProgressDetail: "",
     formationAttendanceManualDraft: {},
     formationFilterBusy: false,
     formationFilterMessage: "",
@@ -2790,6 +2793,20 @@ function markFormationEncounterEnrollmentLocally_(personId, enrollment = null, r
       encounterRegisteredAt: registeredAt
     };
   });
+}
+
+function setFormationRouteEnrollmentProgress_(personId, percent, message = "", detail = "") {
+  state.ui.formationRouteEnrollmentBusyPersonId = String(personId || "").trim();
+  state.ui.formationRouteEnrollmentProgressPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  state.ui.formationRouteEnrollmentProgressMessage = String(message || "").trim();
+  state.ui.formationRouteEnrollmentProgressDetail = String(detail || "").trim();
+}
+
+function clearFormationRouteEnrollmentProgress_() {
+  state.ui.formationRouteEnrollmentBusyPersonId = "";
+  state.ui.formationRouteEnrollmentProgressPercent = 0;
+  state.ui.formationRouteEnrollmentProgressMessage = "";
+  state.ui.formationRouteEnrollmentProgressDetail = "";
 }
 
 function applyPortalAccountToFormationProfile_(personId, account, options = {}) {
@@ -8471,12 +8488,20 @@ function renderFormationRouteWorkspace_(context) {
 function renderFormationRouteResultRow_(candidate, activePersonId) {
   const isActive = String(candidate?.personId || "") === String(activePersonId || "");
   const isPendingEnrollment = String(state.ui.formationRouteEnrollmentBusyPersonId || "").trim() === String(candidate?.personId || "").trim();
+  const isFormationRegistered = Boolean(candidate?.encounterRegisteredAt);
+  const progressPercent = isPendingEnrollment ? Math.max(0, Math.min(100, Number(state.ui.formationRouteEnrollmentProgressPercent || 0))) : 0;
+  const progressMessage = isPendingEnrollment
+    ? (state.ui.formationRouteEnrollmentProgressMessage || "Inscribiendo...")
+    : "";
+  const progressDetail = isPendingEnrollment
+    ? (state.ui.formationRouteEnrollmentProgressDetail || "Preparando la inscripción...")
+    : "";
   const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
   const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
   const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
   const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
-  const levelName = candidate?.encounterRegisteredAt
-    ? "Inscrito a Encuentro"
+  const levelName = isFormationRegistered
+    ? "Inscrito a Proceso de Formación"
     : getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
   const seasonName = resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada";
   const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
@@ -8489,28 +8514,28 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const inviteLabel = candidate?.invitedAt ? "Reenviar invitación" : "Enviar invitación";
   const encounterLabel = isPendingEnrollment
     ? "Inscribiendo..."
-    : candidate?.encounterRegisteredAt
-    ? "Encuentro registrado"
+    : isFormationRegistered
+    ? "Inscrito a Proceso de Formación"
     : (candidate?.invitedAt ? "Continuar inscripción" : "Invita primero");
   const inviteDisabled = candidate?.personPhone ? "" : "disabled";
   const encounterDisabled = isPendingEnrollment
     ? "disabled"
-    : (candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled");
+    : (candidate?.invitedAt && !isFormationRegistered ? "" : "disabled");
   const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
   const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
   const followupTitle = isPendingEnrollment
-    ? "Inscribiendo a Encuentro..."
-    : candidate?.encounterRegisteredAt
-    ? `Encuentro registrado ${formatDate(candidate.encounterRegisteredAt)}`
+    ? progressMessage
+    : isFormationRegistered
+    ? `Inscrito a Proceso de Formación ${formatDate(candidate.encounterRegisteredAt)}`
     : (candidate?.invitedAt
       ? `Invitación enviada ${formatDate(candidate.invitedAt)}`
       : (candidate?.leaderNotifiedAt
         ? `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`
         : "Pendiente de invitación"));
   const followupMeta = isPendingEnrollment
-    ? "Espera unos segundos. El sistema está confirmando la inscripción y preparando el reflejo en Inscritos y portal."
-    : candidate?.encounterRegisteredAt
-    ? "La persona ya quedó inscrita. Cuando termines con todos, abre Inscritos y portal y selecciona Encuentro."
+    ? progressDetail
+    : isFormationRegistered
+    ? "La persona ya quedó inscrita. Ahora ya la verás en Inscritos y portal dentro del paso correspondiente."
     : (candidate?.invitedAt
       ? "Solo falta confirmar y registrar el Encuentro."
       : leaderNotice);
@@ -8587,6 +8612,18 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
             ${escapeHtml(encounterLabel)}
           </button>
         </div>
+        ${isPendingEnrollment ? `
+          <div class="formation-route-progress">
+            <div class="formation-route-progress-head">
+              <strong>${escapeHtml(progressMessage || "Inscribiendo...")}</strong>
+              <span>${escapeHtml(`${progressPercent}%`)}</span>
+            </div>
+            <div class="student-progress-bar">
+              <span class="student-progress-bar-fill" style="width:${escapeHtml(String(progressPercent))}%"></span>
+            </div>
+            <small>${escapeHtml(progressDetail || "Espera unos segundos mientras se completa la inscripción.")}</small>
+          </div>
+        ` : ""}
         <span class="formation-ledger-action-note">Orden sugerido: perfil, invitación y luego inscripción.</span>
       </div>
     </article>
@@ -10199,7 +10236,7 @@ function renderFormationSessionProgressSummary_(sessionProgress) {
 
 function renderFormationJourneyRow_(journey) {
   const approvedPreview = journey.approvedLabels.length
-    ? journey.approvedLabels.slice(0, 4).map((label) => `<span class="formation-journey-chip">${escapeHtml(label)}</span>`).join("")
+    ? journey.approvedLabels.slice(0, 3).map((label) => `<span class="formation-journey-chip">${escapeHtml(label)}</span>`).join("")
     : `<span class="formation-journey-chip is-empty">Todavía no acredita pasos</span>`;
   const attendance = journey.currentAttendance || {
     attendedSessions: 0,
@@ -10207,7 +10244,6 @@ function renderFormationJourneyRow_(journey) {
     completed: false
   };
   const attendanceSummary = `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} asistencias`;
-  const actionLabel = getFormationEnrollmentActionLabel_(journey.currentEnrollment || null);
   const followup = journey.currentFollowup || null;
   const sessionProgress = renderFormationSessionProgressSummary_(journey.currentSessionProgress);
 
@@ -10220,11 +10256,10 @@ function renderFormationJourneyRow_(journey) {
           ${journey.personNumber ? `<span class="formation-journey-chip">${escapeHtml(journey.personNumber)}</span>` : ""}
           <span class="formation-journey-chip">QR ${escapeHtml(journey.personId || "-")}</span>
           ${journey.personPhone ? `<span class="formation-journey-chip">${escapeHtml(journey.personPhone)}</span>` : ""}
-          <span class="formation-journey-chip">${escapeHtml(journey.seasonName || "Sin temporada")}</span>
         </div>
       </div>
       <div class="formation-journey-stage">
-        <small>Ruta visible</small>
+        <small>Camino actual</small>
         <div class="formation-journey-stage-head">
           <strong>${escapeHtml(journey.currentStepName || "Sin paso")}</strong>
           <div>${renderWorkflowStatusPill_(journey.currentStepStatus || "EN_CURSO")}</div>
@@ -10234,16 +10269,18 @@ function renderFormationJourneyRow_(journey) {
         <span><strong>Siguiente paso:</strong> ${escapeHtml(journey.nextStepName || "Sin siguiente paso")}</span>
         <span>${escapeHtml(attendanceSummary)}</span>
         <span>${escapeHtml(followup?.title || journey.currentEvaluation || "Seguimiento pendiente")}</span>
-        <div class="formation-journey-approved-list">${sessionProgress}</div>
       </div>
       <div class="formation-journey-approved">
+        <small>Progreso del paso</small>
+        <div class="formation-journey-approved-list">${sessionProgress}</div>
+        <span>${escapeHtml(followup?.detail || "Aquí verás el resultado de asistencia, examen o criterio pastoral del paso actual.")}</span>
         <small>Pasos ya aprobados</small>
         <div class="formation-journey-approved-list">${approvedPreview}</div>
         <span>${escapeHtml(`${journey.approvedCount || 0} paso(s) acreditado(s) hasta ahora`)}</span>
       </div>
       <div class="formation-journey-actions">
         <small>Acciones</small>
-        <button class="btn btn-primary" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}">${escapeHtml(actionLabel)}</button>
+        <button class="btn btn-primary" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}">Ver detalle</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(journey.personId || "")}">Gestionar portal</button>
         <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(journey.personId || "")}">Ver perfil</button>
         ${canAdminCorrectFormationEnrollment_() ? `
@@ -10387,16 +10424,16 @@ function renderFormationOperationsWorkspace_(context) {
       `}
     </article>
 
-    <article class="detail-card module-section-anchor" id="formation-operation-evaluation">
-      <div class="panel-head">
-        <div>
-          <h2>Validación del participante</h2>
-          <p>${escapeHtml(selectedApprovalMeta.description || "Aquí validas el criterio pastoral del paso actual y el sistema moverá automáticamente a la persona cuando cumpla la regla.")}</p>
+    ${selectedEnrollment ? `
+      <article class="detail-card module-section-anchor" id="formation-operation-evaluation">
+        <div class="panel-head">
+          <div>
+            <h2>Detalle y validación del participante</h2>
+            <p>${escapeHtml(selectedApprovalMeta.description || "Aquí validas el criterio pastoral del paso actual y el sistema moverá automáticamente a la persona cuando cumpla la regla.")}</p>
+          </div>
+          ${renderWorkflowStatusPill_(selectedEnrollment.status || "EN_CURSO")}
         </div>
-        ${selectedEnrollment ? renderWorkflowStatusPill_(selectedEnrollment.status || "EN_CURSO") : `<span class="pill dark">Selecciona un inscrito</span>`}
-      </div>
 
-      ${selectedEnrollment ? `
         <div class="summary-strip">
           <span class="context-item"><strong>Participante:</strong> ${escapeHtml(selectedEnrollment.personName || "Congregante")}</span>
           <span class="context-item"><strong>Paso actual:</strong> ${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Sin paso")}</span>
@@ -10508,10 +10545,8 @@ function renderFormationOperationsWorkspace_(context) {
             ` : ""}
           </div>
         </form>
-      ` : `
-        <div class="empty-state">Selecciona un inscrito del listado para revisar su paso actual, sus asistencias y validar si debe avanzar al siguiente.</div>
-      `}
-    </article>
+      </article>
+    ` : ""}
   `;
 }
 
@@ -28479,7 +28514,7 @@ async function commitFormationEnrollmentToOffering_(personId, offering, options 
   }
 
   try {
-    await withLoading(async () => {
+    const runAssign = async () => {
       response = await apiPost("formation.enrollment.assign", {
         personId: cleanPersonId,
         offeringId: selectedOffering.id,
@@ -28488,7 +28523,13 @@ async function commitFormationEnrollmentToOffering_(personId, offering, options 
         skipSync: "1",
         skipPortal: "1"
       });
-    }, options.loadingMessage || "Inscribiendo al paso...");
+    };
+
+    if (options.skipLoading) {
+      await runAssign();
+    } else {
+      await withLoading(runAssign, options.loadingMessage || "Inscribiendo al paso...");
+    }
   } catch (error) {
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "PREVIOUS_LEVEL_REQUIRED") {
       const previousLevelName = String(error.details?.previousLevelName || "el nivel anterior");
@@ -28968,7 +29009,12 @@ async function registerFormationEncounter_(candidate) {
 
   const preferredProcessId = String(state.filters.formationOps.processId || state.formationProcesses[0]?.id || "").trim();
   state.ui.pendingFormationEnrollmentPersonId = "";
-  state.ui.formationRouteEnrollmentBusyPersonId = candidate.personId;
+  setFormationRouteEnrollmentProgress_(
+    candidate.personId,
+    8,
+    "Preparando inscripción...",
+    "Estamos tomando el proceso activo y validando el primer paso disponible."
+  );
   state.ui.selectedFormationPersonId = candidate.personId;
   state.ui.formationSection = "route";
   state.filters.formationOps.processId = preferredProcessId;
@@ -28978,12 +29024,19 @@ async function registerFormationEncounter_(candidate) {
   renderApp();
 
   try {
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      24,
+      "Buscando proceso activo...",
+      "Estamos revisando los pasos disponibles para esta persona."
+    );
+    renderApp();
     await loadFormationPortalOfferingsList_(preferredProcessId, "", {
       force: false,
       showLoading: false
     });
   } catch (error) {
-    state.ui.formationRouteEnrollmentBusyPersonId = "";
+    clearFormationRouteEnrollmentProgress_();
     renderApp();
     throw error;
   }
@@ -28994,7 +29047,7 @@ async function registerFormationEncounter_(candidate) {
   const firstEligibleOffering = eligibleOfferings[0] || null;
 
   if (!firstEligibleOffering) {
-    state.ui.formationRouteEnrollmentBusyPersonId = "";
+    clearFormationRouteEnrollmentProgress_();
     state.ui.formationSection = "levels";
     renderApp();
     showToast(
@@ -29007,16 +29060,39 @@ async function registerFormationEncounter_(candidate) {
   }
 
   try {
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      52,
+      "Paso localizado",
+      `El sistema encontró ${firstEligibleOffering.name || firstEligibleOffering.levelName || "el paso inicial"} y preparará la inscripción.`
+    );
+    renderApp();
+    await waitMs_(120);
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      74,
+      "Guardando inscripción...",
+      "Se está registrando a la persona dentro del Proceso de Formación."
+    );
+    renderApp();
     const result = await commitFormationEnrollmentToOffering_(candidate.personId, firstEligibleOffering, {
-      loadingMessage: "Inscribiendo a Encuentro..."
+      loadingMessage: "Inscribiendo a Encuentro...",
+      skipLoading: true
     });
 
-    state.ui.formationRouteEnrollmentBusyPersonId = "";
-
     if (!result?.response) {
+      clearFormationRouteEnrollmentProgress_();
       renderApp();
       return;
     }
+
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      88,
+      "Sincronizando acceso...",
+      "Se está generando la cuenta y reflejando el estado del participante."
+    );
+    renderApp();
 
     state.ui.lastFormationEnrolledOfferingId = String(result.response?.enrollment?.offeringId || firstEligibleOffering.id || "").trim();
     state.filters.formationOps.processId = String(result.response?.enrollment?.processId || preferredProcessId || "").trim();
@@ -29028,17 +29104,24 @@ async function registerFormationEncounter_(candidate) {
     state.cacheKeys.formationPortalRoster = "";
     state.formationPortalRoster = [];
     state.ui.formationSection = "route";
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      100,
+      "Inscrito a Proceso de Formación",
+      `${candidate.personName || "La persona"} ya quedó registrada y ahora aparecerá en Inscritos y portal.`
+    );
     renderApp();
+    await waitMs_(900);
 
     showToast(
-      "Encuentro inscrito",
+      "Proceso de Formación inscrito",
       result.response?.account?.temporaryPin
-        ? `${candidate.personName || "La persona"} ya quedó inscrito(a) a Encuentro. Usuario ${result.response.account.username} con PIN ${result.response.account.temporaryPin}. Ahora entra a Inscritos y portal, elige Encuentro y pulsa Actualizar inscritos.`
-        : `${candidate.personName || "La persona"} ya quedó inscrito(a) a Encuentro. Ahora entra a Inscritos y portal, elige Encuentro y pulsa Actualizar inscritos.`,
+        ? `${candidate.personName || "La persona"} ya quedó inscrito(a) al Proceso de Formación. Usuario ${result.response.account.username} con PIN ${result.response.account.temporaryPin}. Ahora entra a Inscritos y portal y valida su paso actual.`
+        : `${candidate.personName || "La persona"} ya quedó inscrito(a) al Proceso de Formación. Ahora entra a Inscritos y portal y valida su paso actual.`,
       "success"
     );
   } finally {
-    state.ui.formationRouteEnrollmentBusyPersonId = "";
+    clearFormationRouteEnrollmentProgress_();
     renderApp();
   }
 }
