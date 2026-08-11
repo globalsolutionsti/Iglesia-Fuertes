@@ -396,6 +396,13 @@ const state = {
     formationRouteEnrollmentProgressPercent: 0,
     formationRouteEnrollmentProgressMessage: "",
     formationRouteEnrollmentProgressDetail: "",
+    formationSectionLoading: {
+      active: false,
+      section: "",
+      percent: 0,
+      title: "",
+      detail: ""
+    },
     formationAttendanceManualDraft: {},
     formationFilterBusy: false,
     formationFilterMessage: "",
@@ -994,6 +1001,95 @@ function normalizeFormationSection_(value) {
 function getActiveFormationSection_() {
   state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
   return state.ui.formationSection;
+}
+
+function getFormationSectionLabel_(sectionKey) {
+  switch (normalizeFormationSection_(sectionKey)) {
+    case "route":
+      return "Ruta a Encuentro";
+    case "report":
+      return "Reporte Pre-Encuentro";
+    case "portal":
+      return "Inscritos y portal";
+    case "operations":
+      return "Camino Proceso de Formación";
+    case "levels":
+      return "Catálogos";
+    default:
+      return "Proceso de Formación";
+  }
+}
+
+function clampPercentage_(value, fallback = 0) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(100, Math.round(numericValue)));
+}
+
+function clearFormationSectionLoading_(shouldRender = true) {
+  state.ui.formationSectionLoading = {
+    active: false,
+    section: "",
+    percent: 0,
+    title: "",
+    detail: ""
+  };
+
+  if (shouldRender && state.currentView === "formation") {
+    renderApp();
+  }
+}
+
+function updateFormationSectionLoading_(payload = {}, shouldRender = true) {
+  const previous = state.ui.formationSectionLoading || {};
+  state.ui.formationSectionLoading = {
+    active: payload.active !== undefined ? Boolean(payload.active) : Boolean(previous.active),
+    section: payload.section !== undefined ? normalizeFormationSection_(payload.section) : String(previous.section || ""),
+    percent: clampPercentage_(payload.percent, previous.percent || 0),
+    title: payload.title !== undefined ? String(payload.title || "") : String(previous.title || ""),
+    detail: payload.detail !== undefined ? String(payload.detail || "") : String(previous.detail || "")
+  };
+
+  if (shouldRender && state.currentView === "formation") {
+    renderApp();
+  }
+}
+
+async function withFormationSectionLoading_(sectionKey, config, task) {
+  const normalizedSection = normalizeFormationSection_(sectionKey);
+  const shouldRenderProgress = state.currentView === "formation";
+
+  if (!shouldRenderProgress) {
+    return task(() => {});
+  }
+
+  updateFormationSectionLoading_({
+    active: true,
+    section: normalizedSection,
+    percent: clampPercentage_(config?.initialPercent, 8),
+    title: String(config?.title || `Abriendo ${getFormationSectionLabel_(normalizedSection)}...`),
+    detail: String(config?.detail || "Preparando la información de esta subficha.")
+  });
+
+  const setProgress = (percent, title, detail) => {
+    updateFormationSectionLoading_({
+      active: true,
+      section: normalizedSection,
+      percent,
+      title,
+      detail
+    });
+  };
+
+  try {
+    const result = await task(setProgress);
+    setProgress(100, config?.doneTitle || "Listo", config?.doneDetail || "La información ya quedó preparada.");
+    return result;
+  } finally {
+    clearFormationSectionLoading_();
+  }
 }
 
 function clearFormationProfileSelection_(options = {}) {
@@ -8077,6 +8173,8 @@ function renderWelcomeProspectsView_() {
 
 function renderFormationView_() {
   const activeSection = getActiveFormationSection_();
+  const formationSectionLoading = state.ui.formationSectionLoading || null;
+  const isFormationSectionLoading = Boolean(formationSectionLoading?.active);
   const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
   const needsRouteData = activeSection === "route" || activeSection === "report";
   const formationDraft = needsRouteData ? getFormationFilterDraft_() : {};
@@ -8175,7 +8273,9 @@ function renderFormationView_() {
         levelsCount
       })}
 
-      ${activeSection === "route" ? renderFormationRouteWorkspace_({
+      ${isFormationSectionLoading ? renderFormationSectionLoadingCard_() : ""}
+
+      ${!isFormationSectionLoading && activeSection === "route" ? renderFormationRouteWorkspace_({
         seasonId,
         formationDraft,
         formationFilterDirty,
@@ -8186,22 +8286,22 @@ function renderFormationView_() {
         activePersonId: selectedCandidate?.personId || profile?.person?.id || ""
       }) : ""}
 
-      ${activeSection === "report" ? renderFormationPreEncounterReportWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "report" ? renderFormationPreEncounterReportWorkspace_({
         seasonId,
         formationDraft,
         formationFilterDirty,
         candidates
       }) : ""}
 
-      ${activeSection === "portal" ? renderFormationPortalWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "portal" ? renderFormationPortalWorkspace_({
         seasonId
       }) : ""}
 
-      ${activeSection === "operations" ? renderFormationOperationsWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "operations" ? renderFormationOperationsWorkspace_({
         seasonId
       }) : ""}
 
-      ${activeSection === "levels" ? renderFormationLevelsWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "levels" ? renderFormationLevelsWorkspace_({
         editingLevel
       }) : ""}
     </section>
@@ -8252,6 +8352,37 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
         </button>
       `).join("")}
     </div>
+  `;
+}
+
+function renderFormationSectionLoadingCard_() {
+  const loading = state.ui.formationSectionLoading || null;
+
+  if (!loading?.active) {
+    return "";
+  }
+
+  const percent = clampPercentage_(loading.percent, 0);
+  const sectionLabel = getFormationSectionLabel_(loading.section || state.ui.formationSection || "");
+
+  return `
+    <article class="panel-card formation-section-loading-card" aria-live="polite">
+      <div class="formation-section-loading-head">
+        <div>
+          <span class="status-chip neutral">${escapeHtml(sectionLabel)}</span>
+          <h2>${escapeHtml(loading.title || "Cargando información...")}</h2>
+          <p>${escapeHtml(loading.detail || "Espera un momento mientras dejamos lista la subficha.")}</p>
+        </div>
+        <strong>${escapeHtml(String(percent))}%</strong>
+      </div>
+      <div class="formation-section-loading-track" aria-hidden="true">
+        <span class="formation-section-loading-fill" style="width:${escapeHtml(String(percent))}%"></span>
+      </div>
+      <div class="formation-section-loading-meta">
+        <span class="context-item"><span class="inline-spinner" aria-hidden="true"></span> Cargando datos reales</span>
+        <span class="context-item">Subficha: ${escapeHtml(sectionLabel)}</span>
+      </div>
+    </article>
   `;
 }
 
@@ -10846,17 +10977,14 @@ function renderFormationPortalAdminModal_() {
   }
 
   const personId = String(modal.personId || "").trim();
-  const previewPortal = personId && String(state.studentPortal?.person?.id || "") === personId
-    ? state.studentPortal
-    : null;
   const previewProfile = personId && String(state.formationProfile?.person?.id || "") === personId
     ? state.formationProfile
     : null;
-  const previewAccount = previewPortal?.account || previewProfile?.portalAccount || null;
-  const person = previewProfile?.person || previewPortal?.person || getFormationPortalEnrollmentPerson_({
+  const previewAccount = previewProfile?.portalAccount || null;
+  const person = previewProfile?.person || getFormationPortalEnrollmentPerson_({
     personId
   });
-  const currentStageName = previewPortal?.currentLevel?.levelName || previewPortal?.summary?.currentLevelName || previewProfile?.person?.nivelFormacionActual || "Sin etapa";
+  const currentStageName = previewProfile?.person?.nivelFormacionActual || "Sin etapa";
   const hasPreviewPhone = Boolean(String(person?.telefono || "").trim());
   const hasPreviewPin = Boolean(String(previewAccount?.temporaryPin || "").trim());
 
@@ -10865,8 +10993,8 @@ function renderFormationPortalAdminModal_() {
       <section class="system-modal-card formation-portal-modal" role="dialog" aria-modal="true" aria-labelledby="formation-portal-modal-title">
         <div class="panel-head">
           <div>
-            <h2 id="formation-portal-modal-title">Cuenta y portal del asistente</h2>
-            <p>Consulta el acceso del inscrito, comparte su cuenta o su QR y revisa cómo se ve su portal personal sin salir del módulo.</p>
+            <h2 id="formation-portal-modal-title">Acceso del asistente</h2>
+            <p>Consulta usuario, PIN temporal y acciones rápidas para compartir su acceso o su QR sin recargar la pantalla.</p>
           </div>
           <div class="actions-row">
             <span class="pill dark">${escapeHtml(currentStageName)}</span>
@@ -10874,11 +11002,11 @@ function renderFormationPortalAdminModal_() {
           </div>
         </div>
 
-        ${modal.loading && !previewPortal && !previewProfile ? `
+        ${modal.loading && !previewProfile ? `
           <div class="formation-profile-loading">
             <span class="loading-spinner" aria-hidden="true"></span>
-            <strong>Cargando cuenta y portal...</strong>
-            <span>En un momento verás el usuario, el PIN, el QR y la vista espejo del asistente.</span>
+            <strong>Cargando acceso del asistente...</strong>
+            <span>En un momento verás usuario, PIN temporal, teléfono y atajos para compartir acceso o QR.</span>
           </div>
         ` : `
           <div class="formation-portal-modal-grid">
@@ -10904,6 +11032,11 @@ function renderFormationPortalAdminModal_() {
                   <strong>${escapeHtml(person?.telefono || "Sin teléfono")}</strong>
                   <span>${escapeHtml(hasPreviewPhone ? "Disponible para compartir acceso y QR." : "No se puede preparar WhatsApp hasta capturar teléfono.")}</span>
                 </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Uso recomendado</span>
+                  <strong>Compartir acceso o credencial</strong>
+                  <span>${escapeHtml("Primero comparte el acceso del portal. Después abre el chat correcto o descarga el QR si hoy lo necesita para asistencia.")}</span>
+                </div>
               </div>
 
               <div class="actions-row formation-portal-modal-actions">
@@ -10912,18 +11045,12 @@ function renderFormationPortalAdminModal_() {
                 <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>${hasPreviewPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
                 <button class="btn btn-ghost" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>Abrir chat correcto</button>
                 <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(person?.id || "")}">Descargar QR</button>
-                <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar vista</button>
+                <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar acceso</button>
               </div>
 
               <div class="footer-note">
-                ${escapeHtml("Flujo sugerido para hoy: 1) Abrir chat correcto. 2) Descargar QR. En celular o iPad quedará listo para adjuntarlo desde el WhatsApp correcto.")}
+                ${escapeHtml("Vista compacta: aquí solo administras el acceso al portal y la credencial QR. Ya no se muestra la vista espejo del portal para que el modal cargue más rápido y se vea limpio.")}
               </div>
-            </div>
-
-            <div class="formation-portal-modal-preview">
-              ${previewPortal?.person
-                ? renderAdminFormationStudentPortalPreview_(previewPortal)
-                : `<div class="empty-state">No encontramos la vista del portal todavía. Pulsa Actualizar vista para volver a cargarla.</div>`}
             </div>
           </div>
         `}
@@ -24984,6 +25111,20 @@ async function loadFormationLevelsWorkspaceData_(options = {}) {
     return state.formationOfferings;
   }
 
+  if (state.currentView === "formation") {
+    return withFormationSectionLoading_("levels", {
+      title: "Abriendo Catálogos...",
+      detail: "Preparando procesos, pasos y niveles programados.",
+      doneTitle: "Catálogos listos",
+      doneDetail: "Ya puedes editar el proceso y su estructura sin esperar a ciegas."
+    }, async (setProgress) => {
+      setProgress(20, "Cargando procesos base...", "Estamos trayendo el proceso y la ruta pastoral disponible.");
+      const offerings = await task();
+      setProgress(86, "Armando estructura visible...", "La lista compacta de procesos y pasos ya casi queda lista.");
+      return offerings;
+    });
+  }
+
   if (options.showLoading === false) {
     return task();
   }
@@ -25181,6 +25322,31 @@ async function loadFormationData_(options = {}) {
 
     await Promise.all(requests);
   };
+
+  if (state.currentView === "formation") {
+    const sectionKey = getActiveFormationSection_() === "report" ? "report" : "route";
+    await withFormationSectionLoading_(sectionKey, {
+      title: sectionKey === "report" ? "Abriendo Reporte Pre-Encuentro..." : "Abriendo Ruta a Encuentro...",
+      detail: sectionKey === "report"
+        ? "Preparando el reporte agrupado por grupos de conexión."
+        : "Buscando a quienes ya cumplieron la regla de 3 asistencias consecutivas.",
+      doneTitle: sectionKey === "report" ? "Reporte listo" : "Ruta lista",
+      doneDetail: sectionKey === "report"
+        ? "El reporte ya quedó listo para exportar o revisar."
+        : "La lista operativa ya quedó lista para invitar o continuar inscripción."
+    }, async (setProgress) => {
+      setProgress(22, "Sincronizando temporada y grupos...", "Validando el contexto pastoral para traer solo la información útil.");
+      await task();
+      setProgress(
+        86,
+        sectionKey === "report" ? "Armando bloques del reporte..." : "Armando listado operativo...",
+        sectionKey === "report"
+          ? "Ya estamos agrupando la información por grupos de conexión."
+          : "Ya estamos dejando lista la ruta de invitación e inscripción."
+      );
+    });
+    return;
+  }
 
   if (options.showLoading === false) {
     await task();
@@ -26169,48 +26335,67 @@ async function ensureFormationOperationsViewData_(options = {}) {
 }
 
 async function ensureFormationPortalSectionData_(options = {}) {
-  state.ui.pendingFormationEnrollmentPersonId = "";
-  await loadFormationPortalWorkspaceData_({
-    force: options.force,
-    showLoading: false,
-    processId: options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""),
-    levelId: options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""),
-    offeringId: options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""),
-    preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "",
-    sessionNumber: state.filters.formationOps.sessionNumber || "1"
+  await withFormationSectionLoading_("portal", {
+    title: "Abriendo Inscritos y portal...",
+    detail: "Preparando procesos, pasos e inscritos con acceso al portal.",
+    doneTitle: "Inscritos listos",
+    doneDetail: "La subficha ya quedó lista para revisar accesos y credenciales."
+  }, async (setProgress) => {
+    state.ui.pendingFormationEnrollmentPersonId = "";
+    setProgress(18, "Preparando filtros del proceso...", "Sincronizando proceso, paso y oferta visible.");
+    await loadFormationPortalWorkspaceData_({
+      force: options.force,
+      showLoading: false,
+      processId: options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""),
+      levelId: options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""),
+      offeringId: options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""),
+      preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "",
+      sessionNumber: state.filters.formationOps.sessionNumber || "1"
+    });
+    setProgress(88, "Armando inscritos y accesos...", "Ya estamos organizando la lista visible y los datos de acceso.");
   });
 }
 
 async function ensureFormationJourneySectionData_(options = {}) {
-  await Promise.all([
-    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
-      showLoading: false
-    }),
-    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
-      showLoading: false
-    })
-  ]);
+  await withFormationSectionLoading_("operations", {
+    title: "Abriendo Camino Proceso de Formación...",
+    detail: "Preparando el paso actual, el paso aprobado y el siguiente paso de cada inscrito.",
+    doneTitle: "Camino listo",
+    doneDetail: "La ruta del inscrito ya quedó lista para revisar avance y validación."
+  }, async (setProgress) => {
+    setProgress(16, "Cargando procesos y catálogo...", "Primero reunimos el proceso activo y sus pasos disponibles.");
+    await Promise.all([
+      state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+        showLoading: false
+      }),
+      state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+        showLoading: false
+      })
+    ]);
 
-  if (!state.filters.formationOps.processId && state.formationProcesses.length) {
-    state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
-  }
+    if (!state.filters.formationOps.processId && state.formationProcesses.length) {
+      state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
+    }
 
-  await loadFormationOperationsData_({
-    force: options.force,
-    showLoading: false,
-    processId: state.filters.formationOps.processId || "",
-    levelId: state.filters.formationOps.levelId || "",
-    offeringId: "",
-    sessionNumber: state.filters.formationOps.sessionNumber || "1",
-    loadAttendanceContext: false,
-    loadEnrollments: false,
-    skipSync: true
-  });
+    setProgress(48, "Cargando resumen del camino...", "Estamos identificando el paso actual y el siguiente paso de cada inscrito.");
+    await loadFormationOperationsData_({
+      force: options.force,
+      showLoading: false,
+      processId: state.filters.formationOps.processId || "",
+      levelId: state.filters.formationOps.levelId || "",
+      offeringId: "",
+      sessionNumber: state.filters.formationOps.sessionNumber || "1",
+      loadAttendanceContext: false,
+      loadEnrollments: false,
+      skipSync: true
+    });
 
-  await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
-    force: options.force,
-    showLoading: false,
-    levelId: state.filters.formationOps.levelId || ""
+    setProgress(78, "Armando listado del camino...", "Ya estamos llenando el listado visible con los avances del inscrito.");
+    await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
+      force: options.force,
+      showLoading: false,
+      levelId: state.filters.formationOps.levelId || ""
+    });
   });
 }
 
@@ -26511,17 +26696,11 @@ async function openFormationPortalAdminModal_(personId, options = {}) {
   renderApp();
 
   try {
-    await Promise.all([
-      loadFormationProfile_(cleanPersonId, {
-        force,
-        seasonId: state.filters.formation.seasonId,
-        showLoading: false
-      }),
-      loadStudentPortalByPersonId_(cleanPersonId, {
-        force,
-        showLoading: false
-      })
-    ]);
+    await loadFormationProfile_(cleanPersonId, {
+      force,
+      seasonId: state.filters.formation.seasonId,
+      showLoading: false
+    });
   } finally {
     state.ui.formationPortalModal = {
       personId: cleanPersonId,
@@ -36336,6 +36515,13 @@ function resetRuntimeState() {
     formationPortalModal: null,
     formationProfileLoading: false,
     formationProfileLoadingPersonId: "",
+    formationSectionLoading: {
+      active: false,
+      section: "",
+      percent: 0,
+      title: "",
+      detail: ""
+    },
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
