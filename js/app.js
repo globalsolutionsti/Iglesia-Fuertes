@@ -1465,9 +1465,16 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
     state.cacheKeys.formationPortalRoster = rosterCacheKey;
 
     if (Number(selectedOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
-      await loadPeopleDirectory({
-        showLoading: false
-      });
+      Promise.resolve()
+        .then(() => loadPeopleDirectory({
+          showLoading: false
+        }))
+        .then(() => {
+          if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+            renderApp();
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -1477,9 +1484,16 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
     && String(state.cacheKeys.formationPortalRoster || "") === rosterCacheKey
   ) {
     if (Number(selectedOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
-      await loadPeopleDirectory({
-        showLoading: false
-      });
+      Promise.resolve()
+        .then(() => loadPeopleDirectory({
+          showLoading: false
+        }))
+        .then(() => {
+          if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+            renderApp();
+          }
+        })
+        .catch(() => {});
     }
     return;
   }
@@ -20831,6 +20845,7 @@ async function handleClick(event) {
     if (action === "set-formation-section") {
       state.ui.formationSection = normalizeFormationSection_(button.dataset.sectionKey || "");
       setFormationFilterBusy_(false, "");
+      clearFormationSectionLoading_();
       if (state.ui.formationSection === "route") {
         clearFormationProfileSelection_();
       }
@@ -20839,16 +20854,17 @@ async function handleClick(event) {
         state.filters.formationOps.offeringId = "";
         state.ui.selectedFormationOfferingId = "";
       }
-      await ensureFormationViewData_({
-        force: false,
-        showLoading: false
-      });
+      if (state.ui.formationSection === "portal" || state.ui.formationSection === "operations") {
+        state.filters.formationOps.search = "";
+        state.filters.formationOps.enrollmentStatus = "ALL";
+      }
       renderApp();
       if (state.ui.formationSection === "attendance") {
         scrollToSection_("formation-attendance-workspace");
       } else {
         scrollViewportToTop_();
       }
+      loadViewDataInBackground_("formation");
       return;
     }
 
@@ -25337,7 +25353,7 @@ async function loadFormationData_(options = {}) {
     await Promise.all(requests);
   };
 
-  if (state.currentView === "formation") {
+  if (state.currentView === "formation" && options.showLoading !== false) {
     if (!options.syncCandidates) {
       setFormationFilterBusy_(false, "");
     }
@@ -26352,12 +26368,7 @@ async function ensureFormationOperationsViewData_(options = {}) {
 }
 
 async function ensureFormationPortalSectionData_(options = {}) {
-  await withFormationSectionLoading_("portal", {
-    title: "Abriendo Inscritos y portal...",
-    detail: "Preparando procesos, pasos e inscritos con acceso al portal.",
-    doneTitle: "Inscritos listos",
-    doneDetail: "La subficha ya quedó lista para revisar accesos y credenciales."
-  }, async (setProgress) => {
+  const task = async (setProgress = () => {}) => {
     state.ui.pendingFormationEnrollmentPersonId = "";
     setProgress(18, "Preparando filtros del proceso...", "Sincronizando proceso, paso y oferta visible.");
     await loadFormationPortalWorkspaceData_({
@@ -26370,16 +26381,23 @@ async function ensureFormationPortalSectionData_(options = {}) {
       sessionNumber: state.filters.formationOps.sessionNumber || "1"
     });
     setProgress(88, "Armando inscritos y accesos...", "Ya estamos organizando la lista visible y los datos de acceso.");
-  });
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withFormationSectionLoading_("portal", {
+    title: "Abriendo Inscritos y portal...",
+    detail: "Preparando procesos, pasos e inscritos con acceso al portal.",
+    doneTitle: "Inscritos listos",
+    doneDetail: "La subficha ya quedó lista para revisar accesos y credenciales."
+  }, task);
 }
 
 async function ensureFormationJourneySectionData_(options = {}) {
-  await withFormationSectionLoading_("operations", {
-    title: "Abriendo Camino Proceso de Formación...",
-    detail: "Preparando el paso actual, el paso aprobado y el siguiente paso de cada inscrito.",
-    doneTitle: "Camino listo",
-    doneDetail: "La ruta del inscrito ya quedó lista para revisar avance y validación."
-  }, async (setProgress) => {
+  const task = async (setProgress = () => {}) => {
     setProgress(16, "Cargando procesos y catálogo...", "Primero reunimos el proceso activo y sus pasos disponibles.");
     await Promise.all([
       state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
@@ -26394,26 +26412,26 @@ async function ensureFormationJourneySectionData_(options = {}) {
       state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
     }
 
-    setProgress(48, "Cargando resumen del camino...", "Estamos identificando el paso actual y el siguiente paso de cada inscrito.");
-    await loadFormationOperationsData_({
-      force: options.force,
-      showLoading: false,
-      processId: state.filters.formationOps.processId || "",
-      levelId: state.filters.formationOps.levelId || "",
-      offeringId: "",
-      sessionNumber: state.filters.formationOps.sessionNumber || "1",
-      loadAttendanceContext: false,
-      loadEnrollments: false,
-      skipSync: true
-    });
-
-    setProgress(78, "Armando listado del camino...", "Ya estamos llenando el listado visible con los avances del inscrito.");
+    setProgress(52, "Cargando inscritos del proceso...", "Estamos trayendo únicamente el listado del camino para no frenar la vista.");
     await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
       force: options.force,
       showLoading: false,
       levelId: ""
     });
-  });
+    setProgress(88, "Armando camino visible...", "Ya estamos acomodando paso actual, aprobado y siguiente paso.");
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withFormationSectionLoading_("operations", {
+    title: "Abriendo Camino Proceso de Formación...",
+    detail: "Preparando el paso actual, el paso aprobado y el siguiente paso de cada inscrito.",
+    doneTitle: "Camino listo",
+    doneDetail: "La ruta del inscrito ya quedó lista para revisar avance y validación."
+  }, task);
 }
 
 async function ensureFormationViewData_(options = {}) {
@@ -26468,10 +26486,22 @@ async function ensureFormationViewData_(options = {}) {
   }
 
   if (!state.formationProfile || state.formationProfile?.person?.id !== state.ui.selectedFormationPersonId) {
-    await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-      seasonId: state.filters.formation.seasonId,
-      showLoading: false
-    });
+    const personId = String(state.ui.selectedFormationPersonId || "").trim();
+    Promise.resolve()
+      .then(() => loadFormationProfile_(personId, {
+        seasonId: state.filters.formation.seasonId,
+        showLoading: false
+      }))
+      .then(() => {
+        if (
+          state.currentView === "formation"
+          && (getActiveFormationSection_() === "route" || getActiveFormationSection_() === "report")
+          && String(state.ui.selectedFormationPersonId || "").trim() === personId
+        ) {
+          renderApp();
+        }
+      })
+      .catch(() => {});
   }
 }
 
@@ -29017,12 +29047,8 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
 
   state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || payload.enrollmentId;
   state.ui.selectedFormationPersonId = String(response?.enrollment?.personId || previousSelectedPersonId || "").trim();
-  await loadFormationOperationsData_({
-    force: true,
-    showLoading: false,
-    offeringId: state.filters.formationOps.offeringId,
-    sessionNumber: state.filters.formationOps.sessionNumber
-  });
+  state.filters.formationOps.search = "";
+  state.filters.formationOps.enrollmentStatus = "ALL";
   await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
     force: true,
     showLoading: false,
