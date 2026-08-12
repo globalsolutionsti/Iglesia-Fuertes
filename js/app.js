@@ -1426,7 +1426,7 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
   });
 
   const selectedOffering = getSelectedFormationPortalOffering_();
-  const availableOfferings = getFilteredFormationPortalOfferings_();
+  let availableOfferings = getFilteredFormationPortalOfferings_();
   const selectedOfferingId = String(selectedOffering?.id || "").trim();
   const rosterCacheKey = `${preferredProcessId || "ALL"}::${preferredLevelId || "ALL"}::${selectedOfferingId || "PROCESS"}`;
 
@@ -1449,26 +1449,35 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
       }
 
       if ((!Array.isArray(enrollments) || !enrollments.length) && preferredProcessId) {
+        if (preferredLevelId || !availableOfferings.length) {
+          state.filters.formationOps.levelId = "";
+          state.filters.formationOps.offeringId = "";
+          state.ui.selectedFormationOfferingId = "";
+          await loadFormationPortalOfferingsList_(preferredProcessId, "", {
+            force: true,
+            showLoading: false
+          });
+          availableOfferings = getFilteredFormationPortalOfferings_();
+        }
+
         const processEnrollments = await apiGet("formation.enrollments.list", {
           processId: preferredProcessId,
           skipSync: "1"
         });
         const normalizedProcessRows = Array.isArray(processEnrollments) ? processEnrollments : [];
 
-        if (selectedOfferingId) {
-          const bestOfferingWithRows = availableOfferings.find((offering) => {
-            const offeringId = String(offering?.id || "").trim();
-            return offeringId && normalizedProcessRows.some((row) => String(row?.offeringId || "").trim() === offeringId);
-          }) || null;
+        const bestOfferingWithRows = availableOfferings.find((offering) => {
+          const offeringId = String(offering?.id || "").trim();
+          return offeringId && normalizedProcessRows.some((row) => String(row?.offeringId || "").trim() === offeringId);
+        }) || null;
 
-          if (bestOfferingWithRows?.id) {
-            state.filters.formationOps.levelId = String(bestOfferingWithRows.levelId || "").trim();
-            state.filters.formationOps.offeringId = String(bestOfferingWithRows.id || "").trim();
-            state.ui.selectedFormationOfferingId = String(bestOfferingWithRows.id || "").trim();
-            enrollments = normalizedProcessRows.filter((row) => {
-              return String(row?.offeringId || "").trim() === String(bestOfferingWithRows.id || "").trim();
-            });
-          }
+        if (bestOfferingWithRows?.id) {
+          state.filters.formationOps.levelId = String(bestOfferingWithRows.levelId || "").trim();
+          state.filters.formationOps.offeringId = String(bestOfferingWithRows.id || "").trim();
+          state.ui.selectedFormationOfferingId = String(bestOfferingWithRows.id || "").trim();
+          enrollments = normalizedProcessRows.filter((row) => {
+            return String(row?.offeringId || "").trim() === String(bestOfferingWithRows.id || "").trim();
+          });
         } else {
           enrollments = normalizedProcessRows;
         }
@@ -25989,6 +25998,64 @@ async function loadFormationProcessRoster_(processId, options = {}) {
   return withLoading(sharedTask, options.message || "Cargando inscritos del proceso...");
 }
 
+async function loadFormationProcessRosterFallback_(preferredProcessId = "") {
+  let roster = [];
+
+  try {
+    roster = await apiGet("formation.enrollments.list", {
+      skipSync: "1"
+    });
+  } catch (error) {
+    if (isUnknownActionError_(error, "formation.enrollments.list")) {
+      throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de operación de Proceso de Formación");
+    }
+
+    if (isFormationPortalRepositoryMissingError_(error)) {
+      throw new ApiError(
+        "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+        "BACKEND_OUTDATED",
+        {
+          file: "V2_44_FormationPortalRepository.gs"
+        }
+      );
+    }
+
+    throw error;
+  }
+
+  const rows = Array.isArray(roster) ? roster : [];
+  const groupedByProcess = new Map();
+
+  rows.forEach((row) => {
+    const processId = String(row?.processId || "").trim();
+
+    if (!processId) {
+      return;
+    }
+
+    if (!groupedByProcess.has(processId)) {
+      groupedByProcess.set(processId, []);
+    }
+
+    groupedByProcess.get(processId).push(row);
+  });
+
+  const preferredId = String(preferredProcessId || "").trim();
+  const allProcessIds = [
+    preferredId,
+    ...state.formationProcesses.map((process) => String(process?.id || "").trim()),
+    ...Array.from(groupedByProcess.keys())
+  ].filter(Boolean);
+  const nextProcessId = allProcessIds.find((id, index) => {
+    return allProcessIds.indexOf(id) === index && groupedByProcess.has(id) && groupedByProcess.get(id).length;
+  }) || "";
+
+  return {
+    processId: nextProcessId,
+    rows: nextProcessId ? (groupedByProcess.get(nextProcessId) || []) : []
+  };
+}
+
 async function loadFormationAttendanceTransitionRoster_(options = {}) {
   const selectedOffering = getSelectedFormationOffering_();
   const cacheKey = `ATTENDANCE_TRANSITION::${String(selectedOffering?.id || "").trim()}`;
@@ -26560,6 +26627,18 @@ async function ensureFormationJourneySectionData_(options = {}) {
       showLoading: false,
       levelId: ""
     });
+
+    if (!state.formationProcessRoster.length) {
+      const fallback = await loadFormationProcessRosterFallback_(state.filters.formationOps.processId || "");
+
+      if (fallback.processId && fallback.rows.length) {
+        state.filters.formationOps.processId = fallback.processId;
+        state.formationProcessRoster = fallback.rows;
+        state.loaded.formationProcessRoster = true;
+        state.cacheKeys.formationProcessRoster = `PROCESS::${fallback.processId}`;
+      }
+    }
+
     setProgress(88, "Armando camino visible...", "Ya estamos acomodando paso actual, aprobado y siguiente paso.");
   };
 
