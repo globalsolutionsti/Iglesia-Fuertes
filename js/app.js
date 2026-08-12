@@ -10329,12 +10329,20 @@ function buildFormationJourneyRows_(rows) {
 function getSelectedFormationJourneyEnrollment_(journeyRows) {
   const rows = Array.isArray(journeyRows) ? journeyRows : [];
   const requestedId = String(state.ui.selectedFormationEnrollmentId || "").trim();
+  const requestedPersonId = String(state.ui.selectedFormationPersonId || "").trim();
   const activeRows = rows.filter((journey) => journey?.currentEnrollment);
 
   if (requestedId) {
     const match = activeRows.find((journey) => String(journey?.currentEnrollmentId || "").trim() === requestedId);
     if (match?.currentEnrollment) {
       return match.currentEnrollment;
+    }
+  }
+
+  if (requestedPersonId) {
+    const personMatch = activeRows.find((journey) => String(journey?.personId || "").trim() === requestedPersonId);
+    if (personMatch?.currentEnrollment) {
+      return personMatch.currentEnrollment;
     }
   }
 
@@ -10411,7 +10419,7 @@ function renderFormationJourneyRow_(journey) {
       </div>
       <div class="formation-journey-actions">
         <small>Acciones</small>
-        <button class="btn btn-primary" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}">Ver detalle</button>
+        <button class="btn btn-primary" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}" data-person-id="${escapeHtml(journey.personId || "")}">Ver detalle</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(journey.personId || "")}">Gestionar portal</button>
         <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(journey.personId || "")}">Ver perfil</button>
         ${canAdminCorrectFormationEnrollment_() ? `
@@ -22952,6 +22960,7 @@ async function handleClick(event) {
 
     if (action === "select-formation-enrollment") {
       state.ui.selectedFormationEnrollmentId = String(button.dataset.enrollmentId || "");
+      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       renderApp();
       scrollToSection_("formation-operation-evaluation");
       return;
@@ -26402,7 +26411,7 @@ async function ensureFormationJourneySectionData_(options = {}) {
     await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
       force: options.force,
       showLoading: false,
-      levelId: state.filters.formationOps.levelId || ""
+      levelId: ""
     });
   });
 }
@@ -28995,6 +29004,7 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
     evaluatedBy: state.user?.name || ""
   };
   let response = null;
+  const previousSelectedPersonId = String(state.ui.selectedFormationPersonId || "").trim();
 
   if (!payload.enrollmentId) {
     showToast("Selecciona un inscrito", "Primero elige a la persona que vas a evaluar.", "warning");
@@ -29006,6 +29016,7 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
   }, "Guardando evaluación...");
 
   state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || payload.enrollmentId;
+  state.ui.selectedFormationPersonId = String(response?.enrollment?.personId || previousSelectedPersonId || "").trim();
   await loadFormationOperationsData_({
     force: true,
     showLoading: false,
@@ -29015,7 +29026,7 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
   await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
     force: true,
     showLoading: false,
-    levelId: state.filters.formationOps.levelId || ""
+    levelId: ""
   });
 
   if (response?.enrollment?.personId && String(state.formationProfile?.person?.id || "") === String(response.enrollment.personId || "")) {
