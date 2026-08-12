@@ -414,9 +414,10 @@ const state = {
     scrapSeasonPreview: null,
     selectedScrapFormationProcessId: "",
     scrapFormationProcessPreview: null,
-    studentPortalTab: "home",
+    studentPortalTab: "profile",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
+    studentPortalConnectionSeasonId: "",
     adminLeaderAccountEmail: "",
     loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
@@ -4945,14 +4946,21 @@ function renderStudentPortalLoginView_() {
 
 function buildStudentPortalContext_(portal) {
   const person = portal?.person || {};
+  const profile = portal?.profile || {};
   const currentLevel = portal?.currentLevel || null;
   const nextLevel = portal?.nextLevel || null;
   const levels = Array.isArray(portal?.levels) ? portal.levels : [];
   const records = Array.isArray(portal?.records) ? portal.records : [];
   const currentRecord = getStudentPortalCurrentRecord_(portal, currentLevel);
   const supportUrl = getStudentPortalSupportUrl_(person, currentLevel, currentRecord);
-  const activeTab = state.ui.studentPortalTab || "home";
-  const profileTab = state.ui.studentPortalProfileTab || "summary";
+  const activeTab = state.ui.studentPortalTab || "profile";
+  const connectionSeasons = Array.isArray(portal?.connectionSeasons) ? portal.connectionSeasons : [];
+  const selectedConnectionSeasonId = String(
+    state.ui.studentPortalConnectionSeasonId
+    || connectionSeasons[0]?.seasonId
+    || ""
+  ).trim();
+  const selectedConnectionSeason = connectionSeasons.find((item) => String(item?.seasonId || "").trim() === selectedConnectionSeasonId) || connectionSeasons[0] || null;
   const attendance = currentLevel?.attendance || {
     attendedSessions: 0,
     capturedSessions: 0,
@@ -4964,8 +4972,7 @@ function buildStudentPortalContext_(portal) {
   const routePercent = totalLevels ? Math.round((approvedLevels / totalLevels) * 100) : 0;
   const attendancePercent = getStudentPortalAttendancePercent_(attendance);
   const progressPercent = getStudentPortalVisualProgress_(routePercent, attendancePercent, currentLevel);
-  const examApproved = Boolean(currentLevel?.enrollment?.examApproved);
-  const assistantName = person.nombreCompleto || state.user?.name || "Asistente";
+  const assistantName = profile.nombreCompleto || person.nombreCompleto || state.user?.name || "Asistente";
   const assistantFirstName = getStudentPortalShortName_(assistantName);
   const currentStageName = currentLevel?.levelName || portal?.summary?.currentLevelName || "Tu proceso";
   const nextStageName = nextLevel?.levelName || portal?.summary?.nextLevelName || "Por definir";
@@ -4974,14 +4981,31 @@ function buildStudentPortalContext_(portal) {
   const leaderPhone = currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone || "";
   const levelDescription = getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, currentStageName);
   const sessionItems = buildStudentPortalSessionTimeline_(currentLevel, attendance);
-  const nextSession = getStudentPortalNextSession_(currentLevel, sessionItems, attendance);
-  const profileMessage = currentLevel?.status === "ACREDITADO"
-    ? `Bien hecho, ${assistantFirstName}`
-    : `Vamos bien, ${assistantFirstName}`;
+  const approvedLevelsList = levels.filter((item) => String(item?.status || "").trim().toUpperCase() === "ACREDITADO");
+  const currentLevelCard = currentLevel
+    ? levels.find((item) => String(item?.levelId || "") === String(currentLevel.levelId || "")) || currentLevel
+    : null;
+  const nextLevelCard = nextLevel
+    ? levels.find((item) => String(item?.levelId || "") === String(nextLevel.levelId || "")) || nextLevel
+    : null;
+  const formationVisibleLevels = [];
+
+  approvedLevelsList.forEach((item) => {
+    formationVisibleLevels.push(item);
+  });
+
+  if (currentLevelCard && !formationVisibleLevels.some((item) => String(item?.levelId || "") === String(currentLevelCard?.levelId || ""))) {
+    formationVisibleLevels.push(currentLevelCard);
+  }
+
+  if (nextLevelCard && !formationVisibleLevels.some((item) => String(item?.levelId || "") === String(nextLevelCard?.levelId || ""))) {
+    formationVisibleLevels.push(nextLevelCard);
+  }
 
   return {
     portal,
     person,
+    profile,
     currentLevel,
     nextLevel,
     levels,
@@ -4989,12 +5013,13 @@ function buildStudentPortalContext_(portal) {
     currentRecord,
     supportUrl,
     activeTab,
-    profileTab,
+    connectionSeasons,
+    selectedConnectionSeasonId,
+    selectedConnectionSeason,
     attendance,
     attendancePercent,
     routePercent,
     progressPercent,
-    examApproved,
     assistantName,
     assistantFirstName,
     currentStageName,
@@ -5004,14 +5029,16 @@ function buildStudentPortalContext_(portal) {
     leaderPhone,
     levelDescription,
     sessionItems,
-    nextSession,
-    profileMessage
+    approvedLevelsList,
+    currentLevelCard,
+    nextLevelCard,
+    formationVisibleLevels
   };
 }
 
 function renderStudentPortalScreenContent_(portalContext) {
   const portal = portalContext?.portal || null;
-  const activeTab = portalContext?.activeTab || "home";
+  const activeTab = portalContext?.activeTab || "profile";
 
   if (!portal) {
     return `
@@ -5023,15 +5050,15 @@ function renderStudentPortalScreenContent_(portalContext) {
     `;
   }
 
-  if (activeTab === "path") {
-    return renderStudentPortalHomeScreen_(portalContext);
+  if (activeTab === "connection") {
+    return renderStudentPortalConnectionScreen_(portalContext);
   }
 
-  if (activeTab === "profile") {
-    return renderStudentPortalProfileScreen_(portalContext);
+  if (activeTab === "formation") {
+    return renderStudentPortalFormationScreen_(portalContext);
   }
 
-  return renderStudentPortalHomeScreen_(portalContext);
+  return renderStudentPortalProfileHomeScreen_(portalContext);
 }
 
 function renderStudentPortalView_() {
@@ -5039,7 +5066,7 @@ function renderStudentPortalView_() {
   const portal = state.studentPortal;
   const portalContext = buildStudentPortalContext_(portal);
   const screenContent = renderStudentPortalScreenContent_(portalContext);
-  const activeTab = portalContext.activeTab || "home";
+  const activeTab = portalContext.activeTab || "profile";
 
   return `
     <div class="student-portal-shell student-portal-shell-app">
@@ -5073,7 +5100,6 @@ function renderStudentPortalView_() {
                 ${screenContent}
               </main>
 
-              ${renderStudentPortalBottomNav_(activeTab)}
             </div>
           </div>
         </div>
@@ -5085,7 +5111,7 @@ function renderStudentPortalView_() {
 function renderAdminFormationStudentPortalPreview_(portal) {
   const portalContext = buildStudentPortalContext_(portal);
   const screenContent = renderStudentPortalScreenContent_(portalContext);
-  const activeTab = portalContext.activeTab || "home";
+  const activeTab = portalContext.activeTab || "profile";
 
   return `
     <div style="margin-top: 18px; display: flex; justify-content: center;">
@@ -5119,7 +5145,6 @@ function renderAdminFormationStudentPortalPreview_(portal) {
               ${screenContent}
             </main>
 
-            ${renderStudentPortalBottomNav_(activeTab)}
           </div>
         </div>
       </div>
@@ -5128,22 +5153,14 @@ function renderAdminFormationStudentPortalPreview_(portal) {
 }
 
 function renderStudentPortalTopBar_(context) {
-  const activeTab = context?.activeTab || "home";
-  const showBack = activeTab !== "home";
-  const menuOpen = !showBack && Boolean(state.ui.studentPortalMenuOpen);
+  const menuOpen = Boolean(state.ui.studentPortalMenuOpen);
 
   return `
     <div class="student-portal-topbar-shell ${menuOpen ? "is-menu-open" : ""}">
       <header class="student-portal-topbar">
-        ${showBack ? `
-          <button class="student-portal-topbar-icon" type="button" data-action="set-student-portal-tab" data-tab="home" aria-label="Volver a inicio">
-            ${renderStudentPortalIcon_("back")}
-          </button>
-        ` : `
-          <button class="student-portal-topbar-icon ${menuOpen ? "is-active" : ""}" type="button" data-action="toggle-student-portal-menu" aria-label="${menuOpen ? "Cerrar menu" : "Abrir menu"}" aria-expanded="${menuOpen ? "true" : "false"}">
-            ${renderStudentPortalIcon_("menu")}
-          </button>
-        `}
+        <button class="student-portal-topbar-icon ${menuOpen ? "is-active" : ""}" type="button" data-action="toggle-student-portal-menu" aria-label="${menuOpen ? "Cerrar menu" : "Abrir menu"}" aria-expanded="${menuOpen ? "true" : "false"}">
+          ${renderStudentPortalIcon_("menu")}
+        </button>
 
         <img class="brand-logo student-portal-topbar-logo" src="assets/logo-fuertes.png" alt="Fuertes">
 
@@ -5172,7 +5189,7 @@ function getStudentPortalDeviceTimeLabel_() {
 }
 
 function renderStudentPortalQuickMenu_(context) {
-  const activeTab = context?.activeTab || "home";
+  const activeTab = context?.activeTab || "profile";
   const assistantFirstName = context?.assistantFirstName || "Asistente";
   const assistantName = context?.assistantName || assistantFirstName;
   const assistantInitials = getStudentPortalLeaderInitials_(assistantName);
@@ -5191,8 +5208,9 @@ function renderStudentPortalQuickMenu_(context) {
   const routePercent = Math.max(0, Math.min(100, Number(context?.routePercent || 0)));
   const attendancePercent = Math.max(0, Math.min(100, Number(context?.attendancePercent || 0)));
   const items = [
-    { id: "home", label: "Inicio", note: "Resumen general", icon: "home" },
-    { id: "profile", label: "Mi perfil", note: "Asistencia y evaluación", icon: "profile" }
+    { id: "profile", label: "Perfil", note: "Tus datos y ministerios", icon: "profile" },
+    { id: "connection", label: "Grupos de Conexión", note: "Temporadas, grupo y asistencias", icon: "team" },
+    { id: "formation", label: "Proceso de Formación", note: "Pasos aprobados, en curso y siguiente", icon: "growth" }
   ];
 
   return `
@@ -5211,7 +5229,7 @@ function renderStudentPortalQuickMenu_(context) {
         <div class="student-portal-quick-menu-profile">
           <div class="student-portal-quick-menu-avatar">${escapeHtml(assistantInitials)}</div>
           <div class="student-portal-quick-menu-profile-copy">
-            <small>Tu proceso de formación</small>
+            <small>Portal del participante</small>
             <strong>${escapeHtml(assistantName)}</strong>
             <span>${escapeHtml(portalUsername)}</span>
           </div>
@@ -5296,122 +5314,203 @@ function renderStudentPortalQuickMenu_(context) {
   `;
 }
 
-function renderStudentPortalBottomNav_(activeTab) {
-  const items = [
-    { id: "home", label: "Inicio", icon: "home" },
-    { id: "profile", label: "Perfil", icon: "profile" }
-  ];
+function renderStudentPortalProfileHomeScreen_(context) {
+  const profile = context?.profile || {};
+  const supportUrl = context?.supportUrl || "";
+  const ministrySecondary = Array.isArray(profile?.ministeriosSecundarios) && profile.ministeriosSecundarios.length
+    ? profile.ministeriosSecundarios
+    : [];
+  const groupName = profile?.grupoActualNombre || "Sin grupo asignado";
 
   return `
-    <nav class="student-portal-bottom-nav" aria-label="Navegacion del portal del asistente">
-      ${items.map((item) => `
-        <button
-          class="student-portal-bottom-nav-item ${activeTab === item.id ? "is-active" : ""}"
-          type="button"
-          data-action="set-student-portal-tab"
-          data-tab="${escapeHtml(item.id)}"
-        >
-          <span class="student-portal-bottom-nav-icon">${renderStudentPortalIcon_(item.icon)}</span>
-          <span>${escapeHtml(item.label)}</span>
-        </button>
-      `).join("")}
-    </nav>
-  `;
-}
-
-function renderStudentPortalHomeScreen_(context) {
-  const {
-    assistantFirstName,
-    currentLevel,
-    currentStageName,
-    attendance,
-    attendancePercent,
-    leaderName,
-    nextLevel,
-    supportUrl
-  } = context;
-  const currentStatus = String(currentLevel?.status || "BLOQUEADO").trim().toUpperCase();
-  const nextStatus = String(nextLevel?.status || "BLOQUEADO").trim().toUpperCase();
-  const currentCriteria = renderStudentPortalCriteriaPills_(currentLevel);
-  const nextCriteria = nextLevel ? renderStudentPortalCriteriaPills_(nextLevel) : "";
-
-  return `
-    <section class="student-portal-screen student-portal-screen-home">
-      <div class="student-portal-greeting">
-        <h2>Hola, ${escapeHtml(assistantFirstName)}!</h2>
-        <p>Vamos juntos en tu proceso de formacion.</p>
-      </div>
-
-      <article class="student-portal-home-card student-portal-stage-card">
-        <div class="student-portal-stage-card-head">
+    <section class="student-portal-screen student-portal-screen-profile-home">
+      <article class="student-portal-profile-summary-card">
+        <div class="student-portal-profile-summary-head">
           <div>
-            <span class="status-chip warning">Etapa actual</span>
-            <h3>${escapeHtml(currentStageName)}</h3>
+            <span class="pill neutral">Perfil</span>
+            <h2>${escapeHtml(profile?.nombreCompleto || context?.assistantName || "Participante")}</h2>
+            <p>Tu información base y el ministerio donde hoy formas parte.</p>
           </div>
-          ${renderStudentPortalCompactStatusBadge_(currentStatus)}
+          ${renderStudentPortalCompactStatusBadge_(context?.currentLevel?.status || context?.person?.tipoPersona || "EN_CURSO")}
         </div>
 
-        <div class="student-portal-stage-card-meta">
-          <span>${renderStudentPortalIcon_("calendar")} Inicio: ${escapeHtml(formatDate(currentLevel?.offering?.startDate || currentLevel?.enrollment?.startDate || "") || "Por confirmar")}</span>
-          <span>${renderStudentPortalIcon_("leader")} Lider: ${escapeHtml(leaderName)}</span>
+        <div class="student-portal-profile-grid">
+          ${renderStudentPortalMiniMetric_("Teléfono", String(profile?.telefono || "Sin teléfono"), profile?.email || "Sin correo", "neutral")}
+          ${renderStudentPortalMiniMetric_("Correo", String(profile?.email || "Sin correo"), profile?.numero ? `Folio ${String(profile.numero)}` : "Sin folio", "neutral")}
+          ${renderStudentPortalMiniMetric_("Ministerio principal", String(profile?.ministerioPrincipal || "Sin ministerio principal"), groupName, "neutral")}
+          ${renderStudentPortalMiniMetric_("Ministerios secundarios", ministrySecondary.length ? ministrySecondary.join(", ") : "Sin ministerios secundarios", profile?.tipoPersona || "Participante", "neutral")}
         </div>
-
-        <div class="student-portal-stage-progress">
-          <div class="student-portal-stage-progress-head">
-            <strong>Asistencia</strong>
-            <span>${escapeHtml(`${attendance.attendedSessions || 0} de ${attendance.totalSessions || 0} sesiones`)}</span>
-          </div>
-          ${renderStudentPortalProgressBar_(attendance)}
-          <div class="student-portal-stage-progress-foot">
-            <span>${escapeHtml(`${attendancePercent}%`)}</span>
-            <span>${escapeHtml(attendance.completed ? "Completado" : "En curso")}</span>
-          </div>
-        </div>
-
-        <div class="student-portal-section-head compact">
-          <div>
-            <h3>Criterios de aprobacion</h3>
-            <p>Debes cumplir estas reglas para desbloquear el siguiente paso.</p>
-          </div>
-        </div>
-        ${currentCriteria}
-
       </article>
 
-      ${nextLevel ? `
-        <article class="student-portal-home-card student-portal-stage-card">
-          <div class="student-portal-stage-card-head">
-            <div>
-              <span class="status-chip neutral">Siguiente paso</span>
-              <h3>${escapeHtml(nextLevel.levelName || "Por definir")}</h3>
-            </div>
-            ${renderStudentPortalCompactStatusBadge_(nextStatus)}
-          </div>
-
-          <p>${escapeHtml(
-            nextStatus === "BLOQUEADO"
-              ? `Este paso seguira bloqueado hasta que ${currentStageName} quede acreditado por tu lider.`
-              : "Este es tu siguiente paso disponible dentro del proceso."
-          )}</p>
-
-          ${nextCriteria}
-        </article>
-      ` : ""}
-
-      <section class="student-portal-card-list">
-        <div class="student-portal-section-head compact">
+      <article class="student-portal-summary-band">
+        <div class="student-portal-summary-band-copy">
+          <span>Tu avance actual</span>
+          <strong>${escapeHtml(context?.currentStageName || "Sin paso activo")}</strong>
+          <p>${escapeHtml(context?.levelDescription || "Tu portal te mostrará siempre el paso actual y el siguiente desbloqueable.")}</p>
+        </div>
+        <div class="student-portal-summary-band-metrics">
           <div>
-            <h3>Apoyo del lider</h3>
-            <p>Si tienes dudas, aqui tienes el contacto directo de tu acompañamiento.</p>
+            <strong>${escapeHtml(`${context?.routePercent || 0}%`)}</strong>
+            <span>ruta aprobada</span>
+          </div>
+          <div>
+            <strong>${escapeHtml(`${context?.attendancePercent || 0}%`)}</strong>
+            <span>asistencia actual</span>
           </div>
         </div>
-      </section>
+      </article>
 
       ${supportUrl ? `
         <a class="student-portal-primary-action" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">
           ${renderStudentPortalIcon_("whatsapp")}
-          <span>Soporte por WhatsApp</span>
+          <span>WhatsApp del líder</span>
         </a>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderStudentPortalConnectionScreen_(context) {
+  const connectionSeasons = Array.isArray(context?.connectionSeasons) ? context.connectionSeasons : [];
+  const selectedSeason = context?.selectedConnectionSeason || null;
+  const attendance = selectedSeason?.attendance || {
+    attendedSessions: 0,
+    capturedSessions: 0,
+    totalSessions: 0,
+    attendancePercent: 0
+  };
+
+  return `
+    <section class="student-portal-screen student-portal-screen-connection">
+      <article class="student-portal-section-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h2>Grupos de Conexión</h2>
+            <p>Elige la temporada y revisa tu grupo, líderes y asistencias registradas.</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Temporada</span>
+          <select id="student-portal-connection-season">
+            ${connectionSeasons.map((item) => `
+              <option value="${escapeHtml(item.seasonId || "")}" ${String(item?.seasonId || "") === String(context?.selectedConnectionSeasonId || "") ? "selected" : ""}>
+                ${escapeHtml(item?.seasonName || item?.seasonId || "Temporada")}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+      </article>
+
+      ${selectedSeason ? `
+        <article class="student-portal-profile-summary-card">
+          <div class="student-portal-profile-summary-head">
+            <div>
+              <span class="pill warning">Grupo actual</span>
+              <h2>${escapeHtml(selectedSeason.groupName || "Sin grupo")}</h2>
+              <p>${escapeHtml(selectedSeason.seasonName || "")}</p>
+            </div>
+            <span class="pill success">${escapeHtml(`${attendance.attendancePercent || 0}% asistencia`)}</span>
+          </div>
+
+          <div class="student-portal-profile-grid">
+            ${renderStudentPortalMiniMetric_("Asistencias", `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0}`, `${attendance.capturedSessions || 0} capturadas`, "neutral")}
+            ${renderStudentPortalMiniMetric_("Liderazgo", (selectedSeason.leaders || []).map((item) => item?.name).filter(Boolean).join(", ") || "Sin líderes", (selectedSeason.leaders || []).map((item) => item?.phone).filter(Boolean).join(" · ") || "Sin teléfonos", "neutral")}
+          </div>
+        </article>
+
+        <section class="student-portal-session-grid">
+          ${(selectedSeason.sessions || []).map((session) => `
+            <article class="student-portal-session-card status-${escapeHtml(String(session?.status || "PENDIENTE").toLowerCase())}">
+              <strong>${escapeHtml(session?.name || `Sesión ${session?.number || ""}`)}</strong>
+              <span>${escapeHtml(formatDate(session?.date || "") || session?.date || "Fecha por confirmar")}</span>
+              <small>${escapeHtml(
+                session?.status === "SI"
+                  ? "Asististe"
+                  : session?.status === "NO"
+                    ? "No asististe"
+                    : "Pendiente"
+              )}</small>
+            </article>
+          `).join("")}
+        </section>
+      ` : `
+        <section class="student-portal-loading-card">
+          <strong>Sin temporadas registradas</strong>
+          <span>Todavía no hay temporadas de Grupos de Conexión disponibles para tu cuenta.</span>
+        </section>
+      `}
+    </section>
+  `;
+}
+
+function renderStudentPortalFormationScreen_(context) {
+  const currentLevel = context?.currentLevelCard || null;
+  const nextLevel = context?.nextLevelCard || null;
+  const approvedLevels = Array.isArray(context?.approvedLevelsList) ? context.approvedLevelsList : [];
+  const sessionItems = Array.isArray(context?.sessionItems) ? context.sessionItems : [];
+
+  return `
+    <section class="student-portal-screen student-portal-screen-formation">
+      <article class="student-portal-section-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h2>Proceso de Formación</h2>
+            <p>Aquí ves claramente lo aprobado, el paso en curso y solo el siguiente paso que sigue.</p>
+          </div>
+        </div>
+      </article>
+
+      ${approvedLevels.map((level) => `
+        <article class="student-portal-journey-card status-acreditado">
+          <div class="student-portal-journey-card-head">
+            <div>
+              <h3>${escapeHtml(`Paso ${level?.order || ""}: ${level?.levelName || "Paso aprobado"}`)}</h3>
+              <p>${escapeHtml(`${level?.attendance?.attendedSessions || 0}/${level?.attendance?.totalSessions || 0} asistencias registradas`)}</p>
+            </div>
+            <span class="pill success">APROBADO</span>
+          </div>
+        </article>
+      `).join("")}
+
+      ${currentLevel ? `
+        <article class="student-portal-journey-card status-en_curso">
+          <div class="student-portal-journey-card-head">
+            <div>
+              <h3>${escapeHtml(`Paso ${currentLevel?.order || ""}: ${currentLevel?.levelName || "Paso actual"}`)}</h3>
+              <p>En curso</p>
+            </div>
+            <span class="pill warning">EN CURSO</span>
+          </div>
+
+          <div class="student-portal-profile-grid">
+            ${renderStudentPortalMiniMetric_("Asistencia", `${currentLevel?.attendance?.attendedSessions || 0}/${currentLevel?.attendance?.totalSessions || 0}`, `${getStudentPortalAttendancePercent_(currentLevel?.attendance || {})}% del paso`, "neutral")}
+            ${renderStudentPortalMiniMetric_("Criterio", currentLevel?.offering?.approvalMode === "EXAM" ? "Asistencia + examen" : currentLevel?.offering?.approvalMode === "BAPTISM_CONFIRMATION" ? "Confirmación de bautismo" : "Asistencia completa", currentLevel?.offering?.maxAbsences > 0 ? `Máx. ${currentLevel.offering.maxAbsences} faltas` : "Sin faltas permitidas", "neutral")}
+          </div>
+
+          <section class="student-portal-session-grid">
+            ${sessionItems.map((session) => `
+              <article class="student-portal-session-card status-${escapeHtml(String(session?.status || "PENDIENTE").toLowerCase())}">
+                <strong>${escapeHtml(`Sesión ${session?.sessionNumber || ""}`)}</strong>
+                <span>${escapeHtml(session?.label || "Pendiente")}</span>
+                <small>${escapeHtml(session?.copy || "")}</small>
+              </article>
+            `).join("")}
+          </section>
+        </article>
+      ` : ""}
+
+      ${nextLevel ? `
+        <article class="student-portal-journey-card status-bloqueado">
+          <div class="student-portal-journey-card-head">
+            <div>
+              <h3>${escapeHtml(`Paso ${nextLevel?.order || ""}: ${nextLevel?.levelName || "Siguiente paso"}`)}</h3>
+              <p>Se habilita al aprobar el paso actual.</p>
+            </div>
+            <span class="pill dark">${renderStudentPortalIcon_("lock")} Bloqueado</span>
+          </div>
+          ${renderStudentPortalCriteriaPills_(nextLevel)}
+        </article>
       ` : ""}
     </section>
   `;
@@ -20487,13 +20586,9 @@ async function handleClick(event) {
     }
 
     if (action === "set-student-portal-tab") {
-      const nextTab = String(button.dataset.tab || "").trim() || "home";
+      const nextTab = String(button.dataset.tab || "").trim() || "profile";
       state.ui.studentPortalTab = nextTab;
       state.ui.studentPortalMenuOpen = false;
-
-      if (nextTab !== "profile") {
-        state.ui.studentPortalProfileTab = "summary";
-      }
 
       renderApp();
       scrollViewportToTop_();
@@ -20630,6 +20725,7 @@ async function handleClick(event) {
         });
       }, "Actualizando tu formación...");
       renderApp();
+      scrollViewportToTop_();
       return;
     }
 
@@ -23029,8 +23125,10 @@ async function handleSubmit(event) {
       state.user = data.user;
       state.studentPortal = data.portal || null;
       state.loaded.studentPortal = Boolean(data.portal);
-      state.ui.studentPortalTab = "home";
+      state.ui.studentPortalTab = "profile";
       state.ui.studentPortalProfileTab = "summary";
+      state.ui.studentPortalMenuOpen = false;
+      state.ui.studentPortalConnectionSeasonId = String(data?.portal?.connectionSeasons?.[0]?.seasonId || "").trim();
       setStoredUser(data.user);
       state.currentView = "student-portal";
       renderApp();
@@ -23334,6 +23432,12 @@ async function handleChange(event) {
 
     if (target.id === "welcome-group") {
       state.filters.welcome.groupId = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "student-portal-connection-season") {
+      state.ui.studentPortalConnectionSeasonId = String(target.value || "").trim();
       renderApp();
       return;
     }
@@ -26705,8 +26809,9 @@ async function openFormationPortalPreview_(personId, options = {}) {
   const force = Boolean(options.force);
   state.ui.formationSection = "portal";
   state.ui.selectedFormationPortalPersonId = cleanPersonId;
-  state.ui.studentPortalTab = "home";
+  state.ui.studentPortalTab = "profile";
   state.ui.studentPortalProfileTab = "summary";
+  state.ui.studentPortalMenuOpen = false;
 
   await withLoading(async () => {
     await Promise.all([
@@ -36577,9 +36682,10 @@ function resetRuntimeState() {
     scrapSeasonPreview: null,
     selectedScrapFormationProcessId: "",
     scrapFormationProcessPreview: null,
-    studentPortalTab: "home",
+    studentPortalTab: "profile",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
+    studentPortalConnectionSeasonId: "",
     loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
   };
