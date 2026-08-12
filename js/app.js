@@ -262,6 +262,16 @@ const state = {
   formationPortalOfferings: [],
   formationPortalRoster: [],
   formationProcessRoster: [],
+  formationWorkspace: {
+    portal: {
+      processId: "",
+      rows: []
+    },
+    journey: {
+      processId: "",
+      rows: []
+    }
+  },
   formationAttendanceContext: null,
   connectionEncounterCandidates: [],
   studentPortal: null,
@@ -292,6 +302,8 @@ const state = {
     formationPortalOfferings: "",
     formationPortalRoster: "",
     formationProcessRoster: "",
+    formationWorkspacePortal: "",
+    formationWorkspaceJourney: "",
     formationAttendanceContext: "",
     connectionEncounterCandidates: ""
   },
@@ -315,6 +327,8 @@ const state = {
     formationPortalOfferings: false,
     formationPortalRoster: false,
     formationProcessRoster: false,
+    formationWorkspacePortal: false,
+    formationWorkspaceJourney: false,
     formationAttendanceContext: false,
     connectionEncounterCandidates: false,
     studentPortal: false
@@ -491,6 +505,20 @@ const state = {
       sessionNumber: "1",
       personSearch: "",
       captureMode: "manual"
+    },
+    formationPortal: {
+      processId: "",
+      levelId: "",
+      offeringId: "",
+      enrollmentStatus: "ALL",
+      search: "",
+      personSearch: ""
+    },
+    formationJourney: {
+      processId: "",
+      levelId: "",
+      enrollmentStatus: "ALL",
+      search: ""
     },
     admin: {
       userSearch: "",
@@ -1169,7 +1197,7 @@ function applyPortalAccountToStudentPortal_(personId, account) {
 }
 
 function getFormationPortalDefaultOffering_() {
-  const processId = String(state.filters.formationOps.processId || "").trim();
+  const processId = getSelectedFormationPortalProcessId_();
   const offerings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
     .filter((item) => !processId || String(item?.processId || "").trim() === processId)
     .slice()
@@ -1187,9 +1215,214 @@ function getFormationPortalDefaultOffering_() {
   return offerings[0] || null;
 }
 
+function getFormationPortalFilters_() {
+  if (!state.filters.formationPortal || typeof state.filters.formationPortal !== "object") {
+    state.filters.formationPortal = {
+      processId: "",
+      levelId: "",
+      offeringId: "",
+      enrollmentStatus: "ALL",
+      search: "",
+      personSearch: ""
+    };
+  }
+
+  return state.filters.formationPortal;
+}
+
+function getFormationJourneyFilters_() {
+  if (!state.filters.formationJourney || typeof state.filters.formationJourney !== "object") {
+    state.filters.formationJourney = {
+      processId: "",
+      levelId: "",
+      enrollmentStatus: "ALL",
+      search: ""
+    };
+  }
+
+  return state.filters.formationJourney;
+}
+
+function getSelectedFormationPortalProcessId_() {
+  const filters = getFormationPortalFilters_();
+  return String(filters.processId || state.filters.formationOps.processId || "").trim();
+}
+
+function getSelectedFormationJourneyProcessId_() {
+  const filters = getFormationJourneyFilters_();
+  return String(filters.processId || state.filters.formationOps.processId || "").trim();
+}
+
+function sortFormationEnrollmentRowsForView_(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .slice()
+    .sort((left, right) => {
+      const leftOrder = Number(left?.levelOrder || 0);
+      const rightOrder = Number(right?.levelOrder || 0);
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      const leftStart = parseDateToTimestamp_(left?.startDate || left?.enrolledAt || "", true);
+      const rightStart = parseDateToTimestamp_(right?.startDate || right?.enrolledAt || "", true);
+
+      if (leftStart !== rightStart) {
+        return leftStart - rightStart;
+      }
+
+      return String(left?.personName || "").localeCompare(String(right?.personName || ""));
+    });
+}
+
+function syncFormationPortalSelectionFromRows_(rows, options = {}) {
+  const portalFilters = getFormationPortalFilters_();
+  const sortedRows = sortFormationEnrollmentRowsForView_(rows);
+  const cleanProcessId = String(
+    portalFilters.processId
+    || options.processId
+    || sortedRows[0]?.processId
+    || state.filters.formationOps.processId
+    || ""
+  ).trim();
+  const currentOfferingId = String(portalFilters.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const preferredOfferingId = String(options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "").trim();
+  const availableOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
+    return !cleanProcessId || String(offering?.processId || "").trim() === cleanProcessId;
+  });
+
+  if (cleanProcessId) {
+    portalFilters.processId = cleanProcessId;
+  }
+
+  if (!sortedRows.length) {
+    return ensureFormationPortalSelection_({
+      preferredOfferingId
+    });
+  }
+
+  const rowsByOffering = new Map();
+  sortedRows.forEach((row) => {
+    const offeringId = String(row?.offeringId || "").trim();
+    if (!offeringId || rowsByOffering.has(offeringId)) {
+      return;
+    }
+    rowsByOffering.set(offeringId, row);
+  });
+
+  const chooseOfferingById = (offeringId) => {
+    const cleanOfferingId = String(offeringId || "").trim();
+    if (!cleanOfferingId || !rowsByOffering.has(cleanOfferingId)) {
+      return null;
+    }
+
+    return availableOfferings.find((offering) => String(offering?.id || "").trim() === cleanOfferingId)
+      || {
+        id: cleanOfferingId,
+        levelId: String(rowsByOffering.get(cleanOfferingId)?.levelId || "").trim()
+      };
+  };
+
+  const nextOffering = chooseOfferingById(currentOfferingId)
+    || chooseOfferingById(preferredOfferingId)
+    || chooseOfferingById(sortedRows[0]?.offeringId || "")
+    || null;
+
+  if (!nextOffering?.id) {
+    portalFilters.levelId = "";
+    portalFilters.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
+    return false;
+  }
+
+  const nextOfferingId = String(nextOffering.id || "").trim();
+  const fallbackRow = rowsByOffering.get(nextOfferingId) || sortedRows[0] || null;
+  const nextLevelId = String(nextOffering.levelId || fallbackRow?.levelId || "").trim();
+  const changed = nextOfferingId !== currentOfferingId || nextLevelId !== String(portalFilters.levelId || "").trim();
+
+  portalFilters.levelId = nextLevelId;
+  portalFilters.offeringId = nextOfferingId;
+  state.ui.selectedFormationOfferingId = nextOfferingId;
+  state.ui.lastFormationEnrolledOfferingId = nextOfferingId;
+
+  return changed;
+}
+
+function syncFormationJourneySelectionFromRows_(rows, options = {}) {
+  const journeyFilters = getFormationJourneyFilters_();
+  const sortedRows = sortFormationEnrollmentRowsForView_(rows);
+  const cleanProcessId = String(
+    journeyFilters.processId
+    || options.processId
+    || sortedRows[0]?.processId
+    || state.filters.formationOps.processId
+    || ""
+  ).trim();
+  const currentLevelId = String(journeyFilters.levelId || "").trim();
+  const levelStillExists = currentLevelId
+    ? sortedRows.some((row) => String(row?.levelId || "").trim() === currentLevelId)
+    : false;
+
+  if (cleanProcessId) {
+    journeyFilters.processId = cleanProcessId;
+  }
+
+  if (!levelStillExists) {
+    journeyFilters.levelId = "";
+  }
+
+  const selectedEnrollmentId = String(state.ui.selectedFormationEnrollmentId || "").trim();
+  const selectedPersonId = String(state.ui.selectedFormationPersonId || "").trim();
+  const enrollmentStillExists = selectedEnrollmentId
+    ? sortedRows.some((row) => String(row?.id || "").trim() === selectedEnrollmentId)
+    : false;
+  const personStillExists = selectedPersonId
+    ? sortedRows.some((row) => String(row?.personId || "").trim() === selectedPersonId)
+    : false;
+
+  if (!enrollmentStillExists) {
+    state.ui.selectedFormationEnrollmentId = "";
+  }
+
+  if (!personStillExists) {
+    state.ui.selectedFormationPersonId = "";
+  }
+}
+
+function syncFormationSectionFiltersAfterEnrollment_(enrollment, offering) {
+  const cleanProcessId = String(enrollment?.processId || offering?.processId || "").trim();
+  const cleanLevelId = String(enrollment?.levelId || offering?.levelId || "").trim();
+  const cleanOfferingId = String(enrollment?.offeringId || offering?.id || "").trim();
+  const portalFilters = getFormationPortalFilters_();
+  const journeyFilters = getFormationJourneyFilters_();
+
+  if (cleanProcessId) {
+    state.filters.formationOps.processId = cleanProcessId;
+    portalFilters.processId = cleanProcessId;
+    journeyFilters.processId = cleanProcessId;
+  }
+
+  if (cleanLevelId) {
+    state.filters.formationOps.levelId = cleanLevelId;
+    portalFilters.levelId = cleanLevelId;
+  }
+
+  if (cleanOfferingId) {
+    state.filters.formationOps.offeringId = cleanOfferingId;
+    portalFilters.offeringId = cleanOfferingId;
+    state.ui.selectedFormationOfferingId = cleanOfferingId;
+    state.ui.lastFormationEnrolledOfferingId = cleanOfferingId;
+  }
+
+  journeyFilters.levelId = "";
+  state.ui.selectedFormationEnrollmentId = String(enrollment?.id || "").trim();
+  state.ui.selectedFormationPersonId = String(enrollment?.personId || "").trim();
+}
+
 function getFilteredFormationPortalOfferings_() {
-  const processId = String(state.filters.formationOps.processId || "").trim();
-  const levelId = String(state.filters.formationOps.levelId || "").trim();
+  const filters = getFormationPortalFilters_();
+  const processId = String(filters.processId || state.filters.formationOps.processId || "").trim();
+  const levelId = String(filters.levelId || "").trim();
 
   return (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [])
     .filter((offering) => {
@@ -1213,8 +1446,9 @@ function getFilteredFormationPortalOfferings_() {
 }
 
 function getSelectedFormationPortalOffering_() {
-  const requestedId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "").trim();
-  const processId = String(state.filters.formationOps.processId || "").trim();
+  const filters = getFormationPortalFilters_();
+  const requestedId = String(filters.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const processId = String(filters.processId || state.filters.formationOps.processId || "").trim();
   const filteredOfferings = getFilteredFormationPortalOfferings_();
   const allOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
     return !processId || String(offering?.processId || "").trim() === processId;
@@ -1230,9 +1464,10 @@ function getSelectedFormationPortalOffering_() {
 }
 
 function ensureFormationPortalSelection_(options = {}) {
-  const processId = String(state.filters.formationOps.processId || "").trim();
-  const levelId = String(state.filters.formationOps.levelId || "").trim();
-  const requestedId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const filters = getFormationPortalFilters_();
+  const processId = String(filters.processId || state.filters.formationOps.processId || "").trim();
+  const levelId = String(filters.levelId || "").trim();
+  const requestedId = String(filters.offeringId || state.ui.selectedFormationOfferingId || "").trim();
   const preferredOfferingId = String(options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "").trim();
   const filteredOfferings = getFilteredFormationPortalOfferings_();
   const allOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
@@ -1257,11 +1492,11 @@ function ensureFormationPortalSelection_(options = {}) {
   }
 
   if (!nextOffering?.id) {
-    const changed = Boolean(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId);
-    state.filters.formationOps.offeringId = "";
+    const changed = Boolean(filters.offeringId || state.ui.selectedFormationOfferingId);
+    filters.offeringId = "";
     state.ui.selectedFormationOfferingId = "";
     if (!levelId) {
-      state.filters.formationOps.levelId = "";
+      filters.levelId = "";
     }
     return changed;
   }
@@ -1270,25 +1505,22 @@ function ensureFormationPortalSelection_(options = {}) {
   const nextOfferingId = String(nextOffering.id || "").trim();
   const changed = nextOfferingId !== requestedId || nextLevelId !== levelId;
 
-  state.filters.formationOps.levelId = nextLevelId;
-  state.filters.formationOps.offeringId = nextOfferingId;
+  filters.levelId = nextLevelId;
+  filters.offeringId = nextOfferingId;
   state.ui.selectedFormationOfferingId = nextOfferingId;
-
-  if (!state.filters.formationOps.sessionNumber) {
-    state.filters.formationOps.sessionNumber = "1";
-  }
 
   return changed;
 }
 
 function getFilteredFormationPortalRoster_(offeringId) {
+  const filters = getFormationPortalFilters_();
   const selectedOffering = getSelectedFormationPortalOffering_();
-  const normalizedOfferingId = String(offeringId || selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
-  const levelId = String(state.filters.formationOps.levelId || "").trim();
-  const search = normalizeText(state.filters.formationOps.search);
-  const status = String(state.filters.formationOps.enrollmentStatus || "ALL").toUpperCase();
+  const normalizedOfferingId = String(offeringId || selectedOffering?.id || filters.offeringId || "").trim();
+  const levelId = String(filters.levelId || "").trim();
+  const search = normalizeText(filters.search);
+  const status = String(filters.enrollmentStatus || "ALL").toUpperCase();
 
-  return (Array.isArray(state.formationPortalRoster) ? state.formationPortalRoster : [])
+  return getFormationPortalSourceRows_()
     .filter((enrollment) => {
       if (normalizedOfferingId && String(enrollment?.offeringId || "").trim() !== normalizedOfferingId) {
         return false;
@@ -1315,6 +1547,199 @@ function getFilteredFormationPortalRoster_(offeringId) {
       return !search || haystack.includes(search);
     })
     .sort((left, right) => String(left?.personName || "").localeCompare(String(right?.personName || "")));
+}
+
+async function getFormationPortalFreshRows_(processId, options = {}) {
+  const cleanProcessId = String(processId || "").trim();
+
+  if (!cleanProcessId) {
+    return [];
+  }
+
+  try {
+    const rows = await apiGet("formation.enrollments.list", {
+      processId: cleanProcessId,
+      skipSync: "1"
+    });
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (isUnknownActionError_(error, "formation.enrollments.list")) {
+      throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Inscritos y portal");
+    }
+
+    if (isFormationPortalRepositoryMissingError_(error)) {
+      throw new ApiError(
+        "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+        "BACKEND_OUTDATED",
+        {
+          file: "V2_44_FormationPortalRepository.gs"
+        }
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function getFormationJourneyFreshRows_(processId, options = {}) {
+  const cleanProcessId = String(processId || "").trim();
+
+  if (!cleanProcessId) {
+    return [];
+  }
+
+  try {
+    const rows = await apiGet("formation.enrollments.list", {
+      processId: cleanProcessId,
+      skipSync: "1"
+    });
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (isUnknownActionError_(error, "formation.enrollments.list")) {
+      throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Camino Proceso de Formación");
+    }
+
+    if (isFormationPortalRepositoryMissingError_(error)) {
+      throw new ApiError(
+        "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+        "BACKEND_OUTDATED",
+        {
+          file: "V2_44_FormationPortalRepository.gs"
+        }
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function loadFormationPortalWorkspaceFresh_(options = {}) {
+  ensureFormationWorkspaceState_();
+  const portalFilters = getFormationPortalFilters_();
+
+  await Promise.all([
+    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+      showLoading: false
+    }),
+    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  const selectedProcessId = String(
+    options.processId !== undefined
+      ? options.processId
+      : (portalFilters.processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
+  ).trim();
+
+  portalFilters.processId = selectedProcessId;
+
+  if (!selectedProcessId) {
+    state.formationWorkspace.portal = {
+      processId: "",
+      rows: []
+    };
+    state.formationPortalOfferings = [];
+    state.loaded.formationWorkspacePortal = true;
+    state.cacheKeys.formationWorkspacePortal = "EMPTY";
+    return [];
+  }
+
+  await loadFormationPortalOfferingsList_(selectedProcessId, "", {
+    force: Boolean(options.force),
+    showLoading: false
+  });
+
+  ensureFormationPortalSelection_({
+    preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
+  });
+
+  const cacheKey = `PROCESS::${selectedProcessId}`;
+  if (
+    !options.force
+    && state.loaded.formationWorkspacePortal
+    && String(state.cacheKeys.formationWorkspacePortal || "") === cacheKey
+    && String(state.formationWorkspace.portal?.processId || "") === selectedProcessId
+  ) {
+    return getFormationPortalSourceRows_();
+  }
+
+  const rows = await getFormationPortalFreshRows_(selectedProcessId, options);
+  state.formationWorkspace.portal = {
+    processId: selectedProcessId,
+    rows
+  };
+  state.formationPortalRoster = rows.slice();
+  syncFormationPortalSelectionFromRows_(rows, {
+    processId: selectedProcessId,
+    preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
+  });
+  state.loaded.formationWorkspacePortal = true;
+  state.cacheKeys.formationWorkspacePortal = cacheKey;
+  state.loaded.formationPortalRoster = true;
+  state.cacheKeys.formationPortalRoster = cacheKey;
+  return rows;
+}
+
+async function loadFormationJourneyWorkspaceFresh_(options = {}) {
+  ensureFormationWorkspaceState_();
+  const journeyFilters = getFormationJourneyFilters_();
+
+  await Promise.all([
+    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+      showLoading: false
+    }),
+    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  const selectedProcessId = String(
+    options.processId !== undefined
+      ? options.processId
+      : (journeyFilters.processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
+  ).trim();
+
+  journeyFilters.processId = selectedProcessId;
+
+  if (!selectedProcessId) {
+    state.formationWorkspace.journey = {
+      processId: "",
+      rows: []
+    };
+    state.loaded.formationWorkspaceJourney = true;
+    state.cacheKeys.formationWorkspaceJourney = "EMPTY";
+    state.formationProcessRoster = [];
+    state.loaded.formationProcessRoster = true;
+    state.cacheKeys.formationProcessRoster = "EMPTY";
+    state.ui.selectedFormationEnrollmentId = "";
+    return [];
+  }
+
+  const cacheKey = `PROCESS::${selectedProcessId}`;
+  if (
+    !options.force
+    && state.loaded.formationWorkspaceJourney
+    && String(state.cacheKeys.formationWorkspaceJourney || "") === cacheKey
+    && String(state.formationWorkspace.journey?.processId || "") === selectedProcessId
+  ) {
+    return getFormationJourneySourceRows_();
+  }
+
+  const rows = await getFormationJourneyFreshRows_(selectedProcessId, options);
+  state.formationWorkspace.journey = {
+    processId: selectedProcessId,
+    rows
+  };
+  state.formationProcessRoster = rows.slice();
+  syncFormationJourneySelectionFromRows_(rows, {
+    processId: selectedProcessId
+  });
+  state.loaded.formationWorkspaceJourney = true;
+  state.cacheKeys.formationWorkspaceJourney = cacheKey;
+  state.loaded.formationProcessRoster = true;
+  state.cacheKeys.formationProcessRoster = cacheKey;
+  return rows;
 }
 
 function getAssignableFormationPortalOfferingsForPerson_(personId) {
@@ -1558,6 +1983,91 @@ function getPreferredActiveFormationProcess_() {
   return rows.find((process) => String(process?.status || "").trim().toUpperCase() === "ACTIVO")
     || rows[0]
     || null;
+}
+
+function ensureFormationWorkspaceState_() {
+  if (!state.formationWorkspace || typeof state.formationWorkspace !== "object") {
+    state.formationWorkspace = {
+      portal: {
+        processId: "",
+        rows: []
+      },
+      journey: {
+        processId: "",
+        rows: []
+      }
+    };
+    return;
+  }
+
+  if (!state.formationWorkspace.portal || typeof state.formationWorkspace.portal !== "object") {
+    state.formationWorkspace.portal = {
+      processId: "",
+      rows: []
+    };
+  }
+
+  if (!state.formationWorkspace.journey || typeof state.formationWorkspace.journey !== "object") {
+    state.formationWorkspace.journey = {
+      processId: "",
+      rows: []
+    };
+  }
+}
+
+function invalidateFormationWorkspaceCache_(scope = "both") {
+  ensureFormationWorkspaceState_();
+  const cleanScope = String(scope || "both").trim().toLowerCase();
+
+  if (cleanScope === "portal" || cleanScope === "both") {
+    state.formationWorkspace.portal = {
+      processId: "",
+      rows: []
+    };
+    state.loaded.formationWorkspacePortal = false;
+    state.cacheKeys.formationWorkspacePortal = "";
+    state.loaded.formationPortalRoster = false;
+    state.cacheKeys.formationPortalRoster = "";
+    state.formationPortalRoster = [];
+  }
+
+  if (cleanScope === "journey" || cleanScope === "both") {
+    state.formationWorkspace.journey = {
+      processId: "",
+      rows: []
+    };
+    state.loaded.formationWorkspaceJourney = false;
+    state.cacheKeys.formationWorkspaceJourney = "";
+    state.loaded.formationProcessRoster = false;
+    state.cacheKeys.formationProcessRoster = "";
+    state.formationProcessRoster = [];
+  }
+}
+
+function getFormationPortalSourceRows_() {
+  ensureFormationWorkspaceState_();
+  const workspaceRows = Array.isArray(state.formationWorkspace.portal?.rows)
+    ? state.formationWorkspace.portal.rows
+    : [];
+
+  if (workspaceRows.length) {
+    return workspaceRows;
+  }
+
+  return Array.isArray(state.formationPortalRoster) ? state.formationPortalRoster : [];
+}
+
+function getFormationJourneySourceRows_() {
+  ensureFormationWorkspaceState_();
+  const workspaceRows = Array.isArray(state.formationWorkspace.journey?.rows)
+    ? state.formationWorkspace.journey.rows
+    : [];
+
+  if (workspaceRows.length) {
+    return workspaceRows;
+  }
+
+  return Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : [];
 }
 
 function ensureFormationPortalDefaultOffering_(options = {}) {
@@ -2488,9 +2998,11 @@ function getPreviousFormationOffering_(offering) {
 function getLatestFormationEnrollmentByPersonLevel_(personId, levelId) {
   const cleanPersonId = String(personId || "").trim();
   const cleanLevelId = String(levelId || "").trim();
-  const sourceRows = Array.isArray(state.formationProcessRoster) && state.formationProcessRoster.length
-    ? state.formationProcessRoster
-    : state.formationEnrollments;
+  const sourceRows = getFormationJourneySourceRows_().length
+    ? getFormationJourneySourceRows_()
+    : (getFormationPortalSourceRows_().length
+      ? getFormationPortalSourceRows_()
+      : (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []));
 
   if (!cleanPersonId || !cleanLevelId) {
     return null;
@@ -8354,10 +8866,10 @@ function renderFormationView_() {
       seasonId: state.filters.formation.seasonId || "",
       formationStatus: profile.person.estatusFormacion || "",
       currentLevel: profile.person.nivelFormacionActual || ""
-    } : null));
+  } : null));
   const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
-  const portalVisibleCount = Array.isArray(state.formationEnrollments) ? state.formationEnrollments.length : 0;
-  const operationsVisibleCount = Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster.length : 0;
+  const portalVisibleCount = getFormationPortalSourceRows_().length;
+  const operationsVisibleCount = getFormationJourneySourceRows_().length;
   const routeVisibleCount = Array.isArray(candidates) ? candidates.length : 0;
   const processCount = Array.isArray(state.formationProcesses) ? state.formationProcesses.length : 0;
   const levelsCount = Array.isArray(state.formationCatalog) ? state.formationCatalog.length : 0;
@@ -10398,9 +10910,10 @@ function renderFormationPortalWorkspaceLegacy_(context) {
 }
 
 function buildFormationJourneyRows_(rows) {
+  const journeyFilters = getFormationJourneyFilters_();
   const grouped = new Map();
-  const search = normalizeText(state.filters.formationOps.search || "");
-  const status = String(state.filters.formationOps.enrollmentStatus || "ALL").toUpperCase();
+  const search = normalizeText(journeyFilters.search || "");
+  const status = String(journeyFilters.enrollmentStatus || "ALL").toUpperCase();
 
   (Array.isArray(rows) ? rows : []).forEach((row) => {
     const personId = String(row?.personId || "").trim();
@@ -10596,9 +11109,14 @@ function renderFormationJourneyRow_(journey) {
 }
 
 function renderFormationOperationsWorkspace_(context) {
+  const journeyFilters = getFormationJourneyFilters_();
   const selectedProcess = getSelectedFormationProcess_();
   const summary = buildFormationOperationsSummary_();
-  const journeyRows = buildFormationJourneyRows_(state.formationProcessRoster);
+  const selectedLevelId = String(journeyFilters.levelId || "").trim();
+  const journeySourceRows = getFormationJourneySourceRows_().filter((row) => {
+    return !selectedLevelId || String(row?.levelId || "").trim() === selectedLevelId;
+  });
+  const journeyRows = buildFormationJourneyRows_(journeySourceRows);
   const selectedEnrollment = getSelectedFormationJourneyEnrollment_(journeyRows);
   const selectedJourney = selectedEnrollment
     ? journeyRows.find((journey) => String(journey?.currentEnrollmentId || "") === String(selectedEnrollment?.id || "")) || null
@@ -10665,7 +11183,7 @@ function renderFormationOperationsWorkspace_(context) {
                 value: process.id,
                 label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
               })),
-              selectedProcess?.id || state.filters.formationOps.processId,
+              selectedProcess?.id || journeyFilters.processId,
               "Selecciona proceso"
             )}
           </select>
@@ -10678,7 +11196,7 @@ function renderFormationOperationsWorkspace_(context) {
                 value: level.id,
                 label: `${level.name} (${level.order})`
               })),
-              state.filters.formationOps.levelId,
+              journeyFilters.levelId,
               "Todos los pasos"
             )}
           </select>
@@ -10691,12 +11209,12 @@ function renderFormationOperationsWorkspace_(context) {
               { value: "EN_CURSO", label: "En curso" },
               { value: "ACREDITADO", label: "Acreditado" },
               { value: "NO_ACREDITADO", label: "No acreditado" }
-            ], state.filters.formationOps.enrollmentStatus, "Todos los estatus")}
+            ], journeyFilters.enrollmentStatus, "Todos los estatus")}
           </select>
         </div>
         <div class="field">
           <label for="formation-ops-search">Buscar inscrito</label>
-          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, teléfono o paso actual">
+          <input id="formation-ops-search" value="${escapeHtml(journeyFilters.search || "")}" placeholder="Nombre, QR ID, teléfono o paso actual">
         </div>
       </div>
     </article>
@@ -10846,6 +11364,7 @@ function renderFormationOperationsWorkspace_(context) {
 }
 
 function renderFormationPortalWorkspace_(context) {
+  const portalFilters = getFormationPortalFilters_();
   const selectedProcess = getSelectedFormationProcess_();
   const selectedOffering = getSelectedFormationPortalOffering_();
   const filteredOfferings = getFilteredFormationPortalOfferings_();
@@ -10888,7 +11407,7 @@ function renderFormationPortalWorkspace_(context) {
                 value: process.id,
                 label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
               })),
-              selectedProcess?.id || state.filters.formationOps.processId,
+              selectedProcess?.id || portalFilters.processId,
               "Selecciona proceso"
             )}
           </select>
@@ -10901,7 +11420,7 @@ function renderFormationPortalWorkspace_(context) {
                 value: level.id,
                 label: `${level.name} (${level.order})`
               })),
-              state.filters.formationOps.levelId,
+              portalFilters.levelId,
               "Todos los pasos"
             )}
           </select>
@@ -10914,7 +11433,7 @@ function renderFormationPortalWorkspace_(context) {
                 value: offering.id,
                 label: `${offering.levelName} | ${offering.name}`
               })),
-              selectedOffering?.id || state.filters.formationOps.offeringId,
+              selectedOffering?.id || portalFilters.offeringId,
               "Selecciona paso"
             )}
           </select>
@@ -10927,12 +11446,12 @@ function renderFormationPortalWorkspace_(context) {
               { value: "EN_CURSO", label: "En curso" },
               { value: "ACREDITADO", label: "Acreditado" },
               { value: "NO_ACREDITADO", label: "No acreditado" }
-            ], state.filters.formationOps.enrollmentStatus, "Todos los estatus")}
+            ], portalFilters.enrollmentStatus, "Todos los estatus")}
           </select>
         </div>
         <div class="field" style="grid-column: 1 / -1;">
           <label for="formation-ops-search">Buscar inscrito</label>
-          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, paso o teléfono">
+          <input id="formation-ops-search" value="${escapeHtml(portalFilters.search || "")}" placeholder="Nombre, QR ID, paso o teléfono">
         </div>
       </div>
     </article>
@@ -10981,7 +11500,7 @@ function renderFormationPortalWorkspace_(context) {
             <div class="field-grid two formation-ops-toolbar" style="margin-top: 18px;">
               <div class="field">
                 <label for="formation-ops-person-search">Buscar persona a inscribir</label>
-                <input id="formation-ops-person-search" value="${escapeHtml(state.filters.formationOps.personSearch || "")}" placeholder="Nombre, QR ID, número o teléfono">
+                <input id="formation-ops-person-search" value="${escapeHtml(portalFilters.personSearch || "")}" placeholder="Nombre, QR ID, número o teléfono">
               </div>
               <div class="field">
                 <label>Lote listo</label>
@@ -11041,7 +11560,7 @@ function renderFormationPortalWorkspace_(context) {
                   </div>
                 </article>
               `).join("") : `
-                <div class="empty-state">${state.filters.formationOps.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya quedaron inscritas en este proceso." : "Escribe un nombre, QR ID, número o teléfono para empezar a formar el lote del Paso 1."}</div>
+                <div class="empty-state">${portalFilters.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya quedaron inscritas en este proceso." : "Escribe un nombre, QR ID, número o teléfono para empezar a formar el lote del Paso 1."}</div>
               `}
             </div>
           </article>
@@ -20983,19 +21502,31 @@ async function handleClick(event) {
 
     if (action === "set-formation-section") {
       state.ui.formationSection = normalizeFormationSection_(button.dataset.sectionKey || "");
+      const portalFilters = getFormationPortalFilters_();
+      const journeyFilters = getFormationJourneyFilters_();
       setFormationFilterBusy_(false, "");
       clearFormationSectionLoading_();
       if (state.ui.formationSection === "route") {
         clearFormationProfileSelection_();
       }
       if (state.ui.formationSection === "portal") {
-        state.filters.formationOps.levelId = "";
-        state.filters.formationOps.offeringId = "";
+        if (!portalFilters.processId && state.filters.formationOps.processId) {
+          portalFilters.processId = state.filters.formationOps.processId;
+        }
         state.ui.selectedFormationOfferingId = "";
       }
-      if (state.ui.formationSection === "portal" || state.ui.formationSection === "operations") {
-        state.filters.formationOps.search = "";
-        state.filters.formationOps.enrollmentStatus = "ALL";
+      if (state.ui.formationSection === "operations") {
+        if (!journeyFilters.processId && state.filters.formationOps.processId) {
+          journeyFilters.processId = state.filters.formationOps.processId;
+        }
+      }
+      if (state.ui.formationSection === "portal") {
+        portalFilters.search = "";
+        portalFilters.enrollmentStatus = "ALL";
+      }
+      if (state.ui.formationSection === "operations") {
+        journeyFilters.search = "";
+        journeyFilters.enrollmentStatus = "ALL";
       }
       renderApp();
       if (state.ui.formationSection === "attendance") {
@@ -21067,9 +21598,7 @@ async function handleClick(event) {
         state.ui.formationSection = "route";
         clearFormationProfileSelection_();
         state.filters.formationOps.personSearch = "";
-        state.formationProcessRoster = [];
-        state.loaded.formationProcessRoster = false;
-        state.cacheKeys.formationProcessRoster = "";
+        invalidateFormationWorkspaceCache_("both");
       }
       state.ui.mobileNavOpen = false;
       renderApp();
@@ -23766,14 +24295,25 @@ async function handleChange(event) {
       const activeFormationSection = state.currentView === "formation"
         ? getActiveFormationSection_()
         : "";
+      const portalFilters = getFormationPortalFilters_();
+      const journeyFilters = getFormationJourneyFilters_();
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
       if (attendanceFormationSection) {
         formationAttendanceScannerRuntime.enabled = false;
         stopFormationAttendanceScanner_();
       }
-      state.filters.formationOps.processId = target.value || "";
-      state.filters.formationOps.levelId = "";
-      state.filters.formationOps.offeringId = "";
+      if (activeFormationSection === "portal") {
+        portalFilters.processId = target.value || "";
+        portalFilters.levelId = "";
+        portalFilters.offeringId = "";
+      } else if (activeFormationSection === "operations") {
+        journeyFilters.processId = target.value || "";
+        journeyFilters.levelId = "";
+      } else {
+        state.filters.formationOps.processId = target.value || "";
+        state.filters.formationOps.levelId = "";
+        state.filters.formationOps.offeringId = "";
+      }
       state.ui.selectedFormationOfferingId = "";
       state.ui.editingFormationOfferingId = "";
       clearQrScannerFeedbackResult_();
@@ -23801,14 +24341,14 @@ async function handleChange(event) {
         await ensureFormationPortalSectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId,
+          processId: portalFilters.processId,
           sessionNumber: "1"
         });
       } else if (activeFormationSection === "operations") {
         await ensureFormationJourneySectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId
+          processId: journeyFilters.processId
         });
       } else {
         await loadFormationAttendanceBootstrap_({
@@ -23836,13 +24376,22 @@ async function handleChange(event) {
       const activeFormationSection = state.currentView === "formation"
         ? getActiveFormationSection_()
         : "";
+      const portalFilters = getFormationPortalFilters_();
+      const journeyFilters = getFormationJourneyFilters_();
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
       if (attendanceFormationSection) {
         formationAttendanceScannerRuntime.enabled = false;
         stopFormationAttendanceScanner_();
       }
-      state.filters.formationOps.levelId = target.value;
-      state.filters.formationOps.offeringId = "";
+      if (activeFormationSection === "portal") {
+        portalFilters.levelId = target.value;
+        portalFilters.offeringId = "";
+      } else if (activeFormationSection === "operations") {
+        journeyFilters.levelId = target.value;
+      } else {
+        state.filters.formationOps.levelId = target.value;
+        state.filters.formationOps.offeringId = "";
+      }
       state.ui.selectedFormationOfferingId = "";
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
@@ -23869,15 +24418,16 @@ async function handleChange(event) {
         await ensureFormationPortalSectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId,
-          levelId: state.filters.formationOps.levelId,
+          processId: portalFilters.processId,
+          levelId: portalFilters.levelId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
       } else if (activeFormationSection === "operations") {
         await ensureFormationJourneySectionData_({
           force: true,
           showLoading: false,
-          levelId: state.filters.formationOps.levelId,
+          processId: journeyFilters.processId,
+          levelId: journeyFilters.levelId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
       } else {
@@ -23896,12 +24446,17 @@ async function handleChange(event) {
       const activeFormationSection = state.currentView === "formation"
         ? getActiveFormationSection_()
         : "";
+      const portalFilters = getFormationPortalFilters_();
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
       if (attendanceFormationSection) {
         formationAttendanceScannerRuntime.enabled = false;
         stopFormationAttendanceScanner_();
       }
-      state.filters.formationOps.offeringId = target.value;
+      if (activeFormationSection === "portal") {
+        portalFilters.offeringId = target.value;
+      } else {
+        state.filters.formationOps.offeringId = target.value;
+      }
       state.ui.selectedFormationOfferingId = target.value;
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
@@ -23925,9 +24480,9 @@ async function handleChange(event) {
         await ensureFormationPortalSectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId,
-          levelId: state.filters.formationOps.levelId,
-          offeringId: state.filters.formationOps.offeringId,
+          processId: portalFilters.processId,
+          levelId: portalFilters.levelId,
+          offeringId: portalFilters.offeringId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
       }
@@ -23966,8 +24521,15 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-enrollment-status") {
-      state.filters.formationOps.enrollmentStatus = target.value || "ALL";
-      syncFormationOperationsSelection_();
+      if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+        getFormationPortalFilters_().enrollmentStatus = target.value || "ALL";
+      } else if (state.currentView === "formation" && getActiveFormationSection_() === "operations") {
+        getFormationJourneyFilters_().enrollmentStatus = target.value || "ALL";
+        syncFormationOperationsSelection_();
+      } else {
+        state.filters.formationOps.enrollmentStatus = target.value || "ALL";
+        syncFormationOperationsSelection_();
+      }
       renderApp();
       return;
     }
@@ -24088,14 +24650,25 @@ function handleInput(event) {
   }
 
   if (target.id === "formation-ops-search") {
-    state.filters.formationOps.search = target.value;
-    syncFormationOperationsSelection_();
+    if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+      getFormationPortalFilters_().search = target.value;
+    } else if (state.currentView === "formation" && getActiveFormationSection_() === "operations") {
+      getFormationJourneyFilters_().search = target.value;
+      syncFormationOperationsSelection_();
+    } else {
+      state.filters.formationOps.search = target.value;
+      syncFormationOperationsSelection_();
+    }
     rerenderPreservingInputDebounced_(target, "formation-ops-search");
     return;
   }
 
   if (target.id === "formation-ops-person-search") {
-    state.filters.formationOps.personSearch = target.value;
+    if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+      getFormationPortalFilters_().personSearch = target.value;
+    } else {
+      state.filters.formationOps.personSearch = target.value;
+    }
     rerenderPreservingInputDebounced_(target, "formation-ops-person-search");
     return;
   }
@@ -26575,15 +27148,20 @@ async function ensureFormationOperationsViewData_(options = {}) {
 async function ensureFormationPortalSectionData_(options = {}) {
   const task = async (setProgress = () => {}) => {
     state.ui.pendingFormationEnrollmentPersonId = "";
+    const effectiveProcessId = String(
+      options.processId !== undefined && String(options.processId || "").trim()
+        ? options.processId
+        : (getSelectedFormationPortalProcessId_()
+          || getPreferredActiveFormationProcess_()?.id
+          || state.formationProcesses[0]?.id
+          || "")
+    ).trim();
     setProgress(18, "Preparando filtros del proceso...", "Sincronizando proceso, paso y oferta visible.");
-    await loadFormationPortalWorkspaceData_({
+    await loadFormationPortalWorkspaceFresh_({
       force: options.force,
       showLoading: false,
-      processId: options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""),
-      levelId: options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || ""),
-      offeringId: options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || ""),
-      preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "",
-      sessionNumber: state.filters.formationOps.sessionNumber || "1"
+      processId: effectiveProcessId,
+      preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
     });
     setProgress(88, "Armando inscritos y accesos...", "Ya estamos organizando la lista visible y los datos de acceso.");
   };
@@ -26603,6 +27181,7 @@ async function ensureFormationPortalSectionData_(options = {}) {
 
 async function ensureFormationJourneySectionData_(options = {}) {
   const task = async (setProgress = () => {}) => {
+    const journeyFilters = getFormationJourneyFilters_();
     setProgress(16, "Cargando procesos y catálogo...", "Primero reunimos el proceso activo y sus pasos disponibles.");
     await Promise.all([
       state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
@@ -26613,31 +27192,26 @@ async function ensureFormationJourneySectionData_(options = {}) {
       })
     ]);
 
-    if (!state.filters.formationOps.processId && state.formationProcesses.length) {
-      state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
-    }
+    const effectiveProcessId = String(
+      options.processId !== undefined && String(options.processId || "").trim()
+        ? options.processId
+        : (journeyFilters.processId
+          || state.filters.formationOps.processId
+          || getPreferredActiveFormationProcess_()?.id
+          || state.formationProcesses[0]?.id
+          || "")
+    ).trim();
 
-    state.filters.formationOps.levelId = "";
-    state.filters.formationOps.offeringId = "";
-    state.ui.selectedFormationOfferingId = "";
+    if (effectiveProcessId) {
+      journeyFilters.processId = effectiveProcessId;
+    }
 
     setProgress(52, "Cargando inscritos del proceso...", "Estamos trayendo únicamente el listado del camino para no frenar la vista.");
-    await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
+    await loadFormationJourneyWorkspaceFresh_({
       force: options.force,
       showLoading: false,
-      levelId: ""
+      processId: effectiveProcessId
     });
-
-    if (!state.formationProcessRoster.length) {
-      const fallback = await loadFormationProcessRosterFallback_(state.filters.formationOps.processId || "");
-
-      if (fallback.processId && fallback.rows.length) {
-        state.filters.formationOps.processId = fallback.processId;
-        state.formationProcessRoster = fallback.rows;
-        state.loaded.formationProcessRoster = true;
-        state.cacheKeys.formationProcessRoster = `PROCESS::${fallback.processId}`;
-      }
-    }
 
     setProgress(88, "Armando camino visible...", "Ya estamos acomodando paso actual, aprobado y siguiente paso.");
   };
@@ -28994,12 +29568,7 @@ async function commitFormationEnrollmentToOffering_(personId, offering, options 
   }
 
   state.filters.formationOps.personSearch = "";
-  state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || "";
-  state.filters.formationOps.processId = String(response?.enrollment?.processId || selectedOffering?.processId || state.filters.formationOps.processId || "").trim();
-  state.filters.formationOps.levelId = String(response?.enrollment?.levelId || selectedOffering?.levelId || state.filters.formationOps.levelId || "").trim();
-  state.filters.formationOps.offeringId = String(response?.enrollment?.offeringId || selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
-  state.ui.selectedFormationOfferingId = state.filters.formationOps.offeringId;
-  state.ui.lastFormationEnrolledOfferingId = state.filters.formationOps.offeringId;
+  syncFormationSectionFiltersAfterEnrollment_(response?.enrollment || null, selectedOffering);
   state.filters.formationOps.enrollmentStatus = "ALL";
   state.filters.formationOps.search = "";
 
@@ -29049,17 +29618,26 @@ async function assignFormationEnrollment_(personId) {
   }
 
   state.ui.pendingFormationEnrollmentPersonId = "";
-  state.loaded.formationPortalRoster = false;
-  state.cacheKeys.formationPortalRoster = "";
-  state.formationPortalRoster = [];
-  state.ui.formationSection = "route";
+  invalidateFormationWorkspaceCache_("both");
+  await ensureFormationPortalSectionData_({
+    force: true,
+    showLoading: false,
+    processId: getFormationPortalFilters_().processId || state.filters.formationOps.processId || "",
+    preferredOfferingId: getFormationPortalFilters_().offeringId || selectedOffering?.id || ""
+  });
+  await ensureFormationJourneySectionData_({
+    force: true,
+    showLoading: false,
+    processId: getFormationJourneyFilters_().processId || getFormationPortalFilters_().processId || state.filters.formationOps.processId || ""
+  });
+  state.ui.formationSection = "portal";
   renderApp();
-  scrollToSection_("formation-route-workspace");
+  scrollToSection_("formation-portal-workspace");
   showToast(
     result.response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción confirmada",
     result.response?.account?.temporaryPin
-      ? `La persona quedó inscrita en ${result.response?.enrollment?.offeringName || result.response?.enrollment?.levelName || result.offering?.levelName || "este paso"}. Usuario ${result.response.account.username} con PIN temporal ${result.response.account.temporaryPin}. Sigue con los demás y después entra a Inscritos y portal, elige Encuentro y pulsa Actualizar inscritos.`
-      : `${result.person?.nombreCompleto || result.person?.nombre || result.person?.personName || "La persona"} ya quedó inscrita en ${result.response?.enrollment?.offeringName || result.response?.enrollment?.levelName || result.offering?.levelName || "este paso"}. Sigue con los demás y después entra a Inscritos y portal, elige Encuentro y pulsa Actualizar inscritos.`,
+      ? `La persona quedó inscrita en ${result.response?.enrollment?.offeringName || result.response?.enrollment?.levelName || result.offering?.levelName || "este paso"}. Usuario ${result.response.account.username} con PIN temporal ${result.response.account.temporaryPin}. Ya te dejé abierta la subficha Inscritos y portal para validarlo de inmediato.`
+      : `${result.person?.nombreCompleto || result.person?.nombre || result.person?.personName || "La persona"} ya quedó inscrita en ${result.response?.enrollment?.offeringName || result.response?.enrollment?.levelName || result.offering?.levelName || "este paso"}. Ya te dejé abierta la subficha Inscritos y portal para validarlo de inmediato.`,
     "success"
   );
 }
@@ -29122,6 +29700,8 @@ async function assignFormationSelectedBulk_() {
   const selectedOffering = state.ui.formationSection === "portal"
     ? getSelectedFormationPortalOffering_()
     : getSelectedFormationOffering_();
+  const portalFilters = getFormationPortalFilters_();
+  const journeyFilters = getFormationJourneyFilters_();
   const selectedPeople = getSelectedBulkPeople_().filter((person) => {
     return canAssignPersonToFormationOffering_(person?.id || "", selectedOffering);
   });
@@ -29159,24 +29739,24 @@ async function assignFormationSelectedBulk_() {
   }, `Inscribiendo ${personIds.length} personas al Paso 1...`);
 
   state.selectedBulkPeople = [];
-  state.filters.formationOps.personSearch = "";
-  state.loaded.formationPortalRoster = false;
-  state.cacheKeys.formationPortalRoster = "";
-  state.formationPortalRoster = [];
+  portalFilters.personSearch = "";
+  syncFormationSectionFiltersAfterEnrollment_(response?.sampleEnrollment || response?.lastEnrollment || null, selectedOffering);
+  if (!journeyFilters.processId) {
+    journeyFilters.processId = portalFilters.processId || state.filters.formationOps.processId || "";
+  }
+  invalidateFormationWorkspaceCache_("both");
   await ensureFormationPortalSectionData_({
     force: true,
     showLoading: false,
-    processId: state.filters.formationOps.processId,
-    levelId: state.filters.formationOps.levelId,
-    offeringId: selectedOffering.id,
-    sessionNumber: state.filters.formationOps.sessionNumber || "1"
+    processId: portalFilters.processId || state.filters.formationOps.processId || "",
+    preferredOfferingId: selectedOffering.id
   });
   await ensureFormationJourneySectionData_({
     force: true,
     showLoading: false,
-    processId: state.filters.formationOps.processId,
-    levelId: ""
+    processId: journeyFilters.processId || portalFilters.processId || state.filters.formationOps.processId || ""
   });
+  state.ui.formationSection = "portal";
   renderApp();
   showToast(
     "Inscripción manual completada",
@@ -29271,10 +29851,11 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
   state.ui.selectedFormationPersonId = String(response?.enrollment?.personId || previousSelectedPersonId || "").trim();
   state.filters.formationOps.search = "";
   state.filters.formationOps.enrollmentStatus = "ALL";
-  await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
+  invalidateFormationWorkspaceCache_("both");
+  await ensureFormationJourneySectionData_({
     force: true,
     showLoading: false,
-    levelId: ""
+    processId: state.filters.formationOps.processId || ""
   });
 
   if (response?.enrollment?.personId && String(state.formationProfile?.person?.id || "") === String(response.enrollment.personId || "")) {
@@ -29345,19 +29926,17 @@ async function executeFormationAdminRemoveEnrollment_(enrollmentId, personId) {
     });
   }
 
+  invalidateFormationWorkspaceCache_("both");
   await ensureFormationPortalSectionData_({
     force: true,
     showLoading: false,
     processId: state.filters.formationOps.processId,
-    levelId: state.filters.formationOps.levelId,
-    offeringId: state.filters.formationOps.offeringId,
-    sessionNumber: state.filters.formationOps.sessionNumber || "1"
+    preferredOfferingId: state.filters.formationOps.offeringId
   });
   await ensureFormationJourneySectionData_({
     force: true,
     showLoading: false,
-    processId: state.filters.formationOps.processId,
-    levelId: state.filters.formationOps.levelId || ""
+    processId: state.filters.formationOps.processId
   });
   state.ui.selectedFormationEnrollmentId = "";
   renderApp();
@@ -29540,16 +30119,21 @@ async function registerFormationEncounter_(candidate) {
     );
     renderApp();
 
-    state.ui.lastFormationEnrolledOfferingId = String(result.response?.enrollment?.offeringId || firstEligibleOffering.id || "").trim();
-    state.filters.formationOps.processId = String(result.response?.enrollment?.processId || preferredProcessId || "").trim();
-    state.filters.formationOps.levelId = String(result.response?.enrollment?.levelId || firstEligibleOffering.levelId || "").trim();
-    state.filters.formationOps.offeringId = String(result.response?.enrollment?.offeringId || firstEligibleOffering.id || "").trim();
-    state.ui.selectedFormationOfferingId = state.filters.formationOps.offeringId;
+    syncFormationSectionFiltersAfterEnrollment_(result.response?.enrollment || null, firstEligibleOffering);
     state.ui.pendingFormationEnrollmentPersonId = "";
-    state.loaded.formationPortalRoster = false;
-    state.cacheKeys.formationPortalRoster = "";
-    state.formationPortalRoster = [];
-    state.ui.formationSection = "route";
+    invalidateFormationWorkspaceCache_("both");
+    await ensureFormationPortalSectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationPortalFilters_().processId || preferredProcessId || "",
+      preferredOfferingId: getFormationPortalFilters_().offeringId || firstEligibleOffering.id || ""
+    });
+    await ensureFormationJourneySectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationJourneyFilters_().processId || getFormationPortalFilters_().processId || preferredProcessId || ""
+    });
+    state.ui.formationSection = "portal";
     setFormationRouteEnrollmentProgress_(
       candidate.personId,
       100,
@@ -30226,8 +30810,7 @@ function applyScrapResetFormationProcessLocally_(processId) {
 
   state.loaded.formationEnrollments = false;
   state.cacheKeys.formationEnrollments = "";
-  state.loaded.formationProcessRoster = false;
-  state.cacheKeys.formationProcessRoster = "";
+  invalidateFormationWorkspaceCache_("both");
 }
 
 function applyDeleteFormationLevelLocally_(levelId) {
@@ -33871,7 +34454,12 @@ function getFilteredFormationRecords_() {
 }
 
 function getSelectedFormationProcess_() {
-  const requestedId = String(state.filters.formationOps.processId || "");
+  const sectionKey = state.currentView === "formation" ? getActiveFormationSection_() : "";
+  const requestedId = sectionKey === "portal"
+    ? getSelectedFormationPortalProcessId_()
+    : (sectionKey === "operations"
+      ? getSelectedFormationJourneyProcessId_()
+      : String(state.filters.formationOps.processId || ""));
   const rows = Array.isArray(state.formationProcesses) ? state.formationProcesses : [];
 
   if (requestedId) {
@@ -34088,7 +34676,7 @@ function getFormationAttendanceParticipants_(attendanceContext, filteredEnrollme
 }
 
 function getFormationEnrollmentSearchResults_(selectedOffering) {
-  const search = normalizeText(state.filters.formationOps.personSearch);
+  const search = normalizeText(getFormationPortalFilters_().personSearch);
   const pendingCandidate = getFormationPendingEnrollmentCandidate_();
 
   if (!selectedOffering) {
@@ -34139,9 +34727,9 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
 function getFormationManualEnrollmentCandidates_(selectedOffering) {
   const cleanOfferingId = String(selectedOffering?.id || "").trim();
   const cleanProcessId = String(selectedOffering?.processId || "").trim();
-  const search = normalizeText(state.filters.formationOps.personSearch);
+  const search = normalizeText(getFormationPortalFilters_().personSearch);
   const portalSectionActive = state.ui.formationSection === "portal";
-  const portalRoster = Array.isArray(state.formationPortalRoster) ? state.formationPortalRoster : [];
+  const portalRoster = getFormationPortalSourceRows_();
   const enrolledRosterSource = portalSectionActive ? portalRoster : (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []);
   const sourceMap = new Map();
   (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).forEach((person) => {
@@ -34170,7 +34758,7 @@ function getFormationManualEnrollmentCandidates_(selectedOffering) {
       .filter(Boolean)
   );
   const enrolledInProcess = new Set(
-    (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : [])
+    (getFormationJourneySourceRows_().length ? getFormationJourneySourceRows_() : portalRoster)
       .filter((enrollment) => !cleanProcessId || String(enrollment?.processId || "").trim() === cleanProcessId)
       .map((enrollment) => String(enrollment?.personId || "").trim())
       .filter(Boolean)
@@ -34211,7 +34799,10 @@ function getFormationManualEnrollmentCandidates_(selectedOffering) {
 }
 
 function buildFormationOperationsSummary_() {
-  const enrollmentRows = Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [];
+  const workspaceRows = getFormationJourneySourceRows_();
+  const enrollmentRows = workspaceRows.length
+    ? workspaceRows
+    : (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []);
   const summary = {
     processes: state.formationProcesses.length,
     offerings: state.formationOfferings.length,
@@ -36658,6 +37249,16 @@ function resetRuntimeState() {
   state.formationPortalOfferings = [];
   state.formationPortalRoster = [];
   state.formationProcessRoster = [];
+  state.formationWorkspace = {
+    portal: {
+      processId: "",
+      rows: []
+    },
+    journey: {
+      processId: "",
+      rows: []
+    }
+  };
   state.formationAttendanceContext = null;
   state.connectionEncounterCandidates = [];
   state.studentPortal = null;
@@ -36688,6 +37289,8 @@ function resetRuntimeState() {
     formationPortalOfferings: "",
     formationPortalRoster: "",
     formationProcessRoster: "",
+    formationWorkspacePortal: "",
+    formationWorkspaceJourney: "",
     formationAttendanceContext: "",
     connectionEncounterCandidates: ""
   };
@@ -36711,6 +37314,8 @@ function resetRuntimeState() {
     formationPortalOfferings: false,
     formationPortalRoster: false,
     formationProcessRoster: false,
+    formationWorkspacePortal: false,
+    formationWorkspaceJourney: false,
     formationAttendanceContext: false,
     connectionEncounterCandidates: false,
     studentPortal: false
