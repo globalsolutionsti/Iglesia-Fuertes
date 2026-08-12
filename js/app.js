@@ -1426,9 +1426,11 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
   });
 
   const selectedOffering = getSelectedFormationPortalOffering_();
-  const rosterCacheKey = `${preferredProcessId || "ALL"}::${preferredLevelId || "ALL"}::${String(selectedOffering?.id || "NONE").trim() || "NONE"}`;
+  const availableOfferings = getFilteredFormationPortalOfferings_();
+  const selectedOfferingId = String(selectedOffering?.id || "").trim();
+  const rosterCacheKey = `${preferredProcessId || "ALL"}::${preferredLevelId || "ALL"}::${selectedOfferingId || "PROCESS"}`;
 
-  if (!selectedOffering?.id) {
+  if (!selectedOfferingId && !availableOfferings.length) {
     state.formationPortalRoster = [];
     state.loaded.formationPortalRoster = true;
     state.cacheKeys.formationPortalRoster = rosterCacheKey;
@@ -1436,13 +1438,41 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
   }
 
   const task = async () => {
-    let enrollments;
+    let enrollments = [];
 
     try {
-      enrollments = await apiGet("formation.enrollments.list", {
-        offeringId: selectedOffering.id,
-        skipSync: "1"
-      });
+      if (selectedOfferingId) {
+        enrollments = await apiGet("formation.enrollments.list", {
+          offeringId: selectedOfferingId,
+          skipSync: "1"
+        });
+      }
+
+      if ((!Array.isArray(enrollments) || !enrollments.length) && preferredProcessId) {
+        const processEnrollments = await apiGet("formation.enrollments.list", {
+          processId: preferredProcessId,
+          skipSync: "1"
+        });
+        const normalizedProcessRows = Array.isArray(processEnrollments) ? processEnrollments : [];
+
+        if (selectedOfferingId) {
+          const bestOfferingWithRows = availableOfferings.find((offering) => {
+            const offeringId = String(offering?.id || "").trim();
+            return offeringId && normalizedProcessRows.some((row) => String(row?.offeringId || "").trim() === offeringId);
+          }) || null;
+
+          if (bestOfferingWithRows?.id) {
+            state.filters.formationOps.levelId = String(bestOfferingWithRows.levelId || "").trim();
+            state.filters.formationOps.offeringId = String(bestOfferingWithRows.id || "").trim();
+            state.ui.selectedFormationOfferingId = String(bestOfferingWithRows.id || "").trim();
+            enrollments = normalizedProcessRows.filter((row) => {
+              return String(row?.offeringId || "").trim() === String(bestOfferingWithRows.id || "").trim();
+            });
+          }
+        } else {
+          enrollments = normalizedProcessRows;
+        }
+      }
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
         throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Inscritos y portal");
@@ -1465,7 +1495,9 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
     state.loaded.formationPortalRoster = true;
     state.cacheKeys.formationPortalRoster = rosterCacheKey;
 
-    if (Number(selectedOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
+    const effectiveOffering = getSelectedFormationPortalOffering_();
+
+    if (Number(effectiveOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
       Promise.resolve()
         .then(() => loadPeopleDirectory({
           showLoading: false
@@ -1484,7 +1516,9 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
     && state.loaded.formationPortalRoster
     && String(state.cacheKeys.formationPortalRoster || "") === rosterCacheKey
   ) {
-    if (Number(selectedOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
+    const effectiveOffering = getSelectedFormationPortalOffering_();
+
+    if (Number(effectiveOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
       Promise.resolve()
         .then(() => loadPeopleDirectory({
           showLoading: false
@@ -26515,6 +26549,10 @@ async function ensureFormationJourneySectionData_(options = {}) {
     if (!state.filters.formationOps.processId && state.formationProcesses.length) {
       state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
     }
+
+    state.filters.formationOps.levelId = "";
+    state.filters.formationOps.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
 
     setProgress(52, "Cargando inscritos del proceso...", "Estamos trayendo únicamente el listado del camino para no frenar la vista.");
     await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
