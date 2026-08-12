@@ -10231,6 +10231,116 @@ tbody tr:hover {
   border-color: rgba(185, 129, 23, 0.14);
 }
 
+.student-portal-screen-profile-home,
+.student-portal-screen-connection,
+.student-portal-screen-formation {
+  display: grid;
+  gap: 14px;
+}
+
+.student-portal-section-card,
+.student-portal-profile-summary-card,
+.student-portal-summary-band {
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-sm);
+}
+
+.student-portal-profile-summary-card,
+.student-portal-summary-band {
+  display: grid;
+  gap: 14px;
+}
+
+.student-portal-profile-summary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.student-portal-profile-summary-head h2 {
+  margin: 6px 0 0;
+  font-size: 22px;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.student-portal-profile-summary-head p,
+.student-portal-summary-band-copy p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.student-portal-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.student-portal-summary-band {
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
+  align-items: center;
+}
+
+.student-portal-summary-band-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.student-portal-summary-band-copy span {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.student-portal-summary-band-copy strong {
+  font-size: 22px;
+  line-height: 1.08;
+}
+
+.student-portal-summary-band-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.student-portal-summary-band-metrics div {
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8f7f3 100%);
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  display: grid;
+  gap: 4px;
+}
+
+.student-portal-summary-band-metrics strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.student-portal-summary-band-metrics span {
+  color: var(--text-soft);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.student-portal-journey-card.status-bloqueado {
+  border-color: rgba(17, 17, 17, 0.08);
+  background: linear-gradient(180deg, rgba(248, 248, 248, 0.96) 0%, rgba(241, 241, 241, 0.96) 100%);
+}
+
+.student-portal-journey-card .pill.dark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .student-portal-journey-stack,
 .student-portal-journey-item {
   display: grid;
@@ -10801,6 +10911,21 @@ tbody tr:hover {
   .student-portal-leader-card,
   .student-portal-journey-actions {
     grid-template-columns: 1fr;
+  }
+
+  .student-portal-profile-grid,
+  .student-portal-summary-band,
+  .student-portal-summary-band-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .student-portal-profile-summary-head {
+    display: grid;
+    gap: 10px;
+  }
+
+  .student-portal-profile-summary-head h2 {
+    font-size: 20px;
   }
 
   .student-portal-leader-card {
