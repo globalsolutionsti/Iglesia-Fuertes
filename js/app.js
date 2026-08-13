@@ -18186,6 +18186,8 @@ function renderSeasonsView() {
 }
 
 function renderParticipantsView() {
+  return renderParticipantsSimplifiedView_();
+
   const filter = state.filters.participants;
   const canDeleteScrap = canUseScrapDelete_();
   const scopedConnectionGroups = getUserScopedConnectionGroups_();
@@ -18858,6 +18860,421 @@ function renderParticipantsView() {
         ` : `
           <div class="empty-state">No hay participantes activos en el grupo seleccionado.</div>
         `}
+      </article>
+    </section>
+  `;
+}
+
+function getVisibleConnectionEncounterCandidates_() {
+  const scopedConnectionGroupIds = new Set(
+    getUserScopedConnectionGroups_()
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+
+  return (Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : []).filter((candidate) => {
+    if (!scopedConnectionGroupIds.size) {
+      return true;
+    }
+
+    return scopedConnectionGroupIds.has(String(candidate?.groupId || "").trim());
+  });
+}
+
+function renderConnectionEncounterSummaryRow_(candidate) {
+  const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+  const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
+  const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
+  const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
+  const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
+  const seasonName = sanitizeFormationDisplayText_(resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId, "Sin temporada");
+  const leaderName = sanitizeFormationDisplayText_(candidate?.leaderName, "Sin líder registrado");
+  const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
+  const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
+  const currentStage = candidate?.encounterRegisteredAt ? "Inscrito a Proceso de Formación" : getFormationPreStageLabel_();
+
+  return `
+    <article class="formation-ledger-row formation-ledger-row-route connection-encounter-row-lite">
+      <div class="formation-ledger-cell formation-ledger-cell-main formation-ledger-route-identity">
+        <small>Congregante</small>
+        <strong>${escapeHtml(personName)}</strong>
+        <div class="formation-ledger-route-inline">
+          <span class="formation-ledger-route-code">${escapeHtml(personNumber)}</span>
+          <span class="formation-ledger-route-code">QR ${escapeHtml(candidate?.personId || "-")}</span>
+          <span class="formation-ledger-route-code">${escapeHtml(personPhone)}</span>
+        </div>
+        <div class="formation-ledger-route-context">
+          <span class="formation-ledger-route-chip">${escapeHtml(groupName)}</span>
+          <span class="formation-ledger-route-chip">${escapeHtml(seasonName)}</span>
+        </div>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-route-stage">
+        <small>Ruta y avance</small>
+        <div class="formation-ledger-route-stage-head">
+          <strong>${escapeHtml(currentStage)}</strong>
+          <div>${renderWorkflowStatusPill_(candidate?.formationStatus || "CANDIDATO_ENCUENTRO")}</div>
+        </div>
+        <div class="formation-ledger-route-metrics">
+          <div class="formation-ledger-route-metric">
+            <label>Asistencia</label>
+            <strong>${escapeHtml(attendanceSummary)}</strong>
+            <span>capturadas en la temporada</span>
+          </div>
+          <div class="formation-ledger-route-metric">
+            <label>Regla cumplida</label>
+            <strong>${escapeHtml(consecutiveSummary)}</strong>
+            <span>listo para invitación</span>
+          </div>
+        </div>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-route-followup">
+        <small>Seguimiento</small>
+        <strong>${escapeHtml(telegramUi.label)}</strong>
+        <span>${escapeHtml(telegramUi.detail)}</span>
+        <div class="formation-ledger-route-note">
+          <span class="formation-ledger-route-note-label">Liderazgo del grupo</span>
+          <strong>${escapeHtml(leaderName)}</strong>
+          <span>La invitación y la inscripción se ejecutan desde Proceso de Formación > Ruta a Encuentro.</span>
+        </div>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-actions formation-ledger-route-actions">
+        <small>Acción</small>
+        <div class="formation-action-stack formation-action-stack-route">
+          <button class="btn btn-ghost" data-action="navigate" data-view="formation">
+            Abrir Proceso de Formación
+          </button>
+        </div>
+        <span class="formation-ledger-action-note">Este bloque solo concentra la consulta agrupada por grupo.</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderConnectionEncounterGroupBoard_(groupBlock) {
+  const countLabel = groupBlock.items.length === 1
+    ? "1 candidato en Pre-Encuentro"
+    : `${groupBlock.items.length} candidatos en Pre-Encuentro`;
+
+  return `
+    <section class="formation-route-group-block connection-encounter-group-board">
+      <div class="formation-route-context">
+        <div class="formation-route-context-head">
+          <div>
+            <small>Grupo de conexión</small>
+            <strong>${escapeHtml(groupBlock.groupName || "Sin grupo")}</strong>
+            <span>Solo aparecen personas con 3 asistencias consecutivas y que aún no están inscritas a ningún proceso de formación.</span>
+          </div>
+          <span class="pill neutral">${escapeHtml(countLabel)}</span>
+        </div>
+        <div class="formation-route-context-meta">
+          ${groupBlock.contacts.length
+            ? groupBlock.contacts.map((contact) => `
+                <span class="context-item">
+                  <strong>${escapeHtml(contact.label)}:</strong> ${escapeHtml(contact.value)}
+                </span>
+              `).join("")
+            : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
+        </div>
+      </div>
+
+      <div class="formation-ledger">
+        <div class="formation-ledger-head formation-ledger-head-route" aria-hidden="true">
+          <span>Congregante</span>
+          <span>Ruta y avance</span>
+          <span>Seguimiento</span>
+          <span>Acción</span>
+        </div>
+        ${groupBlock.items.map((candidate) => renderConnectionEncounterSummaryRow_(candidate)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderParticipantsSimplifiedView_() {
+  const filter = state.filters.participants;
+  const scopedConnectionGroups = getUserScopedConnectionGroups_();
+  const scopedConnectionGroupIds = new Set(
+    scopedConnectionGroups
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+  const operationalSeasons = getOperationalSeasonList_();
+  const routeSeasonId = ensureValidSeasonIdFromList_(filter.seasonId, operationalSeasons)
+    || operationalSeasons[0]?.id
+    || "";
+  const routeSeasonName = resolveSeasonName_(routeSeasonId) || "Sin temporada";
+  const totalPendingProspects = getPendingRegistrationWelcomePeople_({
+    search: "",
+    groupId: ""
+  });
+  const visiblePendingProspects = totalPendingProspects
+    .filter((person) => {
+      return !scopedConnectionGroupIds.size || scopedConnectionGroupIds.has(String(person?.suggestedGroupId || "").trim());
+    })
+    .slice()
+    .sort((left, right) => {
+      return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
+        - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
+    });
+  const connectionCandidates = getVisibleConnectionEncounterCandidates_();
+  const groupedConnectionCandidates = buildFormationRouteGroups_(connectionCandidates);
+  const sentCount = connectionCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+  const pendingCount = Math.max(connectionCandidates.length - sentCount, 0);
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "participants",
+        eyebrow: "Grupo de conexión",
+        title: "Asignación y Pre-Encuentro",
+        copy: "Resuelve prospectos pendientes y consulta candidatos a Encuentro sin cambiar de pantalla.",
+        badge: {
+          label: routeSeasonName,
+          kind: routeSeasonId ? "dark" : "warning"
+        },
+        metrics: [
+          { label: "Pendientes", value: String(visiblePendingProspects.length) },
+          { label: "Pre-Encuentro", value: String(connectionCandidates.length) },
+          { label: "Telegram OK", value: String(sentCount) },
+          { label: "Telegram pendiente", value: String(pendingCount) }
+        ],
+        actions: [
+          { label: "Pendientes", variant: "primary", sectionId: "participants-pending" },
+          { label: "Pre-Encuentro", variant: "secondary", sectionId: "participants-encounter" }
+        ]
+      })}
+
+      <article class="panel-card module-section-anchor" id="participants-pending">
+        <div class="panel-head">
+          <div>
+            <h2>Pendientes por registrar</h2>
+            <p>Estos prospectos llegan desde Bienvenida. Aquí ajustas el grupo si hace falta, avisas al líder por Telegram y luego haces el registro completo en la temporada correcta.</p>
+          </div>
+          <span class="pill warning">${escapeHtml(String(visiblePendingProspects.length))} pendientes</span>
+        </div>
+
+        <div class="context-strip" style="margin-bottom: 18px;">
+          <span class="context-item"><strong>Pendientes totales:</strong> ${escapeHtml(String(totalPendingProspects.length))}</span>
+          <span class="context-item"><strong>Paso 1:</strong> Elige temporada y grupo de conexión.</span>
+          <span class="context-item"><strong>Paso 2:</strong> Si cambias el grupo, guarda y avisa por Telegram al nuevo líder.</span>
+          <span class="context-item"><strong>Paso 3:</strong> Registra a la persona en todas las sesiones de la temporada elegida.</span>
+        </div>
+
+        <div class="results-list participants-picker-results">
+          ${visiblePendingProspects.length ? visiblePendingProspects.map((person) => {
+            const draft = getPendingProspectDraft_(person);
+            const workflow = getWelcomeProspectWorkflowState_(person);
+            const selectedSeasonId = String(draft.seasonId || "").trim();
+            const selectedSeasonName = resolveSeasonName_(selectedSeasonId) || "";
+            const selectedSeasonSessions = selectedSeasonId ? getSessions(selectedSeasonId) : [];
+            const selectedGroupId = String(draft.groupId || "").trim();
+            const selectedGroup = state.catalogs.groups.find((group) => String(group.id) === selectedGroupId) || null;
+            const selectedGroupName = String(selectedGroup?.name || resolveGroupName_(selectedGroupId) || "").trim();
+            const selectedLeaderContacts = buildWelcomeLeaderContactsFromGroup_(selectedGroupId);
+            const selectedLeaderSummary = selectedLeaderContacts.length
+              ? selectedLeaderContacts
+                  .map((leader) => [leader.name, leader.phone].filter(Boolean).join(" · "))
+                  .join(" / ")
+              : "Sin líderes capturados en Catálogos.";
+            const seasonGroupCoverage = getPendingProspectSeasonGroupCoverage_(selectedSeasonId, selectedGroupId);
+            const seasonSelectId = `pending-prospect-season-${String(person.id || "").trim()}`;
+            const groupSelectId = `pending-prospect-group-${String(person.id || "").trim()}`;
+            const pendingTelegramUi = draft.groupDirty
+              ? {
+                tone: "warning",
+                label: "Falta avisar al nuevo líder",
+                meta: "Guardas primero el cambio de grupo y en ese momento se enviará Telegram al liderazgo correcto.",
+                sent: false
+              }
+              : getWelcomeProspectTelegramUiState_(person, workflow, null);
+            const canSavePendingProspectGroup = Boolean(selectedGroupId) && (draft.groupDirty || !pendingTelegramUi.sent);
+            const canRegisterPendingProspect = Boolean(
+              selectedSeasonId
+              && selectedGroupId
+              && !draft.groupDirty
+              && seasonGroupCoverage.available
+            );
+            const savePendingGroupLabel = !selectedGroupId
+              ? "Selecciona grupo"
+              : draft.groupDirty
+                ? "Guardar grupo y avisar por Telegram"
+                : (pendingTelegramUi.sent ? "Grupo ya guardado" : "Avisar al líder por Telegram");
+            const registrationHint = draft.groupDirty
+              ? "Tienes un cambio de grupo pendiente por guardar."
+              : seasonGroupCoverage.status === "missing"
+                ? buildPendingProspectMissingGroupCopy_(selectedSeasonId, selectedGroupId, seasonGroupCoverage.missingSessions)
+                : seasonGroupCoverage.status === "loading"
+                  ? "Validando si el grupo existe en todas las sesiones de la temporada elegida..."
+                  : seasonGroupCoverage.status === "pending-group"
+                    ? "Selecciona el grupo que quedará registrado en la temporada."
+                    : (canRegisterPendingProspect
+                      ? "Listo para registrar en toda la temporada."
+                      : "Elige la temporada para habilitar el registro.");
+
+            return `
+              <article class="result-card participant-picker-card">
+                <div class="result-copy-stack">
+                  <div class="result-title-row">
+                    <span class="row-title">${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>
+                    ${renderWelcomePendingRegistrationPill_(person)}
+                  </div>
+                  <span class="row-meta">${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+                  <span class="row-meta">Último contexto de Bienvenida: ${escapeHtml(person.lastFollowupNotes || "Sin notas registradas")}</span>
+                </div>
+
+                <div class="pending-prospect-overview">
+                  <div class="summary-box pending-prospect-summary">
+                    <span>Grupo guardado actualmente</span>
+                    <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
+                    <span>${escapeHtml(workflow.detail || "Sin detalle operativo.")}</span>
+                  </div>
+                  <div class="summary-box pending-prospect-summary">
+                    <span>Telegram al líder</span>
+                    <strong>${escapeHtml(pendingTelegramUi.label)}</strong>
+                    <span>${escapeHtml(pendingTelegramUi.meta)}</span>
+                  </div>
+                </div>
+
+                <div class="field-grid two pending-prospect-planner">
+                  <div class="field">
+                    <label for="${escapeHtml(seasonSelectId)}">Temporada a registrar</label>
+                    <select
+                      id="${escapeHtml(seasonSelectId)}"
+                      data-role="pending-prospect-season"
+                      data-person-id="${escapeHtml(person.id || "")}"
+                    >
+                      ${renderOptions(
+                        operationalSeasons.map((season) => ({
+                          value: season.id,
+                          label: `${season.name} (${season.id})`
+                        })),
+                        selectedSeasonId,
+                        "Selecciona temporada"
+                      )}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="${escapeHtml(groupSelectId)}">Grupo de conexión</label>
+                    <select
+                      id="${escapeHtml(groupSelectId)}"
+                      data-role="pending-prospect-group"
+                      data-person-id="${escapeHtml(person.id || "")}"
+                    >
+                      ${renderOptions(
+                        (scopedConnectionGroups.length ? scopedConnectionGroups : state.catalogs.groups).map((group) => ({
+                          value: String(group.id),
+                          label: `${group.name} (${group.id})`
+                        })),
+                        selectedGroupId,
+                        "Selecciona grupo"
+                      )}
+                    </select>
+                  </div>
+                  <div class="summary-box pending-prospect-summary pending-prospect-summary-full">
+                    <span>Liderazgo que recibirá el aviso</span>
+                    <strong>${escapeHtml(selectedGroupName || "Sin grupo seleccionado")}</strong>
+                    <span>${escapeHtml(selectedLeaderSummary)}</span>
+                  </div>
+                </div>
+
+                <div class="context-strip pending-prospect-strip">
+                  <span class="context-item"><strong>Temporada elegida:</strong> ${escapeHtml(selectedSeasonName || "Pendiente")}</span>
+                  <span class="context-item"><strong>Sesiones a registrar:</strong> ${escapeHtml(selectedSeasonSessions.length ? String(selectedSeasonSessions.length) : "Pendiente")}</span>
+                  <span class="context-item"><strong>Grupo para trabajar:</strong> ${escapeHtml(selectedGroupName || "Pendiente")}</span>
+                  <span class="context-item"><strong>Grupo en la temporada:</strong> ${escapeHtml(
+                    seasonGroupCoverage.status === "ok"
+                      ? "Disponible en toda la temporada"
+                      : seasonGroupCoverage.status === "missing"
+                        ? "No está dado de alta en la temporada"
+                        : seasonGroupCoverage.status === "loading"
+                          ? "Validando..."
+                          : "Pendiente"
+                  )}</span>
+                  <span class="context-item"><strong>Estado:</strong> ${escapeHtml(registrationHint)}</span>
+                </div>
+
+                <div class="actions-row pending-prospect-actions">
+                  <button
+                    class="btn ${draft.groupDirty || !pendingTelegramUi.sent ? "btn-primary" : "btn-secondary"}"
+                    data-action="save-pending-prospect-group"
+                    data-person-id="${escapeHtml(person.id || "")}"
+                    ${canSavePendingProspectGroup ? "" : "disabled"}
+                  >
+                    ${escapeHtml(savePendingGroupLabel)}
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    data-action="assign-pending-prospect"
+                    data-person-id="${escapeHtml(person.id || "")}"
+                    data-group-id="${escapeHtml(selectedGroupId)}"
+                    data-season-id="${escapeHtml(selectedSeasonId)}"
+                    ${canRegisterPendingProspect ? "" : "disabled"}
+                  >
+                    Registrar en temporada
+                  </button>
+                </div>
+              </article>
+            `;
+          }).join("") : `
+            <div class="empty-state participant-picker-empty">
+              <strong>Sin prospectos pendientes</strong>
+              <span>Cuando Bienvenida envíe un prospecto para registro aparecerá aquí.</span>
+            </div>
+          `}
+        </div>
+      </article>
+
+      <article class="panel-card module-section-anchor" id="participants-encounter">
+        <div class="panel-head">
+          <div>
+            <h2>Candidatos a Encuentro (Pre-Encuentro)</h2>
+            <p>Este listado es compartido con Proceso de Formación. Solo aparecen personas con 3 asistencias consecutivas y que todavía no están inscritas a ningún proceso de formación.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(connectionCandidates.length))} candidatos</span>
+        </div>
+
+        <div class="field-grid two" style="margin-bottom: 18px;">
+          <div class="field">
+            <label for="participants-encounter-season">Temporada</label>
+            <select id="participants-encounter-season">
+              ${renderOptions(
+                operationalSeasons.map((season) => ({
+                  value: season.id,
+                  label: `${season.name} (${season.id})`
+                })),
+                routeSeasonId,
+                "Selecciona temporada"
+              )}
+            </select>
+          </div>
+          <div class="summary-box pending-prospect-summary">
+            <span>Consulta compartida</span>
+            <strong>${escapeHtml(routeSeasonName)}</strong>
+            <span>La misma lista se reutiliza en Proceso de Formación > Ruta a Encuentro.</span>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" data-action="refresh-connection-encounter-candidates" ${routeSeasonId ? "" : "disabled"}>Actualizar candidatos a Encuentro (Pre-Encuentro)</button>
+          <button class="btn btn-ghost" data-action="export-connection-encounter-excel" ${connectionCandidates.length ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-connection-encounter-pdf" ${connectionCandidates.length ? "" : "disabled"}>PDF</button>
+          <button class="btn btn-ghost" data-action="share-connection-encounter-whatsapp" ${connectionCandidates.length ? "" : "disabled"}>WhatsApp pastor</button>
+        </div>
+
+        <div class="context-strip participants-context-strip">
+          <span class="context-item"><strong>Temporada operativa:</strong> ${escapeHtml(routeSeasonName)}</span>
+          <span class="context-item"><strong>Telegram OK:</strong> ${escapeHtml(String(sentCount))}</span>
+          <span class="context-item"><strong>Telegram pendiente:</strong> ${escapeHtml(String(pendingCount))}</span>
+          <span class="context-item"><strong>Grupos involucrados:</strong> ${escapeHtml(String(groupedConnectionCandidates.length))}</span>
+        </div>
+
+        <div class="connection-candidate-list">
+          ${groupedConnectionCandidates.length ? groupedConnectionCandidates.map((groupBlock) => renderConnectionEncounterGroupBoard_(groupBlock)).join("") : `
+            <div class="empty-state">
+              Todavía no hay personas listas para Pre-Encuentro dentro de la temporada seleccionada.
+            </div>
+          `}
+        </div>
       </article>
     </section>
   `;
@@ -20348,27 +20765,52 @@ function getConnectionEncounterTelegramUi_(candidate) {
 }
 
 function buildConnectionEncounterCandidatesReportModel_() {
-  const candidates = Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : [];
-  const seasonId = String(state.filters.participants.seasonId || "").trim();
-  const groupId = String(state.filters.participants.groupId || "").trim();
+  const seasonId = String(state.filters.participants.seasonId || getOperationalSeasonList_()[0]?.id || "").trim();
+  const candidates = getVisibleConnectionEncounterCandidates_();
 
-  if (!seasonId || !groupId || !candidates.length) {
+  if (!seasonId || !candidates.length) {
     return null;
   }
 
-  const sentCount = candidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
-  const pendingCount = Math.max(candidates.length - sentCount, 0);
+  const sortedCandidates = candidates.slice().sort((left, right) => {
+    const groupCompare = String(getFormationRouteGroupName_(left) || "").localeCompare(
+      String(getFormationRouteGroupName_(right) || ""),
+      "es",
+      { sensitivity: "base" }
+    );
+
+    if (groupCompare !== 0) {
+      return groupCompare;
+    }
+
+    return String(left?.personName || "").localeCompare(String(right?.personName || ""), "es", { sensitivity: "base" });
+  });
+
+  const groups = buildFormationRouteGroups_(sortedCandidates).map((group) => {
+    const items = Array.isArray(group.items) ? group.items.slice() : [];
+    const sentCount = items.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+    return {
+      groupId: group.groupId,
+      groupName: group.groupName,
+      contacts: Array.isArray(group.contacts) ? group.contacts.slice() : [],
+      total: items.length,
+      sentCount,
+      pendingCount: Math.max(items.length - sentCount, 0),
+      candidates: items
+    };
+  });
+
+  const sentCount = sortedCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
 
   return {
     seasonId,
     seasonName: resolveSeasonName_(seasonId) || seasonId,
-    groupId,
-    groupName: resolveGroupName_(groupId) || groupId,
     generatedAt: new Date(),
-    total: candidates.length,
+    total: sortedCandidates.length,
+    groupCount: groups.length,
     sentCount,
-    pendingCount,
-    candidates
+    pendingCount: Math.max(sortedCandidates.length - sentCount, 0),
+    groups
   };
 }
 
@@ -20655,18 +21097,24 @@ function buildFormationPreEncounterReportExcelHtml_(report) {
 }
 
 function buildConnectionEncounterCandidatesWhatsappText_(report) {
+  const groups = Array.isArray(report?.groups) ? report.groups : [];
+
   return [
-    "Ruta a Encuentro - Grupo de Conexión",
+    "Pre-Encuentro por grupos de conexión",
     `Temporada: ${report?.seasonName || "Sin temporada"}`,
-    `Grupo: ${report?.groupName || "Sin grupo"}`,
     `Total candidatos: ${report?.total || 0}`,
+    `Grupos involucrados: ${report?.groupCount || groups.length || 0}`,
     `Telegram entregado: ${report?.sentCount || 0}`,
     `Telegram pendiente: ${report?.pendingCount || 0}`,
     "",
-    ...(report?.candidates || []).map((candidate) => {
-      const telegramUi = getConnectionEncounterTelegramUi_(candidate);
-      return `• ${candidate?.personName || "Congregante"} | ${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} | ${candidate?.consecutiveAttendances || 0} consecutivas | ${telegramUi.label}`;
-    }),
+    ...groups.flatMap((group) => ([
+      `${group.groupName || "Sin grupo"} (${group.total || 0})`,
+      ...(group.candidates || []).map((candidate) => {
+        const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+        return `• ${candidate?.personName || "Congregante"} | ${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} | ${candidate?.consecutiveAttendances || 0} consecutivas | ${telegramUi.label}`;
+      }),
+      ""
+    ])),
     "",
     `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
   ].join("\n");
@@ -22637,7 +23085,6 @@ async function handleClick(event) {
     }
 
     if (action === "load-participants") {
-      await loadParticipantsData();
       await loadConnectionEncounterCandidates_({
         force: true,
         showLoading: false
@@ -22652,7 +23099,7 @@ async function handleClick(event) {
         syncCandidates: true
       });
       renderApp();
-      showToast("Listado actualizado", "La ruta a Encuentro del grupo quedó actualizada.", "success");
+      showToast("Listado actualizado", "Los candidatos a Encuentro (Pre-Encuentro) quedaron actualizados para todos los grupos.", "success");
       return;
     }
 
@@ -22660,15 +23107,15 @@ async function handleClick(event) {
       const report = buildConnectionEncounterCandidatesReportModel_();
 
       if (!report) {
-        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para exportar.", "warning");
+        showToast("Sin datos", "Primero selecciona temporada y actualiza los candidatos a Pre-Encuentro para exportar.", "warning");
         return;
       }
 
       downloadExcelHtmlFile_(
-        buildConnectionEncounterCandidatesExcelHtml_(report),
-        buildDashboardBinaryExportFileName_("RUTA_ENCUENTRO", `${report.groupName}_${report.seasonName}`, "xls")
+        buildFormationPreEncounterReportExcelHtml_(report),
+        buildDashboardBinaryExportFileName_("PRE_ENCUENTRO", `${report.seasonName || "temporada"}`, "xls")
       );
-      showToast("Excel listo", "Se descargó el listado operativo de Ruta a Encuentro.", "success");
+      showToast("Excel listo", "Se descargó el reporte agrupado de Pre-Encuentro.", "success");
       return;
     }
 
@@ -22676,14 +23123,14 @@ async function handleClick(event) {
       const report = buildConnectionEncounterCandidatesReportModel_();
 
       if (!report) {
-        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para exportar.", "warning");
+        showToast("Sin datos", "Primero selecciona temporada y actualiza los candidatos a Pre-Encuentro para exportar.", "warning");
         return;
       }
 
       await withLoading(async () => {
-        await downloadConnectionEncounterCandidatesPdf_(report);
+        await downloadFormationPreEncounterReportPdf_(report);
       }, "Descargando reporte PDF...");
-      showToast("PDF listo", "Se descargó el reporte PDF de Ruta a Encuentro.", "success");
+      showToast("PDF listo", "Se descargó el reporte PDF agrupado de Pre-Encuentro.", "success");
       return;
     }
 
@@ -22691,7 +23138,7 @@ async function handleClick(event) {
       const report = buildConnectionEncounterCandidatesReportModel_();
 
       if (!report) {
-        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para compartir.", "warning");
+        showToast("Sin datos", "Primero selecciona temporada y actualiza los candidatos a Pre-Encuentro para compartir.", "warning");
         return;
       }
 
@@ -24145,6 +24592,24 @@ async function handleChange(event) {
         }
       }).catch(() => {});
       renderApp();
+      return;
+    }
+
+    if (target.id === "participants-encounter-season") {
+      state.filters.participants.seasonId = target.value || "";
+      state.connectionEncounterCandidates = [];
+      state.loaded.connectionEncounterCandidates = false;
+      state.cacheKeys.connectionEncounterCandidates = "";
+      renderApp();
+      void loadConnectionEncounterCandidates_({
+        seasonId: state.filters.participants.seasonId,
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.currentView === "participants") {
+          renderApp();
+        }
+      }).catch(() => {});
       return;
     }
 
@@ -26955,16 +27420,32 @@ async function ensureCatalogsViewData_() {
 async function ensureParticipantsViewData_(options = {}) {
   const leaderScoped = isLeaderScopedUser_();
 
-  if (!leaderScoped) {
-    await Promise.all([
-      state.loaded.people ? Promise.resolve() : loadPeople(),
-      loadWelcomePeople_({
-        showLoading: false
-      })
-    ]);
+  if (!state.loaded.groups) {
+    await loadGroupsCatalog_({
+      showLoading: false
+    });
+  }
 
-    await loadParticipantsData(options);
+  if (!state.loaded.welcome) {
+    await loadWelcomePeople_({
+      showLoading: false
+    });
+  }
+
+  if (!state.loaded.people) {
+    void loadPeople().catch(() => {});
+  }
+
+  if (!state.filters.participants.seasonId) {
+    state.filters.participants.seasonId = ensureValidSeasonIdFromList_(
+      state.filters.participants.seasonId,
+      getOperationalSeasonList_()
+    ) || getOperationalSeasonList_()[0]?.id || "";
+  }
+
+  if (!leaderScoped) {
     void loadConnectionEncounterCandidates_({
+      seasonId: state.filters.participants.seasonId,
       force: options.force,
       showLoading: false
     })
@@ -26974,32 +27455,14 @@ async function ensureParticipantsViewData_(options = {}) {
         }
       })
       .catch((error) => {
-        console.warn("No se pudo cargar la Ruta a Encuentro del grupo.", error);
+        console.warn("No se pudo cargar el listado compartido de Pre-Encuentro.", error);
       });
     return;
   }
 
-  await loadParticipantsData({
-    ...options,
-    skipSeasonAssignments: true
-  });
-
   void Promise.allSettled([
-    state.loaded.people
-      ? Promise.resolve()
-      : (pendingResourceLoads.people || loadPeople()),
-    state.loaded.welcome
-      ? Promise.resolve()
-      : (pendingResourceLoads.welcome || loadWelcomePeople_({
-        showLoading: false
-      })),
-    state.cacheKeys.participantSeasonAssignments === String(state.filters.participants.seasonId || "")
-      ? Promise.resolve()
-      : loadParticipantSeasonAssignments_({
-        seasonId: state.filters.participants.seasonId,
-        showLoading: false
-      }),
     loadConnectionEncounterCandidates_({
+      seasonId: state.filters.participants.seasonId,
       force: options.force,
       showLoading: false
     })
@@ -27010,7 +27473,7 @@ async function ensureParticipantsViewData_(options = {}) {
       }
     })
     .catch((error) => {
-      console.warn("No se pudo completar la carga diferida del grupo del líder.", error);
+      console.warn("No se pudo completar la carga diferida de Pre-Encuentro.", error);
     });
 }
 
@@ -27935,14 +28398,15 @@ async function loadParticipantsData(options = {}) {
 }
 
 async function loadConnectionEncounterCandidates_(options = {}) {
-  await syncFilterState("participants");
-
-  const seasonId = String(options.seasonId || state.filters.participants.seasonId || "").trim();
-  const groupId = String(options.groupId || state.filters.participants.groupId || "").trim();
+  const seasonId = String(options.seasonId || state.filters.participants.seasonId || ensureValidSeasonIdFromList_("", getOperationalSeasonList_()) || "").trim();
+  const hasExplicitGroup = Object.prototype.hasOwnProperty.call(options, "groupId");
+  const groupId = hasExplicitGroup
+    ? String(options.groupId || "").trim()
+    : "";
   const requestKey = `${seasonId}::${groupId}`;
   const shouldSync = Boolean(options.syncCandidates);
 
-  if (!seasonId || !groupId) {
+  if (!seasonId) {
     state.connectionEncounterCandidates = [];
     state.loaded.connectionEncounterCandidates = false;
     state.cacheKeys.connectionEncounterCandidates = "";
@@ -27989,7 +28453,7 @@ async function loadConnectionEncounterCandidates_(options = {}) {
     return task();
   }
 
-  return withLoading(task, shouldSync ? "Actualizando candidatos a Encuentro..." : "Cargando ruta a Encuentro del grupo...");
+  return withLoading(task, shouldSync ? "Actualizando candidatos a Encuentro..." : "Cargando candidatos a Pre-Encuentro...");
 }
 
 async function saveAssistant(rawPayload) {
