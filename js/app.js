@@ -1551,6 +1551,7 @@ function getFilteredFormationPortalRoster_(offeringId) {
 
 async function getFormationPortalFreshRows_(processId, options = {}) {
   const cleanProcessId = String(processId || "").trim();
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
 
   if (!cleanProcessId) {
     return [];
@@ -1559,7 +1560,7 @@ async function getFormationPortalFreshRows_(processId, options = {}) {
   try {
     const rows = await apiGet("formation.enrollments.list", {
       processId: cleanProcessId,
-      skipSync: "1"
+      skipSync: shouldSkipSync ? "1" : ""
     });
     return Array.isArray(rows) ? rows : [];
   } catch (error) {
@@ -1583,6 +1584,7 @@ async function getFormationPortalFreshRows_(processId, options = {}) {
 
 async function getFormationJourneyFreshRows_(processId, options = {}) {
   const cleanProcessId = String(processId || "").trim();
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
 
   if (!cleanProcessId) {
     return [];
@@ -1591,7 +1593,7 @@ async function getFormationJourneyFreshRows_(processId, options = {}) {
   try {
     const rows = await apiGet("formation.enrollments.list", {
       processId: cleanProcessId,
-      skipSync: "1"
+      skipSync: shouldSkipSync ? "1" : ""
     });
     return Array.isArray(rows) ? rows : [];
   } catch (error) {
@@ -1854,6 +1856,7 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
   let availableOfferings = getFilteredFormationPortalOfferings_();
   const selectedOfferingId = String(selectedOffering?.id || "").trim();
   const rosterCacheKey = `${preferredProcessId || "ALL"}::${preferredLevelId || "ALL"}::${selectedOfferingId || "PROCESS"}`;
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
 
   if (!selectedOfferingId && !availableOfferings.length) {
     state.formationPortalRoster = [];
@@ -1869,7 +1872,7 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
       if (selectedOfferingId) {
         enrollments = await apiGet("formation.enrollments.list", {
           offeringId: selectedOfferingId,
-          skipSync: "1"
+          skipSync: shouldSkipSync ? "1" : ""
         });
       }
 
@@ -1887,7 +1890,7 @@ async function loadFormationPortalWorkspaceData_(options = {}) {
 
         const processEnrollments = await apiGet("formation.enrollments.list", {
           processId: preferredProcessId,
-          skipSync: "1"
+          skipSync: shouldSkipSync ? "1" : ""
         });
         const normalizedProcessRows = Array.isArray(processEnrollments) ? processEnrollments : [];
 
@@ -26971,6 +26974,7 @@ async function loadFormationProcessRoster_(processId, options = {}) {
   const cleanOfferingId = String(options.offeringId || "").trim();
   const cleanLevelId = String(options.levelId || "").trim();
   const cleanProcessId = (cleanLevelId || cleanOfferingId) ? "" : String(processId || state.filters.formationOps.processId || "").trim();
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
   const cacheKey = cleanOfferingId
     ? `OFFERING::${cleanOfferingId}`
     : (cleanLevelId ? `LEVEL::${cleanLevelId}` : `PROCESS::${cleanProcessId}`);
@@ -27001,7 +27005,7 @@ async function loadFormationProcessRoster_(processId, options = {}) {
     try {
       roster = await apiGet("formation.enrollments.list", {
         ...requestParams,
-        skipSync: "1"
+        skipSync: shouldSkipSync ? "1" : ""
       });
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
@@ -27041,7 +27045,7 @@ async function loadFormationProcessRosterFallback_(preferredProcessId = "") {
 
   try {
     roster = await apiGet("formation.enrollments.list", {
-      skipSync: "1"
+      skipSync: ""
     });
   } catch (error) {
     if (isUnknownActionError_(error, "formation.enrollments.list")) {
