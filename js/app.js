@@ -1389,6 +1389,131 @@ function syncFormationJourneySelectionFromRows_(rows, options = {}) {
   }
 }
 
+function countVisibleFormationPortalRows_(rows) {
+  const portalFilters = getFormationPortalFilters_();
+  const offeringId = String(portalFilters.offeringId || "").trim();
+  const levelId = String(portalFilters.levelId || "").trim();
+  const search = normalizeText(portalFilters.search || "");
+  const status = String(portalFilters.enrollmentStatus || "ALL").trim().toUpperCase();
+
+  return (Array.isArray(rows) ? rows : []).filter((enrollment) => {
+    if (offeringId && String(enrollment?.offeringId || "").trim() !== offeringId) {
+      return false;
+    }
+
+    if (levelId && String(enrollment?.levelId || "").trim() !== levelId) {
+      return false;
+    }
+
+    if (status !== "ALL" && String(enrollment?.status || "").trim().toUpperCase() !== status) {
+      return false;
+    }
+
+    const haystack = normalizeText([
+      enrollment?.personId,
+      enrollment?.personName,
+      enrollment?.personNumber,
+      enrollment?.personPhone,
+      enrollment?.levelName,
+      enrollment?.offeringName,
+      enrollment?.status
+    ].join(" "));
+
+    return !search || haystack.includes(search);
+  }).length;
+}
+
+function normalizeFormationPortalVisibleState_(rows, options = {}) {
+  const portalFilters = getFormationPortalFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  const preferredOfferingId = String(options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "").trim();
+
+  if (!cleanRows.length) {
+    return false;
+  }
+
+  let changed = false;
+  changed = Boolean(syncFormationPortalSelectionFromRows_(cleanRows, {
+    processId: options.processId,
+    preferredOfferingId
+  })) || changed;
+
+  if (countVisibleFormationPortalRows_(cleanRows) > 0) {
+    return changed;
+  }
+
+  if (portalFilters.search || String(portalFilters.enrollmentStatus || "ALL").toUpperCase() !== "ALL") {
+    portalFilters.search = "";
+    portalFilters.enrollmentStatus = "ALL";
+    changed = true;
+  }
+
+  if (countVisibleFormationPortalRows_(cleanRows) > 0) {
+    return changed;
+  }
+
+  if (portalFilters.levelId || portalFilters.offeringId || state.ui.selectedFormationOfferingId) {
+    portalFilters.levelId = "";
+    portalFilters.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
+    changed = true;
+  }
+
+  changed = Boolean(syncFormationPortalSelectionFromRows_(cleanRows, {
+    processId: options.processId,
+    preferredOfferingId
+  })) || changed;
+
+  return changed;
+}
+
+function normalizeFormationJourneyVisibleState_(rows, options = {}) {
+  const journeyFilters = getFormationJourneyFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  let changed = false;
+
+  if (!cleanRows.length) {
+    return false;
+  }
+
+  syncFormationJourneySelectionFromRows_(cleanRows, {
+    processId: options.processId
+  });
+
+  const buildVisibleRows = () => {
+    const selectedLevelId = String(journeyFilters.levelId || "").trim();
+    const scopedRows = cleanRows.filter((row) => {
+      return !selectedLevelId || String(row?.levelId || "").trim() === selectedLevelId;
+    });
+    return buildFormationJourneyRows_(scopedRows);
+  };
+
+  if (buildVisibleRows().length > 0) {
+    return changed;
+  }
+
+  if (journeyFilters.search || String(journeyFilters.enrollmentStatus || "ALL").toUpperCase() !== "ALL") {
+    journeyFilters.search = "";
+    journeyFilters.enrollmentStatus = "ALL";
+    changed = true;
+  }
+
+  if (buildVisibleRows().length > 0) {
+    return changed;
+  }
+
+  if (journeyFilters.levelId) {
+    journeyFilters.levelId = "";
+    changed = true;
+  }
+
+  syncFormationJourneySelectionFromRows_(cleanRows, {
+    processId: options.processId
+  });
+
+  return changed;
+}
+
 function syncFormationSectionFiltersAfterEnrollment_(enrollment, offering) {
   const cleanProcessId = String(enrollment?.processId || offering?.processId || "").trim();
   const cleanLevelId = String(enrollment?.levelId || offering?.levelId || "").trim();
@@ -1453,14 +1578,49 @@ function getSelectedFormationPortalOffering_() {
   const allOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
     return !processId || String(offering?.processId || "").trim() === processId;
   });
+  const sourceRows = getFormationPortalSourceRows_().filter((row) => {
+    return !processId || String(row?.processId || "").trim() === processId;
+  });
 
   if (requestedId) {
     return filteredOfferings.find((offering) => String(offering?.id || "").trim() === requestedId)
       || allOfferings.find((offering) => String(offering?.id || "").trim() === requestedId)
-      || null;
+      || (() => {
+        const fallbackRow = sourceRows.find((row) => String(row?.offeringId || "").trim() === requestedId);
+
+        if (!fallbackRow) {
+          return null;
+        }
+
+        return {
+          id: String(fallbackRow?.offeringId || "").trim(),
+          processId: String(fallbackRow?.processId || "").trim(),
+          levelId: String(fallbackRow?.levelId || "").trim(),
+          name: fallbackRow?.offeringName || fallbackRow?.levelName || "Paso",
+          levelName: fallbackRow?.levelName || fallbackRow?.offeringName || "Paso",
+          leaderName: fallbackRow?.leaderName || "",
+          totalSessions: Number(fallbackRow?.attendance?.totalSessions || fallbackRow?.totalSessions || 0) || 0
+        };
+      })();
   }
 
-  return filteredOfferings[0] || allOfferings[0] || null;
+  if (filteredOfferings[0] || allOfferings[0]) {
+    return filteredOfferings[0] || allOfferings[0] || null;
+  }
+
+  if (sourceRows[0]) {
+    return {
+      id: String(sourceRows[0]?.offeringId || "").trim(),
+      processId: String(sourceRows[0]?.processId || "").trim(),
+      levelId: String(sourceRows[0]?.levelId || "").trim(),
+      name: sourceRows[0]?.offeringName || sourceRows[0]?.levelName || "Paso",
+      levelName: sourceRows[0]?.levelName || sourceRows[0]?.offeringName || "Paso",
+      leaderName: sourceRows[0]?.leaderName || "",
+      totalSessions: Number(sourceRows[0]?.attendance?.totalSessions || sourceRows[0]?.totalSessions || 0) || 0
+    };
+  }
+
+  return null;
 }
 
 function ensureFormationPortalSelection_(options = {}) {
@@ -1698,7 +1858,7 @@ async function loadFormationPortalWorkspaceFresh_(options = {}) {
     rows
   };
   state.formationPortalRoster = rows.slice();
-  syncFormationPortalSelectionFromRows_(rows, {
+  normalizeFormationPortalVisibleState_(rows, {
     processId: effectiveProcessId,
     preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
   });
@@ -1779,7 +1939,7 @@ async function loadFormationJourneyWorkspaceFresh_(options = {}) {
     rows
   };
   state.formationProcessRoster = rows.slice();
-  syncFormationJourneySelectionFromRows_(rows, {
+  normalizeFormationJourneyVisibleState_(rows, {
     processId: effectiveProcessId
   });
   state.loaded.formationWorkspaceJourney = true;
