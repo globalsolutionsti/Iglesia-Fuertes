@@ -5342,6 +5342,11 @@ async function confirmSystemAction_() {
     return;
   }
 
+  if (confirmation.kind === "scrap-delete-encounter-route") {
+    await executeScrapDeleteEncounterRoute_(confirmation.payload.seasonId, confirmation.payload.groupId);
+    return;
+  }
+
   if (confirmation.kind === "scrap-delete-person") {
     await executeScrapDeletePerson_(confirmation.payload.personId, confirmation.payload.originView);
     return;
@@ -13001,6 +13006,7 @@ function renderAdminScrapCenter_() {
 
               ${seasonPreview.deletable ? `
                 <div class="actions-row scrap-preview-actions">
+                  <button class="btn btn-secondary" type="button" data-action="prompt-scrap-delete-encounter-route" data-season-id="${escapeHtml(selectedSeason.id || "")}">Limpiar Ruta a Encuentro</button>
                   <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-season" data-season-id="${escapeHtml(selectedSeason.id || "")}">Eliminar temporada demo</button>
                   <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Limpiar selección</button>
                 </div>
@@ -13011,6 +13017,7 @@ function renderAdminScrapCenter_() {
                 </div>
 
                 <div class="actions-row scrap-preview-actions">
+                  <button class="btn btn-secondary" type="button" data-action="prompt-scrap-delete-encounter-route" data-season-id="${escapeHtml(selectedSeason.id || "")}">Limpiar Ruta a Encuentro</button>
                   <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Entendido</button>
                 </div>
               `}
@@ -22702,6 +22709,39 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "prompt-scrap-delete-encounter-route") {
+      const seasonId = String(button.dataset.seasonId || state.ui.selectedScrapSeasonId || "");
+      const season = (Array.isArray(state.seasons) ? state.seasons : []).find((item) => String(item.id || "") === seasonId);
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!seasonId || !season) {
+        showToast("Temporada no disponible", "Selecciona primero la temporada cuya Ruta a Encuentro deseas limpiar.", "warning");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-encounter-route",
+        title: "Limpiar Ruta a Encuentro",
+        copy: "Se eliminarán únicamente los registros de Pre-Encuentro guardados en Formación para esta temporada. No se tocarán los datos personales, grupos de conexión, participantes ni asistencias del grupo.",
+        badge: "Reset Pre-Encuentro",
+        confirmLabel: "Limpiar ruta",
+        tone: "warning",
+        notes: [
+          `${season.name || season.id} (${season.id || "-"})`,
+          "Borra solo la bitácora guardada en FORMACION_PROCESO para esta ruta.",
+          "Después usa Actualizar candidatos para reconstruir la lista real desde las 3 asistencias consecutivas."
+        ],
+        payload: {
+          seasonId
+        }
+      });
+      return;
+    }
+
     if (action === "prompt-scrap-delete-formation-process") {
       const processId = String(button.dataset.processId || state.ui.selectedScrapFormationProcessId || "");
       const process = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((item) => String(item.id || "") === processId);
@@ -31490,6 +31530,40 @@ function applyScrapResetFormationProcessLocally_(processId) {
   invalidateFormationWorkspaceCache_("both");
 }
 
+function applyScrapDeleteEncounterRouteLocally_(seasonId, groupId = "") {
+  const cleanSeasonId = String(seasonId || "").trim();
+  const cleanGroupId = String(groupId || "").trim();
+  const isRouteStatus = (status) => {
+    const normalized = normalizeFormationStatusToken_(status);
+    return normalized === "CANDIDATO_ENCUENTRO" || normalized === "INVITADO_ENCUENTRO" || normalized === "PROSPECTO_GF";
+  };
+
+  if (!cleanSeasonId) {
+    return;
+  }
+
+  const isSameSeason = (item) => String(item?.seasonId || "").trim() === cleanSeasonId;
+  const isSameGroup = (item) => !cleanGroupId || String(item?.groupId || "").trim() === cleanGroupId;
+
+  state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((item) => {
+    return !(isSameSeason(item) && isSameGroup(item));
+  });
+  state.connectionEncounterCandidates = (Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : []).filter((item) => {
+    return !(isSameSeason(item) && isSameGroup(item));
+  });
+  state.formationRecords = (Array.isArray(state.formationRecords) ? state.formationRecords : []).filter((item) => {
+    return !(isSameSeason(item) && isSameGroup(item) && isRouteStatus(item?.status));
+  });
+
+  state.loaded.formationCandidates = false;
+  state.cacheKeys.formationCandidates = "";
+  state.loaded.connectionEncounterCandidates = false;
+  state.cacheKeys.connectionEncounterCandidates = "";
+  state.loaded.formationRecords = false;
+  state.cacheKeys.formationRecords = "";
+  invalidateFormationWorkspaceCache_("both");
+}
+
 function applyDeleteFormationLevelLocally_(levelId) {
   const cleanLevelId = String(levelId || "").trim();
 
@@ -31752,6 +31826,57 @@ async function executeScrapResetFormationProcess_(processId) {
   showToast(
     "Formación reiniciada",
     `${response?.processName || cleanProcessId} conservó su estructura y limpió ${response?.deletedEnrollments || 0} inscripción(es), ${response?.deletedLevelAttendances || 0} asistencia(s), ${response?.deletedFormationRecords || 0} registro(s) y ${response?.deletedFormationAccounts || 0} cuenta(s) portal. ${response?.resetPeople || 0} persona(s) quedaron listas para iniciar de nuevo.`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
+}
+
+async function executeScrapDeleteEncounterRoute_(seasonId, groupId = "") {
+  const cleanSeasonId = String(seasonId || "").trim();
+  const cleanGroupId = String(groupId || "").trim();
+  let response = null;
+
+  if (!cleanSeasonId) {
+    showToast("Falta temporada", "Selecciona primero la temporada cuya Ruta a Encuentro deseas limpiar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteEncounterRouteData", {
+      seasonId: cleanSeasonId,
+      groupId: cleanGroupId
+    });
+
+    applyScrapDeleteEncounterRouteLocally_(cleanSeasonId, cleanGroupId);
+
+    const refreshResults = await Promise.allSettled([
+      state.currentView === "formation"
+        ? ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      state.currentView === "participants"
+        ? loadConnectionEncounterCandidates_({
+          force: true,
+          showLoading: false,
+          seasonId: cleanSeasonId,
+          groupId: cleanGroupId
+        })
+        : Promise.resolve()
+    ]);
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP encounter route refresh warning", result.reason);
+      });
+  }, "Limpiando Ruta a Encuentro...");
+
+  showToast(
+    "Ruta a Encuentro limpia",
+    `${response?.seasonName || cleanSeasonId} quedó sin ${response?.deletedFormationRecords || 0} registro(s) de Pre-Encuentro. Ahora ya puedes usar Actualizar candidatos para recalcular desde las 3 asistencias consecutivas reales.`,
     "success"
   );
   renderApp();
