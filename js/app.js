@@ -23616,11 +23616,13 @@ async function handleClick(event) {
         }
       } else if (state.ui.formationSection === "portal") {
         await ensureFormationPortalSectionData_({
-          force: true
+          force: true,
+          skipSync: true
         });
       } else if (state.ui.formationSection === "operations") {
         await ensureFormationJourneySectionData_({
-          force: true
+          force: true,
+          skipSync: true
         });
       } else if (state.ui.formationSection === "levels") {
         await loadFormationLevelsWorkspaceData_({
@@ -27627,6 +27629,7 @@ async function ensureFormationPortalSectionData_(options = {}) {
     await loadFormationPortalWorkspaceFresh_({
       force: options.force,
       showLoading: false,
+      skipSync: options.skipSync !== undefined ? options.skipSync : true,
       processId: effectiveProcessId,
       preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
     });
@@ -27677,6 +27680,7 @@ async function ensureFormationJourneySectionData_(options = {}) {
     await loadFormationJourneyWorkspaceFresh_({
       force: options.force,
       showLoading: false,
+      skipSync: options.skipSync !== undefined ? options.skipSync : true,
       processId: effectiveProcessId
     });
 
