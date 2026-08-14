@@ -1634,9 +1634,11 @@ async function loadFormationPortalWorkspaceFresh_(options = {}) {
       : (portalFilters.processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
   ).trim();
 
-  portalFilters.processId = selectedProcessId;
+  let effectiveProcessId = selectedProcessId;
 
-  if (!selectedProcessId) {
+  portalFilters.processId = effectiveProcessId;
+
+  if (!effectiveProcessId) {
     state.formationWorkspace.portal = {
       processId: "",
       rows: []
@@ -1647,7 +1649,7 @@ async function loadFormationPortalWorkspaceFresh_(options = {}) {
     return [];
   }
 
-  await loadFormationPortalOfferingsList_(selectedProcessId, "", {
+  await loadFormationPortalOfferingsList_(effectiveProcessId, "", {
     force: Boolean(options.force),
     showLoading: false
   });
@@ -1656,30 +1658,54 @@ async function loadFormationPortalWorkspaceFresh_(options = {}) {
     preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
   });
 
-  const cacheKey = `PROCESS::${selectedProcessId}`;
+  const cacheKey = `PROCESS::${effectiveProcessId}`;
   if (
     !options.force
     && state.loaded.formationWorkspacePortal
     && String(state.cacheKeys.formationWorkspacePortal || "") === cacheKey
-    && String(state.formationWorkspace.portal?.processId || "") === selectedProcessId
+    && String(state.formationWorkspace.portal?.processId || "") === effectiveProcessId
   ) {
     return getFormationPortalSourceRows_();
   }
 
-  const rows = await getFormationPortalFreshRows_(selectedProcessId, options);
+  let rows = await getFormationPortalFreshRows_(effectiveProcessId, options);
+
+  if (!rows.length) {
+    const fallback = await loadFormationProcessRosterFallback_(effectiveProcessId);
+    const fallbackProcessId = String(fallback?.processId || "").trim();
+    const fallbackRows = Array.isArray(fallback?.rows) ? fallback.rows : [];
+
+    if (fallbackProcessId && fallbackRows.length && fallbackProcessId !== effectiveProcessId) {
+      effectiveProcessId = fallbackProcessId;
+      portalFilters.processId = effectiveProcessId;
+      portalFilters.levelId = "";
+      portalFilters.offeringId = "";
+      state.filters.formationOps.processId = effectiveProcessId;
+      state.ui.selectedFormationOfferingId = "";
+      state.ui.lastFormationEnrolledOfferingId = "";
+
+      await loadFormationPortalOfferingsList_(effectiveProcessId, "", {
+        force: true,
+        showLoading: false
+      });
+
+      rows = fallbackRows;
+    }
+  }
+
   state.formationWorkspace.portal = {
-    processId: selectedProcessId,
+    processId: effectiveProcessId,
     rows
   };
   state.formationPortalRoster = rows.slice();
   syncFormationPortalSelectionFromRows_(rows, {
-    processId: selectedProcessId,
+    processId: effectiveProcessId,
     preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
   });
   state.loaded.formationWorkspacePortal = true;
-  state.cacheKeys.formationWorkspacePortal = cacheKey;
+  state.cacheKeys.formationWorkspacePortal = `PROCESS::${effectiveProcessId}`;
   state.loaded.formationPortalRoster = true;
-  state.cacheKeys.formationPortalRoster = cacheKey;
+  state.cacheKeys.formationPortalRoster = `PROCESS::${effectiveProcessId}`;
   return rows;
 }
 
@@ -1702,9 +1728,11 @@ async function loadFormationJourneyWorkspaceFresh_(options = {}) {
       : (journeyFilters.processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
   ).trim();
 
-  journeyFilters.processId = selectedProcessId;
+  let effectiveProcessId = selectedProcessId;
 
-  if (!selectedProcessId) {
+  journeyFilters.processId = effectiveProcessId;
+
+  if (!effectiveProcessId) {
     state.formationWorkspace.journey = {
       processId: "",
       rows: []
@@ -1718,29 +1746,46 @@ async function loadFormationJourneyWorkspaceFresh_(options = {}) {
     return [];
   }
 
-  const cacheKey = `PROCESS::${selectedProcessId}`;
+  const cacheKey = `PROCESS::${effectiveProcessId}`;
   if (
     !options.force
     && state.loaded.formationWorkspaceJourney
     && String(state.cacheKeys.formationWorkspaceJourney || "") === cacheKey
-    && String(state.formationWorkspace.journey?.processId || "") === selectedProcessId
+    && String(state.formationWorkspace.journey?.processId || "") === effectiveProcessId
   ) {
     return getFormationJourneySourceRows_();
   }
 
-  const rows = await getFormationJourneyFreshRows_(selectedProcessId, options);
+  let rows = await getFormationJourneyFreshRows_(effectiveProcessId, options);
+
+  if (!rows.length) {
+    const fallback = await loadFormationProcessRosterFallback_(effectiveProcessId);
+    const fallbackProcessId = String(fallback?.processId || "").trim();
+    const fallbackRows = Array.isArray(fallback?.rows) ? fallback.rows : [];
+
+    if (fallbackProcessId && fallbackRows.length && fallbackProcessId !== effectiveProcessId) {
+      effectiveProcessId = fallbackProcessId;
+      journeyFilters.processId = effectiveProcessId;
+      journeyFilters.levelId = "";
+      state.filters.formationOps.processId = effectiveProcessId;
+      state.ui.selectedFormationEnrollmentId = "";
+      state.ui.selectedFormationPersonId = "";
+      rows = fallbackRows;
+    }
+  }
+
   state.formationWorkspace.journey = {
-    processId: selectedProcessId,
+    processId: effectiveProcessId,
     rows
   };
   state.formationProcessRoster = rows.slice();
   syncFormationJourneySelectionFromRows_(rows, {
-    processId: selectedProcessId
+    processId: effectiveProcessId
   });
   state.loaded.formationWorkspaceJourney = true;
-  state.cacheKeys.formationWorkspaceJourney = cacheKey;
+  state.cacheKeys.formationWorkspaceJourney = `PROCESS::${effectiveProcessId}`;
   state.loaded.formationProcessRoster = true;
-  state.cacheKeys.formationProcessRoster = cacheKey;
+  state.cacheKeys.formationProcessRoster = `PROCESS::${effectiveProcessId}`;
   return rows;
 }
 
