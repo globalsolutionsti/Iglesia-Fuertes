@@ -369,6 +369,7 @@ const state = {
     cameraFacing: ""
   },
   selectedBulkPeople: [],
+  selectedFormationRoutePeople: [],
   ui: {
     mobileNavOpen: false,
     attendanceCenterSection: "home",
@@ -410,6 +411,11 @@ const state = {
     formationRouteEnrollmentProgressPercent: 0,
     formationRouteEnrollmentProgressMessage: "",
     formationRouteEnrollmentProgressDetail: "",
+    formationRouteBulkBusy: false,
+    formationRouteBulkAction: "",
+    formationRouteBulkProgressPercent: 0,
+    formationRouteBulkProgressMessage: "",
+    formationRouteBulkProgressDetail: "",
     formationSectionLoading: {
       active: false,
       section: "",
@@ -868,6 +874,51 @@ function getEncounterCandidateByPersonId_(personId) {
     || state.formationCandidates.find((item) => String(item?.personId || "") === cleanPersonId)
     || null
   );
+}
+
+function getSelectedFormationRoutePersonIds_() {
+  return (Array.isArray(state.selectedFormationRoutePeople) ? state.selectedFormationRoutePeople : [])
+    .map((personId) => String(personId || "").trim())
+    .filter(Boolean);
+}
+
+function isFormationRoutePersonSelected_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return false;
+  }
+
+  return getSelectedFormationRoutePersonIds_().includes(cleanPersonId);
+}
+
+function toggleFormationRouteSelection_(personId, checked) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  if (!Array.isArray(state.selectedFormationRoutePeople)) {
+    state.selectedFormationRoutePeople = [];
+  }
+
+  if (checked) {
+    if (!state.selectedFormationRoutePeople.includes(cleanPersonId)) {
+      state.selectedFormationRoutePeople.push(cleanPersonId);
+    }
+    return;
+  }
+
+  state.selectedFormationRoutePeople = state.selectedFormationRoutePeople.filter((item) => String(item || "").trim() !== cleanPersonId);
+}
+
+function getSelectedFormationRouteCandidates_() {
+  const selectedIds = new Set(getSelectedFormationRoutePersonIds_());
+
+  return (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((candidate) => (
+    selectedIds.has(String(candidate?.personId || "").trim())
+  ));
 }
 
 function getDashboardSelectableGroups_(preferredGroups) {
@@ -3732,6 +3783,22 @@ function clearFormationRouteEnrollmentProgress_() {
   state.ui.formationRouteEnrollmentProgressPercent = 0;
   state.ui.formationRouteEnrollmentProgressMessage = "";
   state.ui.formationRouteEnrollmentProgressDetail = "";
+}
+
+function setFormationRouteBulkProgress_(action, percent, message = "", detail = "") {
+  state.ui.formationRouteBulkBusy = true;
+  state.ui.formationRouteBulkAction = String(action || "").trim();
+  state.ui.formationRouteBulkProgressPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  state.ui.formationRouteBulkProgressMessage = String(message || "").trim();
+  state.ui.formationRouteBulkProgressDetail = String(detail || "").trim();
+}
+
+function clearFormationRouteBulkProgress_() {
+  state.ui.formationRouteBulkBusy = false;
+  state.ui.formationRouteBulkAction = "";
+  state.ui.formationRouteBulkProgressPercent = 0;
+  state.ui.formationRouteBulkProgressMessage = "";
+  state.ui.formationRouteBulkProgressDetail = "";
 }
 
 function applyPortalAccountToFormationProfile_(personId, account, options = {}) {
@@ -9435,6 +9502,15 @@ function renderFormationRouteWorkspace_(context) {
   const appliedGroupId = String(state.filters.formation.groupId || "");
   const groupedCandidates = !appliedGroupId ? buildFormationRouteGroups_(candidates) : [];
   const showGroupedRoute = !appliedGroupId && groupedCandidates.length > 1;
+  const visibleCandidateIds = new Set((Array.isArray(candidates) ? candidates : []).map((candidate) => String(candidate?.personId || "").trim()));
+  const selectedRouteCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => visibleCandidateIds.has(String(candidate?.personId || "").trim()));
+  const selectedRouteCount = selectedRouteCandidates.length;
+  const selectedInvitableCount = selectedRouteCandidates.filter((candidate) => candidate?.personPhone && !candidate?.encounterRegisteredAt).length;
+  const selectedRegisterableCount = selectedRouteCandidates.filter((candidate) => candidate?.invitedAt && !candidate?.encounterRegisteredAt).length;
+  const routeBulkBusy = Boolean(state.ui.formationRouteBulkBusy);
+  const routeBulkProgressPercent = Math.max(0, Math.min(100, Number(state.ui.formationRouteBulkProgressPercent || 0)));
+  const routeBulkProgressMessage = state.ui.formationRouteBulkProgressMessage || (state.ui.formationRouteBulkAction === "invite" ? "Enviando invitaciones..." : "Inscribiendo lote...");
+  const routeBulkProgressDetail = state.ui.formationRouteBulkProgressDetail || "Espera un momento mientras se completa el proceso por lote.";
 
   return `
     <article class="panel-card module-section-anchor" id="formation-route-workspace">
@@ -9513,6 +9589,32 @@ function renderFormationRouteWorkspace_(context) {
 
       ${formationRouteContext}
 
+      ${candidates.length ? `
+        <div class="summary-strip">
+          <span class="context-item"><strong>Lote actual:</strong> ${escapeHtml(String(selectedRouteCount))} seleccionado(s)</span>
+          <span class="context-item"><strong>Listos para invitar:</strong> ${escapeHtml(String(selectedInvitableCount))}</span>
+          <span class="context-item"><strong>Listos para inscribir:</strong> ${escapeHtml(String(selectedRegisterableCount))}</span>
+        </div>
+        <div class="actions-row" style="margin: 0 0 16px;">
+          <button class="btn btn-ghost" data-action="formation-route-select-visible" ${routeBulkBusy ? "disabled" : ""}>Seleccionar visibles</button>
+          <button class="btn btn-ghost" data-action="formation-route-clear-selection" ${selectedRouteCount ? "" : "disabled"}>Vaciar lote</button>
+          <button class="btn btn-secondary" data-action="formation-route-invite-bulk" ${(selectedInvitableCount && !routeBulkBusy) ? "" : "disabled"}>Invitar lote</button>
+          <button class="btn btn-primary" data-action="formation-route-register-bulk" ${(selectedRegisterableCount && !routeBulkBusy) ? "" : "disabled"}>Inscribir lote</button>
+        </div>
+        ${routeBulkBusy ? `
+          <div class="formation-route-progress" style="margin-bottom:16px;">
+            <div class="formation-route-progress-head">
+              <strong>${escapeHtml(routeBulkProgressMessage)}</strong>
+              <span>${escapeHtml(`${routeBulkProgressPercent}%`)}</span>
+            </div>
+            <div class="student-progress-bar">
+              <span class="student-progress-bar-fill" style="width:${escapeHtml(String(routeBulkProgressPercent))}%"></span>
+            </div>
+            <small>${escapeHtml(routeBulkProgressDetail)}</small>
+          </div>
+        ` : ``}
+      ` : ``}
+
       <div class="formation-ledger-card">
         <div class="panel-head formation-ledger-card-head">
           <div>
@@ -9552,6 +9654,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const isActive = String(candidate?.personId || "") === String(activePersonId || "");
   const isPendingEnrollment = String(state.ui.formationRouteEnrollmentBusyPersonId || "").trim() === String(candidate?.personId || "").trim();
   const isFormationRegistered = Boolean(candidate?.encounterRegisteredAt);
+  const isSelectedRouteCandidate = isFormationRoutePersonSelected_(candidate?.personId || "");
   const progressPercent = isPendingEnrollment ? Math.max(0, Math.min(100, Number(state.ui.formationRouteEnrollmentProgressPercent || 0))) : 0;
   const progressMessage = isPendingEnrollment
     ? (state.ui.formationRouteEnrollmentProgressMessage || "Inscribiendo...")
@@ -9584,6 +9687,8 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
   const encounterDisabled = isPendingEnrollment
     ? "disabled"
     : (candidate?.invitedAt && !isFormationRegistered ? "" : "disabled");
+  const routeSelectLabel = isSelectedRouteCandidate ? "Quitar del lote" : "Seleccionar";
+  const routeSelectDisabled = isFormationRegistered || state.ui.formationRouteBulkBusy ? "disabled" : "";
   const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
   const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
   const followupTitle = isPendingEnrollment
@@ -9616,6 +9721,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
         <div class="formation-ledger-route-context">
           <span class="formation-ledger-route-chip">${escapeHtml(groupName)}</span>
           <span class="formation-ledger-route-chip">${escapeHtml(seasonName)}</span>
+          <span class="formation-ledger-route-chip ${isSelectedRouteCandidate ? "is-selected" : ""}">${escapeHtml(isSelectedRouteCandidate ? "En lote" : "Individual")}</span>
         </div>
       </div>
       <div class="formation-ledger-cell formation-ledger-route-stage">
@@ -9650,6 +9756,14 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
       <div class="formation-ledger-cell formation-ledger-actions formation-ledger-route-actions">
         <small>Acciones</small>
         <div class="formation-action-stack formation-action-stack-route">
+          <button
+            class="btn btn-ghost"
+            data-action="formation-route-toggle-selection"
+            data-person-id="${escapeHtml(candidate?.personId || "")}"
+            ${routeSelectDisabled}
+          >
+            ${escapeHtml(routeSelectLabel)}
+          </button>
           <button
             class="btn btn-ghost"
             data-action="open-formation-profile"
@@ -24105,6 +24219,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "formation-route-toggle-selection") {
+      const personId = String(button.dataset.personId || "").trim();
+      toggleFormationRouteSelection_(personId, !isFormationRoutePersonSelected_(personId));
+      renderApp();
+      return;
+    }
+
+    if (action === "formation-route-select-visible") {
+      getFilteredFormationCandidates_()
+        .filter((candidate) => !candidate?.encounterRegisteredAt)
+        .forEach((candidate) => {
+          toggleFormationRouteSelection_(String(candidate?.personId || ""), true);
+        });
+      renderApp();
+      showToast("Lote preparado", "Los candidatos visibles quedaron listos para invitación o inscripción masiva.", "success");
+      return;
+    }
+
+    if (action === "formation-route-clear-selection") {
+      state.selectedFormationRoutePeople = [];
+      renderApp();
+      return;
+    }
+
+    if (action === "formation-route-invite-bulk") {
+      await sendFormationEncounterInviteBulk_();
+      return;
+    }
+
+    if (action === "formation-route-register-bulk") {
+      await registerFormationEncounterBulk_();
+      return;
+    }
+
     if (action === "formation-add-bulk-person") {
       toggleBulkSelection(String(button.dataset.personId || ""), true);
       renderApp();
@@ -26799,6 +26947,9 @@ async function loadFormationCandidates_(options = {}) {
       }
 
       state.formationCandidates = Array.isArray(candidates) ? candidates : [];
+      state.selectedFormationRoutePeople = getSelectedFormationRoutePersonIds_().filter((personId) => (
+        state.formationCandidates.some((candidate) => String(candidate?.personId || "").trim() === personId)
+      ));
       state.cacheKeys.formationCandidates = candidatesKey;
       state.loaded.formationCandidates = true;
       return state.formationCandidates;
@@ -30794,6 +30945,79 @@ async function sendFormationEncounterInvite_(candidate) {
   showToast("Invitación lista", "La fecha de invitación quedó registrada y el WhatsApp del congregante se abrió de inmediato.", "success");
 }
 
+async function sendFormationEncounterInviteBulk_() {
+  const selectedCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => !candidate?.encounterRegisteredAt);
+  const invitableCandidates = selectedCandidates.filter((candidate) => candidate?.personPhone);
+  const skippedWithoutPhone = Math.max(0, selectedCandidates.length - invitableCandidates.length);
+  let response = null;
+
+  if (!selectedCandidates.length) {
+    showToast("Sin selección", "Selecciona primero a las personas que vas a invitar en lote.", "warning");
+    return;
+  }
+
+  if (!invitableCandidates.length) {
+    showToast("Sin teléfonos", "Las personas seleccionadas no tienen teléfono para registrar su invitación.", "warning");
+    return;
+  }
+
+  try {
+    setFormationRouteBulkProgress_(
+      "invite",
+      10,
+      "Preparando invitaciones...",
+      `Se revisarán ${invitableCandidates.length} persona(s) seleccionadas.`
+    );
+    renderApp();
+    await waitMs_(90);
+
+    setFormationRouteBulkProgress_(
+      "invite",
+      42,
+      "Registrando invitaciones en lote...",
+      "Se está guardando la fecha de invitación para habilitar la inscripción posterior."
+    );
+    renderApp();
+
+    response = await apiPost("formation.encounter.sendInviteBulk", {
+      seasonId: invitableCandidates[0]?.seasonId || state.filters.formation.seasonId || "",
+      personIds: invitableCandidates.map((candidate) => String(candidate?.personId || "").trim()).filter(Boolean),
+      sentBy: state.user?.name || ""
+    });
+
+    setFormationRouteBulkProgress_(
+      "invite",
+      82,
+      "Sincronizando listado...",
+      "Actualizando el estado visible de la Ruta a Encuentro."
+    );
+
+    (Array.isArray(response?.results) ? response.results : []).forEach((item) => {
+      if (item?.ok && item?.record) {
+        applyFormationRecordToLocalState_(item.record);
+      }
+    });
+
+    setFormationRouteBulkProgress_(
+      "invite",
+      100,
+      "Invitaciones registradas",
+      `${response?.invited || 0} persona(s) ya quedaron marcadas como invitadas.`
+    );
+    renderApp();
+    await waitMs_(700);
+
+    showToast(
+      "Invitación masiva completada",
+      `${response?.invited || 0} invitación(es) registradas en lote${skippedWithoutPhone ? `, ${skippedWithoutPhone} sin teléfono` : ""}${response?.errors ? ` y ${response.errors} con error` : ""}.`,
+      response?.errors ? "warning" : "success"
+    );
+  } finally {
+    clearFormationRouteBulkProgress_();
+    renderApp();
+  }
+}
+
 async function registerFormationEncounter_(candidate) {
   if (!candidate?.personId) {
     showToast("Selecciona una persona", "No fue posible ubicar el congregante para registrar su Encuentro.", "warning");
@@ -30932,6 +31156,204 @@ async function registerFormationEncounter_(candidate) {
     );
   } finally {
     clearFormationRouteEnrollmentProgress_();
+    renderApp();
+  }
+}
+
+async function registerFormationEncounterBulk_() {
+  const selectedCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => candidate?.invitedAt && !candidate?.encounterRegisteredAt);
+  const preferredProcessId = String(state.filters.formationOps.processId || state.formationProcesses[0]?.id || "").trim();
+  const groupedAssignments = new Map();
+  const skippedCandidates = [];
+  const successfulPersonIds = [];
+  let createdCount = 0;
+  let alreadyExistingCount = 0;
+  let errorCount = 0;
+  let firstOffering = null;
+
+  if (!selectedCandidates.length) {
+    showToast("Sin lote listo", "Selecciona personas invitadas para inscribirlas al Proceso de Formación.", "warning");
+    return;
+  }
+
+  if (!state.formationProcesses.length) {
+    state.ui.formationSection = "levels";
+    renderApp();
+    showToast(
+      "Primero crea el proceso",
+      "Antes de inscribir en lote, crea al menos un Proceso de Formación y su primer paso programado.",
+      "warning"
+    );
+    scrollToSection_("formation-process-panel");
+    return;
+  }
+
+  try {
+    setFormationRouteBulkProgress_(
+      "register",
+      8,
+      "Preparando inscripción masiva...",
+      `Se validarán ${selectedCandidates.length} persona(s) invitadas.`
+    );
+    state.ui.pendingFormationEnrollmentPersonId = "";
+    renderApp();
+
+    await loadFormationPortalOfferingsList_(preferredProcessId, "", {
+      force: false,
+      showLoading: false
+    });
+
+    setFormationRouteBulkProgress_(
+      "register",
+      24,
+      "Buscando pasos disponibles...",
+      "El sistema está revisando el primer paso válido para cada persona seleccionada."
+    );
+    renderApp();
+
+    selectedCandidates.forEach((candidate) => {
+      const eligibleOfferings = getAssignableFormationPortalOfferingsForPerson_(candidate.personId).filter((offering) => {
+        return String(offering?.processId || "").trim() === preferredProcessId;
+      });
+      const selectedOffering = eligibleOfferings[0] || null;
+
+      if (!selectedOffering?.id) {
+        skippedCandidates.push(candidate);
+        return;
+      }
+
+      if (!groupedAssignments.has(selectedOffering.id)) {
+        groupedAssignments.set(selectedOffering.id, {
+          offering: selectedOffering,
+          seasonId: String(candidate?.seasonId || state.filters.formation.seasonId || "").trim(),
+          personIds: []
+        });
+      }
+
+      groupedAssignments.get(selectedOffering.id).personIds.push(String(candidate?.personId || "").trim());
+    });
+
+    if (!groupedAssignments.size) {
+      clearFormationRouteBulkProgress_();
+      renderApp();
+      showToast(
+        "Sin paso habilitado",
+        "Las personas seleccionadas todavía no tienen un paso disponible dentro del proceso activo. Revisa Catálogos y el primer paso programado.",
+        "warning"
+      );
+      return;
+    }
+
+    const assignmentGroups = Array.from(groupedAssignments.values());
+
+    for (let index = 0; index < assignmentGroups.length; index += 1) {
+      const assignment = assignmentGroups[index];
+      const currentOffering = assignment.offering;
+      let response = null;
+
+      if (!firstOffering) {
+        firstOffering = currentOffering;
+      }
+
+      setFormationRouteBulkProgress_(
+        "register",
+        Math.min(86, 30 + Math.round((index / Math.max(assignmentGroups.length, 1)) * 48)),
+        "Inscribiendo lote...",
+        `${currentOffering?.name || currentOffering?.levelName || "Paso inicial"}: ${assignment.personIds.length} persona(s).`
+      );
+      renderApp();
+
+      response = await apiPost("formation.enrollment.assignBulk", {
+        offeringId: currentOffering.id,
+        personIds: assignment.personIds,
+        seasonId: assignment.seasonId,
+        enrolledBy: state.user?.name || ""
+      });
+
+      createdCount += Number(response?.created || 0);
+      alreadyExistingCount += Number(response?.alreadyExisting || 0);
+      errorCount += Number(response?.errors || 0);
+
+      (Array.isArray(response?.results) ? response.results : []).forEach((resultItem) => {
+        const cleanPersonId = String(resultItem?.personId || "").trim();
+
+        if (!cleanPersonId || !resultItem?.ok) {
+          return;
+        }
+
+        successfulPersonIds.push(cleanPersonId);
+        markFormationEncounterEnrollmentLocally_(
+          cleanPersonId,
+          {
+            offeringName: currentOffering?.name || currentOffering?.levelName || "",
+            levelName: currentOffering?.levelName || currentOffering?.name || "",
+            status: resultItem?.status || "EN_CURSO",
+            enrolledAt: new Date().toISOString()
+          },
+          {
+            status: resultItem?.status || "EN_CURSO",
+            levelName: currentOffering?.levelName || currentOffering?.name || "",
+            encounterRegisteredAt: new Date().toISOString()
+          }
+        );
+      });
+    }
+
+    if (successfulPersonIds.length) {
+      const successfulSet = new Set(successfulPersonIds);
+      state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((candidate) => {
+        return !successfulSet.has(String(candidate?.personId || "").trim());
+      });
+    }
+
+    state.selectedFormationRoutePeople = [];
+    invalidateFormationWorkspaceCache_("both");
+
+    if (firstOffering) {
+      syncFormationSectionFiltersAfterEnrollment_({
+        processId: firstOffering.processId,
+        levelId: firstOffering.levelId,
+        offeringId: firstOffering.id
+      }, firstOffering);
+    }
+
+    setFormationRouteBulkProgress_(
+      "register",
+      92,
+      "Sincronizando subfichas...",
+      "Actualizando Inscritos y portal y el Camino Proceso de Formación."
+    );
+    renderApp();
+
+    await ensureFormationPortalSectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationPortalFilters_().processId || preferredProcessId || "",
+      preferredOfferingId: getFormationPortalFilters_().offeringId || firstOffering?.id || ""
+    });
+    await ensureFormationJourneySectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationJourneyFilters_().processId || getFormationPortalFilters_().processId || preferredProcessId || ""
+    });
+
+    state.ui.formationSection = "portal";
+    setFormationRouteBulkProgress_(
+      "register",
+      100,
+      "Inscripción masiva completada",
+      `${successfulPersonIds.length} persona(s) ya quedaron dentro del Proceso de Formación.`
+    );
+    renderApp();
+    await waitMs_(900);
+
+    showToast(
+      "Inscripción masiva completada",
+      `${createdCount} nueva(s), ${alreadyExistingCount} ya estaban inscritas${skippedCandidates.length ? `, ${skippedCandidates.length} sin paso habilitado` : ""}${errorCount ? ` y ${errorCount} con error` : ""}.`,
+      (errorCount || skippedCandidates.length) ? "warning" : "success"
+    );
+  } finally {
+    clearFormationRouteBulkProgress_();
     renderApp();
   }
 }
@@ -38126,6 +38548,7 @@ function resetRuntimeState() {
   };
   state.formationAttendanceContext = null;
   state.connectionEncounterCandidates = [];
+  state.selectedFormationRoutePeople = [];
   state.studentPortal = null;
   state.studentPortalByPerson = {};
   state.telegramConfig = null;
@@ -38138,6 +38561,11 @@ function resetRuntimeState() {
     dashboardSeasonMatrixRoute: null
   };
   state.viewLoadToken = 0;
+  state.ui.formationRouteBulkBusy = false;
+  state.ui.formationRouteBulkAction = "";
+  state.ui.formationRouteBulkProgressPercent = 0;
+  state.ui.formationRouteBulkProgressMessage = "";
+  state.ui.formationRouteBulkProgressDetail = "";
   state.cacheKeys = {
     participants: "",
     participantSeasonAssignments: "",
