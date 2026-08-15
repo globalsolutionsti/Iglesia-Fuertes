@@ -591,8 +591,8 @@ const qrScannerRuntime = {
 };
 
 const FORMATION_QR_PROCESSING_MIN_MS = 120;
-const FORMATION_QR_SUCCESS_HOLD_MS = 3000;
-const FORMATION_QR_ERROR_HOLD_MS = 1500;
+const FORMATION_QR_SUCCESS_HOLD_MS = 2000;
+const FORMATION_QR_ERROR_HOLD_MS = 2000;
 
 const formationAttendanceScannerRuntime = {
   enabled: false,
@@ -32972,7 +32972,7 @@ function processFormationAttendanceQrRawValue_(rawValue) {
   formationAttendanceScannerRuntime.requestPending = true;
   formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.requestStartedAt = now;
-  formationAttendanceScannerRuntime.pausedUntil = now + 5000;
+  formationAttendanceScannerRuntime.pausedUntil = now + 1200;
   setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
   void submitFormationAttendanceScannerRegistration_(extractedPersonId);
 }
