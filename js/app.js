@@ -28306,11 +28306,23 @@ async function openFormationPortalAdminModal_(personId, options = {}) {
   renderApp();
 
   try {
-    await loadFormationProfile_(cleanPersonId, {
-      force,
-      seasonId: state.filters.formation.seasonId,
-      showLoading: false
-    });
+    await Promise.all([
+      loadFormationProfile_(cleanPersonId, {
+        force,
+        seasonId: state.filters.formation.seasonId,
+        showLoading: false
+      }),
+      apiGet("formation.account.get", {
+        personId: cleanPersonId,
+        revealPin: "1"
+      }).then((account) => {
+        if (account) {
+          applyPortalAccountToFormationProfile_(cleanPersonId, account, {
+            seasonId: state.filters.formation.seasonId
+          });
+        }
+      }).catch(() => {})
+    ]);
   } finally {
     state.ui.formationPortalModal = {
       personId: cleanPersonId,
