@@ -1712,17 +1712,17 @@ function getFilteredFormationPortalRoster_(offeringId) {
 async function getFormationPortalFreshRows_(processId, options = {}) {
   const cleanProcessId = String(processId || "").trim();
   const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
+  let rows = [];
 
   if (!cleanProcessId) {
     return [];
   }
 
   try {
-    const rows = await apiGet("formation.enrollments.list", {
+    rows = await apiGet("formation.enrollments.list", {
       processId: cleanProcessId,
       skipSync: shouldSkipSync ? "1" : ""
     });
-    return Array.isArray(rows) ? rows : [];
   } catch (error) {
     if (isUnknownActionError_(error, "formation.enrollments.list")) {
       throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Inscritos y portal");
@@ -1738,24 +1738,32 @@ async function getFormationPortalFreshRows_(processId, options = {}) {
       );
     }
 
-    throw error;
+    rows = [];
   }
+
+  rows = Array.isArray(rows) ? rows : [];
+
+  if (rows.length) {
+    return rows;
+  }
+
+  return getFormationEnrollmentFallbackRows_(cleanProcessId);
 }
 
 async function getFormationJourneyFreshRows_(processId, options = {}) {
   const cleanProcessId = String(processId || "").trim();
   const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
+  let rows = [];
 
   if (!cleanProcessId) {
     return [];
   }
 
   try {
-    const rows = await apiGet("formation.enrollments.list", {
+    rows = await apiGet("formation.enrollments.list", {
       processId: cleanProcessId,
       skipSync: shouldSkipSync ? "1" : ""
     });
-    return Array.isArray(rows) ? rows : [];
   } catch (error) {
     if (isUnknownActionError_(error, "formation.enrollments.list")) {
       throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Camino Proceso de Formación");
@@ -1771,8 +1779,16 @@ async function getFormationJourneyFreshRows_(processId, options = {}) {
       );
     }
 
-    throw error;
+    rows = [];
   }
+
+  rows = Array.isArray(rows) ? rows : [];
+
+  if (rows.length) {
+    return rows;
+  }
+
+  return getFormationEnrollmentFallbackRows_(cleanProcessId);
 }
 
 async function loadFormationPortalWorkspaceFresh_(options = {}) {
@@ -2262,7 +2278,13 @@ function getFormationPortalSourceRows_() {
     return workspaceRows;
   }
 
-  return Array.isArray(state.formationPortalRoster) ? state.formationPortalRoster : [];
+  if (Array.isArray(state.formationPortalRoster) && state.formationPortalRoster.length) {
+    return state.formationPortalRoster;
+  }
+
+  return getFormationEnrollmentFallbackRows_(
+    getFormationPortalFilters_().processId || state.filters.formationOps.processId || ""
+  );
 }
 
 function getFormationJourneySourceRows_() {
@@ -2275,7 +2297,36 @@ function getFormationJourneySourceRows_() {
     return workspaceRows;
   }
 
-  return Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : [];
+  if (Array.isArray(state.formationProcessRoster) && state.formationProcessRoster.length) {
+    return state.formationProcessRoster;
+  }
+
+  return getFormationEnrollmentFallbackRows_(
+    getFormationJourneyFilters_().processId || state.filters.formationOps.processId || ""
+  );
+}
+
+function getFormationEnrollmentFallbackRows_(processId = "") {
+  const cleanProcessId = String(processId || "").trim();
+  const rows = Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [];
+
+  return rows
+    .filter((row) => {
+      return !cleanProcessId || String(row?.processId || "").trim() === cleanProcessId;
+    })
+    .slice()
+    .sort((left, right) => {
+      const leftOrder = Number(left?.levelOrder || 0);
+      const rightOrder = Number(right?.levelOrder || 0);
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return String(right?.enrolledAt || right?.startDate || "").localeCompare(
+        String(left?.enrolledAt || left?.startDate || "")
+      );
+    });
 }
 
 function ensureFormationPortalDefaultOffering_(options = {}) {
@@ -9423,7 +9474,7 @@ function renderFormationRouteWorkspace_(context) {
           <select id="formation-status-filter">
             ${renderOptions([
               { value: "ALL", label: "Todos los estatus" },
-              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Encuentro" },
+              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Proceso de Formación" },
               { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
               { value: "PROSPECTO GF", label: "Prospecto GF" },
               { value: "ACEPTADO_FORMACION", label: "Aceptado" },
@@ -9690,7 +9741,7 @@ function renderFormationPreEncounterReportWorkspace_(context) {
           <select id="formation-status-filter">
             ${renderOptions([
               { value: "ALL", label: "Todos los estatus" },
-              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Encuentro" },
+              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Proceso de Formación" },
               { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
               { value: "PROSPECTO GF", label: "Prospecto GF" }
             ], formationDraft.status, "Todos los estatus")}
@@ -19442,7 +19493,7 @@ function renderParticipantsSimplifiedView_() {
       <article class="panel-card module-section-anchor" id="participants-encounter">
         <div class="panel-head">
           <div>
-            <h2>Candidatos a Encuentro (Pre-Encuentro)</h2>
+            <h2>Candidatos a Proceso de Formación</h2>
             <p>Este listado es compartido con Proceso de Formación. Solo aparecen personas con 3 asistencias consecutivas y que todavía no están inscritas a ningún proceso de formación.</p>
           </div>
           <span class="pill dark">${escapeHtml(String(connectionCandidates.length))} candidatos</span>
@@ -19470,7 +19521,7 @@ function renderParticipantsSimplifiedView_() {
         </div>
 
         <div class="actions-row">
-          <button class="btn btn-primary" data-action="refresh-connection-encounter-candidates" ${routeSeasonId ? "" : "disabled"}>Actualizar candidatos a Encuentro (Pre-Encuentro)</button>
+          <button class="btn btn-primary" data-action="refresh-connection-encounter-candidates" ${routeSeasonId ? "" : "disabled"}>Actualizar candidatos a Proceso de Formación</button>
           <button class="btn btn-ghost" data-action="export-connection-encounter-excel" ${connectionCandidates.length ? "" : "disabled"}>Excel</button>
           <button class="btn btn-ghost" data-action="export-connection-encounter-pdf" ${connectionCandidates.length ? "" : "disabled"}>PDF</button>
           <button class="btn btn-ghost" data-action="share-connection-encounter-whatsapp" ${connectionCandidates.length ? "" : "disabled"}>WhatsApp pastor</button>
@@ -23347,7 +23398,7 @@ async function handleClick(event) {
         syncCandidates: true
       });
       renderApp();
-      showToast("Listado actualizado", "Los candidatos a Encuentro (Pre-Encuentro) quedaron actualizados para todos los grupos.", "success");
+      showToast("Listado actualizado", "Los candidatos a Proceso de Formación quedaron actualizados para todos los grupos.", "success");
       return;
     }
 
@@ -28706,7 +28757,7 @@ async function loadConnectionEncounterCandidates_(options = {}) {
     return task();
   }
 
-  return withLoading(task, shouldSync ? "Actualizando candidatos a Encuentro..." : "Cargando candidatos a Pre-Encuentro...");
+  return withLoading(task, shouldSync ? "Actualizando candidatos a Proceso de Formación..." : "Cargando candidatos a Proceso de Formación...");
 }
 
 async function saveAssistant(rawPayload) {
@@ -36034,14 +36085,14 @@ function renderFormationEncounterRouteCard_(candidate) {
     : "Sin detalle de sesiones";
   const inviteLabel = candidate.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
   const encounterLabel = candidate.encounterRegisteredAt
-    ? "Encuentro registrado"
+    ? "Inscrito a Proceso de Formación"
     : (candidate.invitedAt ? "Continuar inscripción" : "Primero envía invitación");
   const inviteDisabled = candidate.personPhone ? "" : "disabled";
   const encounterDisabled = candidate.invitedAt && !candidate.encounterRegisteredAt ? "" : "disabled";
   const routeHelper = candidate.encounterRegisteredAt
-    ? `Registrado a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
+    ? `Inscrito a Proceso de Formación el ${formatDate(candidate.encounterRegisteredAt)}.`
     : (candidate.invitedAt
-      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, continúa la inscripción desde Discipulado.`
+      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, continúa la inscripción al Proceso de Formación.`
       : (candidate.personPhone
         ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, continúa la inscripción."
         : "Falta teléfono del congregante para poder abrir la invitación por WhatsApp."));
@@ -36121,7 +36172,7 @@ function renderWorkflowStatusPill_(value) {
   }
 
   if (normalized === "CANDIDATO_ENCUENTRO") {
-    return `<span class="pill warning">Candidato a Encuentro</span>`;
+    return `<span class="pill warning">Candidato a Proceso de Formación</span>`;
   }
 
   if (normalized === "INVITACION_ENVIADA") {
@@ -36167,7 +36218,7 @@ function getWorkflowStatusLabel_(value) {
     NUEVO: "Nuevo",
     PROSPECTO: "Prospecto",
     "PROSPECTO GP": "Prospecto GC",
-    CANDIDATO_ENCUENTRO: "Candidato a Encuentro",
+    CANDIDATO_ENCUENTRO: "Candidato a Proceso de Formación",
     INVITACION_ENVIADA: "Invitación enviada",
     CONGREGANTE: "Congregante",
     PROSPECTO_FORMACION: "Prospecto para Encuentro",
