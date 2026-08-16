@@ -9582,7 +9582,7 @@ function renderFormationRouteWorkspace_(context) {
   const visibleCandidateIds = new Set((Array.isArray(candidates) ? candidates : []).map((candidate) => String(candidate?.personId || "").trim()));
   const selectedRouteCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => visibleCandidateIds.has(String(candidate?.personId || "").trim()));
   const selectedRouteCount = selectedRouteCandidates.length;
-  const selectedInvitableCount = selectedRouteCandidates.filter((candidate) => candidate?.personPhone && !candidate?.encounterRegisteredAt).length;
+  const selectedInvitableCount = selectedRouteCandidates.filter((candidate) => !candidate?.invitedAt && !candidate?.encounterRegisteredAt).length;
   const selectedRegisterableCount = selectedRouteCandidates.filter((candidate) => candidate?.invitedAt && !candidate?.encounterRegisteredAt).length;
   const routeBulkBusy = Boolean(state.ui.formationRouteBulkBusy);
   const routeBulkProgressPercent = Math.max(0, Math.min(100, Number(state.ui.formationRouteBulkProgressPercent || 0)));
@@ -9760,7 +9760,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
     : isFormationRegistered
     ? "Inscrito a Proceso de Formación"
     : (candidate?.invitedAt ? "Continuar inscripción" : "Invita primero");
-  const inviteDisabled = candidate?.personPhone ? "" : "disabled";
+  const inviteDisabled = isFormationRegistered ? "disabled" : "";
   const encounterDisabled = isPendingEnrollment
     ? "disabled"
     : (candidate?.invitedAt && !isFormationRegistered ? "" : "disabled");
@@ -30961,15 +30961,10 @@ async function sendFormationEncounterInvite_(candidate) {
     return;
   }
 
-  if (!candidate.personPhone) {
-    showToast("Sin teléfono", "Esta persona no tiene teléfono registrado para preparar el WhatsApp.", "warning");
-    return;
-  }
-
   const fastWhatsappUrl = buildEncounterInviteWhatsappUrlClient_(candidate);
-  const inviteWindow = fastWhatsappUrl
+  const inviteWindow = fastWhatsappUrl && candidate.personPhone
     ? window.open(fastWhatsappUrl, "_blank", "noopener,noreferrer")
-    : window.open("", "_blank");
+    : null;
   let response = null;
 
   await withLoading(async () => {
@@ -31009,7 +31004,7 @@ async function sendFormationEncounterInvite_(candidate) {
 
   renderApp();
 
-  if (!fastWhatsappUrl && response?.whatsappUrl) {
+  if (!fastWhatsappUrl && response?.whatsappUrl && candidate.personPhone) {
     if (inviteWindow) {
       inviteWindow.location = response.whatsappUrl;
     } else {
@@ -31019,13 +31014,19 @@ async function sendFormationEncounterInvite_(candidate) {
     // Si el enlace rápido ya abrió WhatsApp, no hacemos nada más.
   }
 
-  showToast("Invitación lista", "La fecha de invitación quedó registrada y el WhatsApp del congregante se abrió de inmediato.", "success");
+  showToast(
+    "Invitación lista",
+    candidate.personPhone
+      ? "La fecha de invitación quedó registrada y el WhatsApp del congregante se abrió de inmediato."
+      : "La fecha de invitación quedó registrada como invitación manual/presencial. Ya puedes continuar con la inscripción.",
+    "success"
+  );
 }
 
 async function sendFormationEncounterInviteBulk_() {
   const selectedCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => !candidate?.encounterRegisteredAt);
-  const invitableCandidates = selectedCandidates.filter((candidate) => candidate?.personPhone);
-  const skippedWithoutPhone = Math.max(0, selectedCandidates.length - invitableCandidates.length);
+  const invitableCandidates = selectedCandidates.filter((candidate) => !candidate?.invitedAt);
+  const manualInviteCount = invitableCandidates.filter((candidate) => !candidate?.personPhone).length;
   let response = null;
 
   if (!selectedCandidates.length) {
@@ -31034,7 +31035,7 @@ async function sendFormationEncounterInviteBulk_() {
   }
 
   if (!invitableCandidates.length) {
-    showToast("Sin teléfonos", "Las personas seleccionadas no tienen teléfono para registrar su invitación.", "warning");
+    showToast("Sin invitaciones pendientes", "Las personas seleccionadas ya tienen invitación registrada o ya fueron inscritas.", "warning");
     return;
   }
 
@@ -31086,7 +31087,7 @@ async function sendFormationEncounterInviteBulk_() {
 
     showToast(
       "Invitación masiva completada",
-      `${response?.invited || 0} invitación(es) registradas en lote${skippedWithoutPhone ? `, ${skippedWithoutPhone} sin teléfono` : ""}${response?.errors ? ` y ${response.errors} con error` : ""}.`,
+      `${response?.invited || 0} invitación(es) registradas en lote${manualInviteCount ? `, ${manualInviteCount} manual(es) por falta de teléfono` : ""}${response?.errors ? ` y ${response.errors} con error` : ""}.`,
       response?.errors ? "warning" : "success"
     );
   } finally {
