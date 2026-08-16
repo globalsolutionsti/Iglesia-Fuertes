@@ -2027,6 +2027,83 @@ function getAssignableFormationPortalOfferingsForPerson_(personId) {
   return offerings.filter((offering) => canAssignPersonToFormationOffering_(cleanPersonId, offering));
 }
 
+function getFormationRouteEnrollmentOfferingsForProcess_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  const portalOfferings = Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [];
+  const operationalOfferings = Array.isArray(state.formationOfferings) ? state.formationOfferings : [];
+  const sourceOfferings = portalOfferings.length ? portalOfferings : operationalOfferings;
+  const seenOfferings = new Set();
+
+  return sourceOfferings
+    .filter((offering) => {
+      const offeringId = String(offering?.id || "").trim();
+      const offeringProcessId = String(offering?.processId || "").trim();
+      const status = String(offering?.status || "ACTIVO").trim().toUpperCase();
+
+      if (!offeringId || seenOfferings.has(offeringId)) {
+        return false;
+      }
+
+      if (cleanProcessId && offeringProcessId !== cleanProcessId) {
+        return false;
+      }
+
+      if (status === "INACTIVO" || status === "CANCELADO") {
+        return false;
+      }
+
+      seenOfferings.add(offeringId);
+      return true;
+    })
+    .sort((left, right) => {
+      const leftOrder = Number(left?.levelOrder || left?.structureOrder || left?.order || 0);
+      const rightOrder = Number(right?.levelOrder || right?.structureOrder || right?.order || 0);
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return String(left?.startDate || "").localeCompare(String(right?.startDate || ""));
+    });
+}
+
+function personHasFormationEnrollmentInProcess_(personId, processId) {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanProcessId = String(processId || "").trim();
+
+  if (!cleanPersonId || !cleanProcessId) {
+    return false;
+  }
+
+  return getFormationEnrollmentFallbackRows_(cleanProcessId).some((enrollment) => {
+    return String(enrollment?.personId || "").trim() === cleanPersonId;
+  });
+}
+
+function getRouteEncounterEnrollmentOfferingForPerson_(personId, processId) {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanProcessId = String(processId || "").trim();
+  const offerings = getFormationRouteEnrollmentOfferingsForProcess_(cleanProcessId);
+
+  if (!cleanPersonId || !offerings.length) {
+    return null;
+  }
+
+  const eligibleOffering = offerings.find((offering) => canAssignPersonToFormationOffering_(cleanPersonId, offering));
+
+  if (eligibleOffering) {
+    return eligibleOffering;
+  }
+
+  // Ruta a Encuentro starts a person's Formation journey. If they are not yet
+  // enrolled in this process, stale UI filters must not block the first step.
+  if (!personHasFormationEnrollmentInProcess_(cleanPersonId, cleanProcessId)) {
+    return offerings[0] || null;
+  }
+
+  return null;
+}
+
 async function loadFormationPortalOfferingsList_(processId, levelId = "", options = {}) {
   const cleanProcessId = String(processId || state.filters.formationOps.processId || "").trim();
   const cleanLevelId = String(levelId || "").trim();
@@ -31070,10 +31147,7 @@ async function registerFormationEncounter_(candidate) {
     throw error;
   }
 
-  const eligibleOfferings = getAssignableFormationPortalOfferingsForPerson_(candidate.personId).filter((offering) => {
-    return String(offering?.processId || "").trim() === preferredProcessId;
-  });
-  const firstEligibleOffering = eligibleOfferings[0] || null;
+  const firstEligibleOffering = getRouteEncounterEnrollmentOfferingForPerson_(candidate.personId, preferredProcessId);
 
   if (!firstEligibleOffering) {
     clearFormationRouteEnrollmentProgress_();
@@ -31212,10 +31286,7 @@ async function registerFormationEncounterBulk_() {
     renderApp();
 
     selectedCandidates.forEach((candidate) => {
-      const eligibleOfferings = getAssignableFormationPortalOfferingsForPerson_(candidate.personId).filter((offering) => {
-        return String(offering?.processId || "").trim() === preferredProcessId;
-      });
-      const selectedOffering = eligibleOfferings[0] || null;
+      const selectedOffering = getRouteEncounterEnrollmentOfferingForPerson_(candidate.personId, preferredProcessId);
 
       if (!selectedOffering?.id) {
         skippedCandidates.push(candidate);
