@@ -27268,6 +27268,90 @@ function syncFormationOfferingIntoState_(offeringDto) {
   });
 }
 
+function buildFormationActiveSessionFromActivation_(offering, response, sessionNumber) {
+  const cleanSessionNumber = String(
+    response?.activeSession?.number
+    || response?.context?.activeSession?.number
+    || response?.context?.sessionNumber
+    || sessionNumber
+    || "1"
+  ).trim();
+  const scheduledSession = (offering?.sessionSchedule || []).find((session) => {
+    return String(session?.number || "") === cleanSessionNumber;
+  }) || null;
+  const responseSession = response?.activeSession || response?.context?.activeSession || {};
+
+  return {
+    ...(scheduledSession || {}),
+    ...(responseSession || {}),
+    number: cleanSessionNumber,
+    label: responseSession?.label || scheduledSession?.label || `Sesión ${cleanSessionNumber}`,
+    date: responseSession?.date || scheduledSession?.date || ""
+  };
+}
+
+function applyFormationAttendanceActivationState_(offeringId, sessionNumber, response = {}) {
+  const cleanOfferingId = String(offeringId || "").trim();
+  const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+
+  if (!cleanOfferingId) {
+    return;
+  }
+
+  let selectedOffering = state.formationOfferings.find((offering) => String(offering?.id || "") === cleanOfferingId) || null;
+  if (response?.offering) {
+    syncFormationOfferingIntoState_(response.offering);
+    selectedOffering = state.formationOfferings.find((offering) => String(offering?.id || "") === cleanOfferingId) || response.offering;
+  }
+
+  const activeSession = buildFormationActiveSessionFromActivation_(selectedOffering, response, cleanSessionNumber);
+  const selectedSession = (selectedOffering?.sessionSchedule || []).find((session) => {
+    return String(session?.number || "") === String(activeSession.number || cleanSessionNumber);
+  }) || activeSession;
+
+  state.formationOfferings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).map((offering) => {
+    if (String(offering?.id || "") !== cleanOfferingId) {
+      return offering;
+    }
+
+    return {
+      ...offering,
+      activeSession,
+      activeSessionNumber: String(activeSession.number || cleanSessionNumber),
+      activeSessionLabel: activeSession.label || `Sesión ${cleanSessionNumber}`
+    };
+  });
+
+  const previousContext = String(state.formationAttendanceContext?.offering?.id || "") === cleanOfferingId
+    ? state.formationAttendanceContext
+    : null;
+  const contextOffering = state.formationOfferings.find((offering) => String(offering?.id || "") === cleanOfferingId)
+    || selectedOffering
+    || response?.offering
+    || { id: cleanOfferingId };
+
+  state.formationAttendanceContext = {
+    ...(previousContext || {}),
+    ...(response?.context || {}),
+    offering: {
+      ...(contextOffering || {}),
+      activeSession,
+      activeSessionNumber: String(activeSession.number || cleanSessionNumber),
+      activeSessionLabel: activeSession.label || `Sesión ${cleanSessionNumber}`
+    },
+    sessionNumber: String(activeSession.number || cleanSessionNumber),
+    selectedSession,
+    activeSession,
+    captureEnabled: true,
+    participants: Array.isArray(response?.context?.participants)
+      ? response.context.participants
+      : (Array.isArray(previousContext?.participants) ? previousContext.participants : [])
+  };
+  state.loaded.formationAttendanceContext = true;
+  state.cacheKeys.formationAttendanceContext = `${cleanOfferingId}::${state.formationAttendanceContext.sessionNumber}`;
+  state.filters.formationOps.sessionNumber = state.formationAttendanceContext.sessionNumber;
+}
+
 function applyFormationAttendanceContextState_(context, options = {}) {
   const normalizedContext = context && typeof context === "object" ? context : null;
   const offeringId = String(normalizedContext?.offering?.id || options.offeringId || "").trim();
@@ -30543,16 +30627,14 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     state.filters.formationOps.offeringId = cleanOfferingId;
     state.ui.selectedFormationOfferingId = cleanOfferingId;
     state.filters.formationOps.sessionNumber = String(response?.context?.sessionNumber || cleanSessionNumber || "1");
-    if (response?.offering) {
-      syncFormationOfferingIntoState_(response.offering);
-    }
+
+    applyFormationAttendanceActivationState_(cleanOfferingId, state.filters.formationOps.sessionNumber, response);
+
     if (response?.context) {
       applyFormationAttendanceContextState_(response.context, {
         offeringId: cleanOfferingId,
         sessionNumber: state.filters.formationOps.sessionNumber
       });
-    } else if (!shouldHydrateManual) {
-      resetFormationAttendanceParticipantsState_();
     }
 
     showToast(
