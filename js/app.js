@@ -33215,6 +33215,8 @@ async function ensureFormationAttendanceScannerStarted_() {
     return;
   }
 
+  await waitForQrDecoderRuntime_(900);
+
   if (!formationAttendanceScannerRuntime.detector) {
     if ("BarcodeDetector" in window) {
       formationAttendanceScannerRuntime.detector = new window.BarcodeDetector({
@@ -33262,6 +33264,7 @@ async function ensureFormationAttendanceScannerStarted_() {
   video.autoplay = true;
   video.playsInline = true;
   video.setAttribute("playsinline", "true");
+  video.setAttribute("webkit-playsinline", "true");
 
   try {
     await video.play();
@@ -33430,7 +33433,7 @@ function detectFormationAttendanceQrWithJsQrFallback_(video) {
   return "";
 }
 
-function drawFormationAttendanceQrRegionToCanvas_(video, region) {
+function drawFormationAttendanceQrRegionToCanvas_(video, region, mirror = false) {
   if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context) {
     formationAttendanceScannerRuntime.canvas = document.createElement("canvas");
     formationAttendanceScannerRuntime.context = formationAttendanceScannerRuntime.canvas.getContext("2d", {
@@ -33451,6 +33454,11 @@ function drawFormationAttendanceQrRegionToCanvas_(video, region) {
   }
 
   formationAttendanceScannerRuntime.context.clearRect(0, 0, canvasWidth, canvasHeight);
+  formationAttendanceScannerRuntime.context.save();
+  if (mirror) {
+    formationAttendanceScannerRuntime.context.translate(canvasWidth, 0);
+    formationAttendanceScannerRuntime.context.scale(-1, 1);
+  }
   formationAttendanceScannerRuntime.context.drawImage(
     video,
     region.sx,
@@ -33462,12 +33470,13 @@ function drawFormationAttendanceQrRegionToCanvas_(video, region) {
     canvasWidth,
     canvasHeight
   );
+  formationAttendanceScannerRuntime.context.restore();
 
   return formationAttendanceScannerRuntime.canvas;
 }
 
 function decodeFormationAttendanceQrFromVideoRegion_(video, region) {
-  if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context || typeof window.jsQR !== "function") {
+  if (typeof window.jsQR !== "function") {
     return "";
   }
 
@@ -33478,8 +33487,28 @@ function decodeFormationAttendanceQrFromVideoRegion_(video, region) {
 
   const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
-  const imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
-  const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+  let imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
+  let decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+    inversionAttempts: "attemptBoth"
+  });
+
+  if (decoded?.data) {
+    return String(decoded.data).trim();
+  }
+
+  const shouldTryMirroredFrame = isIOSLikeDevice_()
+    || normalizeQrCameraFacing_(formationAttendanceScannerRuntime.cameraFacing || state.filters.qr.cameraFacing) === "front";
+  if (!shouldTryMirroredFrame) {
+    return "";
+  }
+
+  const mirroredCanvas = drawFormationAttendanceQrRegionToCanvas_(video, region, true);
+  if (!mirroredCanvas) {
+    return "";
+  }
+
+  imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, mirroredCanvas.width, mirroredCanvas.height);
+  decoded = window.jsQR(imageData.data, mirroredCanvas.width, mirroredCanvas.height, {
     inversionAttempts: "attemptBoth"
   });
 
@@ -33671,6 +33700,8 @@ async function ensureQrScannerStarted_() {
     return;
   }
 
+  await waitForQrDecoderRuntime_(900);
+
   if (!qrScannerRuntime.detector) {
     if ("BarcodeDetector" in window) {
       qrScannerRuntime.detector = new window.BarcodeDetector({
@@ -33719,6 +33750,7 @@ async function ensureQrScannerStarted_() {
   video.autoplay = true;
   video.playsInline = true;
   video.setAttribute("playsinline", "true");
+  video.setAttribute("webkit-playsinline", "true");
 
   try {
     await video.play();
@@ -34410,7 +34442,7 @@ function buildPreferredQrScanRegions_(width, height, targetMax = 960) {
   ];
 }
 
-function drawQrRegionToCanvas_(video, region) {
+function drawQrRegionToCanvas_(video, region, mirror = false) {
   if (!qrScannerRuntime.canvas || !qrScannerRuntime.context) {
     qrScannerRuntime.canvas = document.createElement("canvas");
     qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
@@ -34431,6 +34463,11 @@ function drawQrRegionToCanvas_(video, region) {
   }
 
   qrScannerRuntime.context.clearRect(0, 0, canvasWidth, canvasHeight);
+  qrScannerRuntime.context.save();
+  if (mirror) {
+    qrScannerRuntime.context.translate(canvasWidth, 0);
+    qrScannerRuntime.context.scale(-1, 1);
+  }
   qrScannerRuntime.context.drawImage(
     video,
     region.sx,
@@ -34442,12 +34479,13 @@ function drawQrRegionToCanvas_(video, region) {
     canvasWidth,
     canvasHeight
   );
+  qrScannerRuntime.context.restore();
 
   return qrScannerRuntime.canvas;
 }
 
 function decodeQrFromVideoRegion_(video, region) {
-  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+  if (typeof window.jsQR !== "function") {
     return "";
   }
 
@@ -34458,8 +34496,28 @@ function decodeQrFromVideoRegion_(video, region) {
 
   const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
-  const imageData = qrScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
-  const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+  let imageData = qrScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
+  let decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+    inversionAttempts: "attemptBoth"
+  });
+
+  if (decoded?.data) {
+    return String(decoded.data).trim();
+  }
+
+  const shouldTryMirroredFrame = isIOSLikeDevice_()
+    || normalizeQrCameraFacing_(qrScannerRuntime.cameraFacing || state.filters.qr.cameraFacing) === "front";
+  if (!shouldTryMirroredFrame) {
+    return "";
+  }
+
+  const mirroredCanvas = drawQrRegionToCanvas_(video, region, true);
+  if (!mirroredCanvas) {
+    return "";
+  }
+
+  imageData = qrScannerRuntime.context.getImageData(0, 0, mirroredCanvas.width, mirroredCanvas.height);
+  decoded = window.jsQR(imageData.data, mirroredCanvas.width, mirroredCanvas.height, {
     inversionAttempts: "attemptBoth"
   });
 
@@ -38914,18 +38972,41 @@ function resetRuntimeState() {
   });
 }
 
-function detectPreferredQrCameraFacing_() {
+function isIOSLikeDevice_() {
   if (typeof navigator === "undefined") {
-    return "rear";
+    return false;
   }
 
   const userAgent = navigator.userAgent || "";
   const platform = navigator.platform || "";
   const touchPoints = Number(navigator.maxTouchPoints || 0);
   const isTouchMac = platform === "MacIntel" && touchPoints > 1;
-  const isIOSLike = /iPad|iPhone|iPod/i.test(userAgent) || isTouchMac;
 
-  return isIOSLike ? "front" : "rear";
+  return /iPad|iPhone|iPod/i.test(userAgent) || isTouchMac;
+}
+
+async function waitForQrDecoderRuntime_(timeoutMs = 700) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  if ("BarcodeDetector" in window || typeof window.jsQR === "function") {
+    return true;
+  }
+
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    await waitMs_(80);
+    if ("BarcodeDetector" in window || typeof window.jsQR === "function") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function detectPreferredQrCameraFacing_() {
+  return isIOSLikeDevice_() ? "front" : "rear";
 }
 
 function normalizeQrCameraFacing_(value, fallback = "rear") {
