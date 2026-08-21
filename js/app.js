@@ -7968,6 +7968,12 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
 
       <div class="formation-scan-layout ${isKiosk ? "is-kiosk" : "is-assisted"}">
         <div class="kiosk-scanner-shell formation-scan-shell" data-qr-scanner-root="formation-attendance" data-feedback-tone="${escapeHtml(feedbackState.tone)}">
+          ${isKiosk ? `
+            <div class="formation-kiosk-landscape-title">
+              <span>Kiosko de asistencia</span>
+              <strong>Registro Kiosko</strong>
+            </div>
+          ` : ""}
           <div class="kiosk-head-actions formation-scan-actions">
             <button
               class="btn ${formationAttendanceScannerRuntime.enabled ? "btn-danger" : "btn-primary"}"
@@ -8009,6 +8015,32 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
             <strong data-formation-attendance-feedback="name">${escapeHtml(feedbackState.name)}</strong>
             <span data-formation-attendance-feedback="message">${escapeHtml(feedbackState.message)}</span>
             <small data-formation-attendance-feedback="meta">${escapeHtml(feedbackState.meta)}</small>
+            <div class="formation-kiosk-result-grid">
+              <span>
+                <small>Nombre</small>
+                <strong data-formation-attendance-feedback="field-name">${escapeHtml(feedbackState.name)}</strong>
+              </span>
+              <span>
+                <small>QR</small>
+                <strong data-formation-attendance-feedback="field-qr">${escapeHtml(feedbackState.personId)}</strong>
+              </span>
+              <span>
+                <small>ID</small>
+                <strong data-formation-attendance-feedback="field-id">${escapeHtml(feedbackState.participantId)}</strong>
+              </span>
+              <span>
+                <small>Proceso</small>
+                <strong data-formation-attendance-feedback="field-process">${escapeHtml(feedbackState.processName)}</strong>
+              </span>
+              <span>
+                <small>Paso</small>
+                <strong data-formation-attendance-feedback="field-step">${escapeHtml(feedbackState.levelName)}</strong>
+              </span>
+              <span>
+                <small>Sesión</small>
+                <strong data-formation-attendance-feedback="field-session">${escapeHtml(feedbackState.sessionName)}</strong>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -8070,7 +8102,7 @@ function renderConnectionAttendanceView_() {
     {
       mode: "kiosk",
       title: "Modo kiosko",
-      copy: "Pantalla tipo aeropuerto para auto registro con camara."
+      copy: "Registro Kiosko para auto registro con camara."
     }
   ];
   const content = mode === "manual" ? renderAttendanceView() : renderQrView();
@@ -20185,7 +20217,7 @@ function renderQrView() {
     ? `${kioskContext.sessionId} | ${filter.mode === "manual" ? "Sesion forzada" : "Sesion activa"}`
     : "Sin sesion seleccionada";
   const surfaceEyebrow = isKioskSurface ? "Kiosko de asistencia" : "Escaneo QR del equipo";
-  const surfaceTitle = isKioskSurface ? "Registro tipo aeropuerto" : "Escaneo QR asistido";
+  const surfaceTitle = isKioskSurface ? "Registro Kiosko" : "Escaneo QR asistido";
   const surfaceCopy = isKioskSurface
     ? "La camara queda lista para recibir un QR tras otro. Cuando el registro sea exitoso, la pantalla responde en verde y muestra los datos del asistente en tiempo real."
     : "Ideal para un voluntario en recepcion o control. La camara valida un QR a la vez y deja visible el ultimo registro junto con la actividad reciente de la sesion.";
@@ -20609,13 +20641,21 @@ function getDedicatedFormationAttendanceFeedbackState_(options = {}) {
   );
   const sessionLabel = feedback?.sessionName || `Sesión ${sessionNumber}`;
   const participantId = feedback?.participantId || "";
+  const personId = feedback?.personId || "";
+  const processName = feedback?.processName || offering?.processName || "Proceso de Formación";
+  const levelName = feedback?.levelName || offering?.levelName || offering?.name || "Paso";
 
   return {
     tone,
     badge,
     name,
     message,
-    meta: participantId ? `${sessionLabel} · ${participantId}` : sessionLabel
+    meta: participantId ? `${sessionLabel} · ${participantId}` : sessionLabel,
+    participantId: participantId || "Pendiente",
+    personId: personId || "Pendiente",
+    processName,
+    levelName,
+    sessionName: sessionLabel
   };
 }
 
@@ -20667,6 +20707,22 @@ function applyDedicatedFormationAttendanceFeedback_(snapshot) {
   if (metaNode instanceof HTMLElement) {
     metaNode.textContent = snapshot.meta || "";
   }
+
+  const fieldMap = {
+    "field-name": snapshot.name || "",
+    "field-qr": snapshot.personId || "Pendiente",
+    "field-id": snapshot.participantId || "Pendiente",
+    "field-process": snapshot.processName || "Proceso de Formación",
+    "field-step": snapshot.levelName || "Paso",
+    "field-session": snapshot.sessionName || snapshot.meta || ""
+  };
+
+  Object.entries(fieldMap).forEach(([field, value]) => {
+    const fieldNode = root.querySelector(`[data-formation-attendance-feedback="${field}"]`);
+    if (fieldNode instanceof HTMLElement) {
+      fieldNode.textContent = value;
+    }
+  });
 
   return true;
 }
