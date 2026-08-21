@@ -2056,6 +2056,43 @@ div {
     0 18px 38px rgba(160, 36, 36, 0.18) !important;
 }
 
+.formation-kiosk-landscape-title {
+  display: none;
+}
+
+.formation-kiosk-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.formation-kiosk-result-grid > span {
+  min-height: 74px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.64);
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.formation-kiosk-result-grid small {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.formation-kiosk-result-grid strong {
+  font-size: 15px;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
 .formation-scan-inline.kiosk-tone-success .formation-scan-inline-badge {
   background: rgba(20, 123, 59, 0.12);
   color: #0c6a31;
@@ -2772,6 +2809,175 @@ div {
   margin-top: 8px;
   padding: 12px 14px;
   gap: 4px;
+}
+
+@media (orientation: landscape) and (min-width: 760px) and (max-width: 1366px) and (max-height: 920px) {
+  .app-shell.view-attendance {
+    grid-template-columns: 1fr;
+    min-height: 100svh;
+    background: #050607;
+  }
+
+  .app-shell.view-attendance .sidebar,
+  .app-shell.view-attendance .mobile-tabbar {
+    display: none !important;
+  }
+
+  .app-shell.view-attendance .mobile-appbar {
+    display: flex;
+    min-height: 58px;
+    padding: calc(8px + env(safe-area-inset-top)) 14px 8px;
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  .app-shell.view-attendance .workspace {
+    min-height: calc(100svh - 58px);
+    padding: 10px 14px 14px;
+    background: #050607;
+  }
+
+  .app-shell.view-attendance .section-hero,
+  .app-shell.view-attendance .attendance-mode-strip,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-scan-compact,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-mode-copy {
+    display: none !important;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode {
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row,
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-toggle {
+    max-width: 100%;
+    margin: 0;
+    padding: 8px;
+    border-radius: 18px;
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-attendance-activation-row .footer-note {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-layout.is-kiosk {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .app-shell.view-attendance .formation-attendance-panel.is-scan-mode .formation-scan-layout.is-kiosk .formation-scan-shell {
+    width: 100%;
+    max-width: none;
+    min-height: calc(100svh - 190px);
+    margin: 0;
+    padding: 14px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background:
+      radial-gradient(circle at 0% 100%, rgba(45, 212, 112, 0.14), transparent 34%),
+      linear-gradient(135deg, #090a0b 0%, #151719 100%);
+    display: grid;
+    grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "title actions"
+      "scanner result";
+    gap: 12px 14px;
+    align-items: stretch;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-kiosk-landscape-title {
+    grid-area: title;
+    display: grid;
+    align-content: center;
+    gap: 4px;
+    color: #fff;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-kiosk-landscape-title span {
+    width: fit-content;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-kiosk-landscape-title strong {
+    font-size: clamp(25px, 3vw, 42px);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-scan-actions {
+    grid-area: actions;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-scan-actions > .btn {
+    min-height: 42px;
+    padding: 0 16px;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .kiosk-toggle-group {
+    min-width: 210px;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .kiosk-scanner-frame {
+    grid-area: scanner;
+    width: 100%;
+    height: 100%;
+    min-height: 360px;
+    max-height: none;
+    aspect-ratio: auto;
+    border-radius: 22px;
+    border-color: rgba(255, 255, 255, 0.1);
+    background: #020303;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .kiosk-video {
+    width: 100%;
+    height: 100%;
+    min-height: 360px;
+    max-height: none;
+    object-fit: cover;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-scan-inline {
+    grid-area: result;
+    min-height: 100%;
+    margin: 0;
+    padding: 18px;
+    border-radius: 22px;
+    align-content: center;
+    gap: 12px;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-scan-inline > strong {
+    font-size: clamp(25px, 3vw, 44px);
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-scan-inline > span:not(.formation-scan-inline-badge),
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-scan-inline > small {
+    font-size: 14px;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-kiosk-result-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .app-shell.view-attendance .formation-scan-layout.is-kiosk .formation-kiosk-result-grid > span {
+    min-height: 86px;
+    background: rgba(255, 255, 255, 0.7);
+  }
 }
 
 @media (min-width: 701px) and (max-width: 1100px) {
