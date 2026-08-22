@@ -33767,19 +33767,6 @@ function processFormationAttendanceQrRawValue_(rawValue) {
     return;
   }
 
-  if (isFormationAttendanceAlreadyRegisteredLocally_(extractedPersonId, state.filters.formationOps.sessionNumber)) {
-    const duplicateResult = buildFormationQrFailureResult_(
-      new ApiError("La asistencia ya estaba registrada en esta sesión del paso.", "DUPLICATE_FORMATION_QR_ATTENDANCE"),
-      extractedPersonId
-    );
-    formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = now + 1200;
-    formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_ERROR_HOLD_MS;
-    setDedicatedFormationAttendanceFeedback_(duplicateResult, FORMATION_QR_ERROR_HOLD_MS);
-    playKioskSignal_("error");
-    return;
-  }
-
   formationAttendanceScannerRuntime.lastValue = extractedPersonId;
   formationAttendanceScannerRuntime.lastValueAt = now;
   formationAttendanceScannerRuntime.requestPending = true;
