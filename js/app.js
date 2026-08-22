@@ -593,7 +593,8 @@ const qrScannerRuntime = {
   requestPersonId: "",
   requestStartedAt: 0,
   duplicateSuppressValue: "",
-  duplicateSuppressUntil: 0
+  duplicateSuppressUntil: 0,
+  localAttendanceLocks: Object.create(null)
 };
 
 const FORMATION_QR_PROCESSING_MIN_MS = 0;
@@ -624,7 +625,8 @@ const formationAttendanceScannerRuntime = {
   message: "Activa la cámara para comenzar el registro automático.",
   requestPersonId: "",
   requestStartedAt: 0,
-  fastRouteSupported: null
+  fastRouteSupported: null,
+  localAttendanceLocks: Object.create(null)
 };
 
 const credentialRenderRuntime = {
@@ -24043,6 +24045,7 @@ async function handleClick(event) {
     if (action === "clear-kiosk-result") {
       clearQrScannerResultReset_();
       clearQrScannerFeedbackResult_();
+      clearFormationAttendanceRuntimeLocks_();
       if (state.qrScanner.enabled) {
         state.qrScanner.status = "scanning";
         state.qrScanner.message = buildQrScannerReadyMessage_();
@@ -27453,6 +27456,74 @@ function applyFormationQrAttendanceLocally_(response, sessionNumber) {
   });
 }
 
+function getFormationAttendanceRuntimeLockKey_(personId, sessionNumber, offeringId) {
+  const cleanOfferingId = String(
+    offeringId
+    || state.filters.formationOps.offeringId
+    || state.ui.selectedFormationOfferingId
+    || state.formationAttendanceContext?.offering?.id
+    || ""
+  ).trim();
+  const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const cleanPersonId = String(personId || "").trim();
+
+  return cleanOfferingId && cleanSessionNumber && cleanPersonId
+    ? `${cleanOfferingId}::${cleanSessionNumber}::${cleanPersonId}`
+    : "";
+}
+
+function getFormationAttendanceRuntimeLocks_() {
+  if (!qrScannerRuntime.localAttendanceLocks) {
+    qrScannerRuntime.localAttendanceLocks = Object.create(null);
+  }
+
+  if (!formationAttendanceScannerRuntime.localAttendanceLocks) {
+    formationAttendanceScannerRuntime.localAttendanceLocks = Object.create(null);
+  }
+
+  return [
+    qrScannerRuntime.localAttendanceLocks,
+    formationAttendanceScannerRuntime.localAttendanceLocks
+  ];
+}
+
+function pruneFormationAttendanceRuntimeLocks_() {
+  const now = Date.now();
+  getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
+    Object.keys(lockMap).forEach((key) => {
+      if (Number(lockMap[key] || 0) <= now) {
+        delete lockMap[key];
+      }
+    });
+  });
+}
+
+function markFormationAttendanceRegisteredInRuntime_(personId, sessionNumber, options = {}) {
+  const key = getFormationAttendanceRuntimeLockKey_(personId, sessionNumber, options.offeringId);
+  if (!key) {
+    return;
+  }
+
+  const expiresAt = Date.now() + Math.max(Number(options.ttlMs || 90000), 5000);
+  getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
+    lockMap[key] = expiresAt;
+  });
+}
+
+function clearFormationAttendanceRuntimeLocks_(offeringId = "", sessionNumber = "") {
+  const cleanOfferingId = String(offeringId || "").trim();
+  const cleanSessionNumber = String(sessionNumber || "").trim();
+  getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
+    Object.keys(lockMap).forEach((key) => {
+      const shouldRemove = (!cleanOfferingId || key.startsWith(`${cleanOfferingId}::`))
+        && (!cleanSessionNumber || key.includes(`::${cleanSessionNumber}::`));
+      if (shouldRemove) {
+        delete lockMap[key];
+      }
+    });
+  });
+}
+
 function applyFormationManualAttendancesLocally_(attendances, sessionNumber) {
   const selectedSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
   const updatesByPerson = Array.isArray(attendances)
@@ -27521,18 +27592,15 @@ function applyFormationManualAttendancesLocally_(attendances, sessionNumber) {
 function isFormationAttendanceAlreadyRegisteredLocally_(personId, sessionNumber) {
   const cleanPersonId = String(personId || "").trim();
   const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
-  const participants = Array.isArray(state.formationAttendanceContext?.participants)
-    ? state.formationAttendanceContext.participants
-    : [];
-  const match = participants.find((participant) => String(participant?.personId || "").trim() === cleanPersonId);
+  const key = getFormationAttendanceRuntimeLockKey_(cleanPersonId, cleanSessionNumber);
 
-  if (!match) {
+  if (!key) {
     return false;
   }
 
-  const bySession = String(match?.attendanceBySession?.[cleanSessionNumber] || "").trim().toUpperCase();
-  const selectedAttendance = String(match?.selectedSessionAttendance || "").trim().toUpperCase();
-  return bySession === "SI" || selectedAttendance === "SI";
+  pruneFormationAttendanceRuntimeLocks_();
+
+  return getFormationAttendanceRuntimeLocks_().some((lockMap) => Number(lockMap[key] || 0) > Date.now());
 }
 
 async function loadFormationAttendanceContext_(offeringId, options = {}) {
@@ -30684,6 +30752,7 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     state.filters.formationOps.offeringId = cleanOfferingId;
     state.ui.selectedFormationOfferingId = cleanOfferingId;
     state.filters.formationOps.sessionNumber = String(response?.context?.sessionNumber || cleanSessionNumber || "1");
+    clearFormationAttendanceRuntimeLocks_(cleanOfferingId, state.filters.formationOps.sessionNumber);
 
     applyFormationAttendanceActivationState_(cleanOfferingId, state.filters.formationOps.sessionNumber, response);
 
@@ -32774,6 +32843,8 @@ async function executeScrapDeleteFormationAttendances_(personId) {
       state.formationProfile = null;
     }
 
+    clearFormationAttendanceRuntimeLocks_();
+
     const refreshResults = await Promise.allSettled([
       loadScrapDeletePreview_(cleanPersonId, {
         force: true,
@@ -33224,6 +33295,9 @@ async function registerQrAttendance(personId, options = {}) {
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       try {
         applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
+        markFormationAttendanceRegisteredInRuntime_(cleanPersonId, formationContext.sessionNumber, {
+          offeringId: formationContext.offeringId
+        });
         state.formationQrActivity = [
           {
             ...state.qrScanner.result
@@ -33737,6 +33811,7 @@ function processFormationAttendanceQrRawValue_(rawValue) {
       }
     }
   }, state.filters.formationOps.sessionNumber);
+  markFormationAttendanceRegisteredInRuntime_(extractedPersonId, state.filters.formationOps.sessionNumber);
   state.formationQrActivity = [
     optimisticResult,
     ...state.formationQrActivity
@@ -33825,6 +33900,9 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     state.qrLastResult = qrResponse;
     const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, "scanner");
     applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
+    markFormationAttendanceRegisteredInRuntime_(cleanPersonId, formationContext.sessionNumber, {
+      offeringId: formationContext.offeringId
+    });
     state.formationQrActivity = [
       successResult,
       ...state.formationQrActivity
