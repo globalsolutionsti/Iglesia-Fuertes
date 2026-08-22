@@ -33782,42 +33782,14 @@ function processFormationAttendanceQrRawValue_(rawValue) {
 
   formationAttendanceScannerRuntime.lastValue = extractedPersonId;
   formationAttendanceScannerRuntime.lastValueAt = now;
-  formationAttendanceScannerRuntime.requestPending = false;
+  formationAttendanceScannerRuntime.requestPending = true;
   formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.requestStartedAt = now;
   formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.suppressUntil = now + 1200;
-  formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_SUCCESS_HOLD_MS;
+  formationAttendanceScannerRuntime.pausedUntil = now + 8000;
 
-  const optimisticResult = buildFormationQrOptimisticSuccessResult_(extractedPersonId);
-  applyFormationQrAttendanceLocally_({
-    participant: {
-      personId: extractedPersonId,
-      id: optimisticResult.participantId,
-      name: optimisticResult.name
-    },
-    attendance: {
-      personId: extractedPersonId,
-      sessionNumber: state.filters.formationOps.sessionNumber,
-      registeredAt: new Date().toISOString()
-    },
-    programmedCourse: {
-      name: optimisticResult.groupName,
-      processName: optimisticResult.processName,
-      levelName: optimisticResult.levelName,
-      activeSession: {
-        label: optimisticResult.sessionName,
-        number: state.filters.formationOps.sessionNumber
-      }
-    }
-  }, state.filters.formationOps.sessionNumber);
-  markFormationAttendanceRegisteredInRuntime_(extractedPersonId, state.filters.formationOps.sessionNumber);
-  state.formationQrActivity = [
-    optimisticResult,
-    ...state.formationQrActivity
-  ].slice(0, 8);
-  setDedicatedFormationAttendanceFeedback_(optimisticResult, FORMATION_QR_SUCCESS_HOLD_MS);
-  playKioskSignal_("success");
+  setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
   void submitFormationAttendanceScannerRegistration_(extractedPersonId);
 }
 
