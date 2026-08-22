@@ -596,9 +596,9 @@ const qrScannerRuntime = {
   duplicateSuppressUntil: 0
 };
 
-const FORMATION_QR_PROCESSING_MIN_MS = 120;
-const FORMATION_QR_SUCCESS_HOLD_MS = 2000;
-const FORMATION_QR_ERROR_HOLD_MS = 2000;
+const FORMATION_QR_PROCESSING_MIN_MS = 0;
+const FORMATION_QR_SUCCESS_HOLD_MS = 900;
+const FORMATION_QR_ERROR_HOLD_MS = 900;
 
 const formationAttendanceScannerRuntime = {
   enabled: false,
@@ -33300,7 +33300,14 @@ async function ensureFormationAttendanceScannerStarted_() {
   await waitForQrDecoderRuntime_(900);
 
   if (!formationAttendanceScannerRuntime.detector) {
-    if ("BarcodeDetector" in window) {
+    if (isIOSLikeDevice_() && typeof window.jsQR === "function") {
+      formationAttendanceScannerRuntime.detector = {
+        detect() {
+          return [];
+        }
+      };
+      formationAttendanceScannerRuntime.engine = "jsqr";
+    } else if ("BarcodeDetector" in window) {
       formationAttendanceScannerRuntime.detector = new window.BarcodeDetector({
         formats: ["qr_code"]
       });
@@ -33504,7 +33511,9 @@ function detectFormationAttendanceQrWithJsQrFallback_(video) {
     return "";
   }
 
-  const regions = buildPreferredQrScanRegions_(width, height, 1120);
+  const regions = isIOSLikeDevice_()
+    ? buildPreferredQrScanRegions_(width, height, 760).slice(0, 2)
+    : buildPreferredQrScanRegions_(width, height, 1120);
   for (const region of regions) {
     const decoded = decodeFormationAttendanceQrFromVideoRegion_(video, region);
     if (decoded) {
@@ -33633,7 +33642,7 @@ function processFormationAttendanceQrRawValue_(rawValue) {
       extractedPersonId
     );
     formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = now + 2200;
+    formationAttendanceScannerRuntime.suppressUntil = now + 1200;
     formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_ERROR_HOLD_MS;
     setDedicatedFormationAttendanceFeedback_(duplicateResult, FORMATION_QR_ERROR_HOLD_MS);
     playKioskSignal_("error");
@@ -33645,7 +33654,7 @@ function processFormationAttendanceQrRawValue_(rawValue) {
   formationAttendanceScannerRuntime.requestPending = true;
   formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.requestStartedAt = now;
-  formationAttendanceScannerRuntime.pausedUntil = now + 1200;
+  formationAttendanceScannerRuntime.pausedUntil = now + 250;
   setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
   void submitFormationAttendanceScannerRegistration_(extractedPersonId);
 }
@@ -33737,7 +33746,7 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     formationAttendanceScannerRuntime.requestPersonId = "";
     formationAttendanceScannerRuntime.requestStartedAt = 0;
     formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 2200;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
     formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
     setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
     playKioskSignal_("success");
@@ -33752,7 +33761,7 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     formationAttendanceScannerRuntime.requestPersonId = "";
     formationAttendanceScannerRuntime.requestStartedAt = 0;
     formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 2200;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
     formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
     setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
     playKioskSignal_("error");
@@ -33785,7 +33794,18 @@ async function ensureQrScannerStarted_() {
   await waitForQrDecoderRuntime_(900);
 
   if (!qrScannerRuntime.detector) {
-    if ("BarcodeDetector" in window) {
+    if (isIOSLikeDevice_() && typeof window.jsQR === "function") {
+      qrScannerRuntime.detector = {
+        detect() {
+          return [];
+        }
+      };
+      qrScannerRuntime.engine = "jsqr";
+      qrScannerRuntime.canvas = document.createElement("canvas");
+      qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
+        willReadFrequently: true
+      });
+    } else if ("BarcodeDetector" in window) {
       qrScannerRuntime.detector = new window.BarcodeDetector({
         formats: ["qr_code"]
       });
@@ -34475,11 +34495,13 @@ function detectQrWithJsQrFallback_(video) {
   const width = video.videoWidth || video.clientWidth;
   const height = video.videoHeight || video.clientHeight;
 
-  if (!width || !height || !qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+  if (!width || !height || typeof window.jsQR !== "function") {
     return "";
   }
 
-  const regions = buildPreferredQrScanRegions_(width, height, 1120);
+  const regions = isIOSLikeDevice_()
+    ? buildPreferredQrScanRegions_(width, height, 760).slice(0, 2)
+    : buildPreferredQrScanRegions_(width, height, 1120);
 
   for (const region of regions) {
     const decoded = decodeQrFromVideoRegion_(video, region);
