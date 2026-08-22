@@ -20949,6 +20949,16 @@ function resolveFormationQrScanMeta_(personId) {
       || enrollment?.id
       || ""
     ).trim(),
+    phone: String(
+      lastResult?.phone
+      || recentResult?.phone
+      || attendanceParticipant?.phone
+      || attendanceParticipant?.telefono
+      || enrollment?.phone
+      || enrollment?.telefono
+      || directoryPerson?.telefono
+      || ""
+    ).trim(),
     personId: cleanPersonId,
     processName: String(
       lastResult?.processName
@@ -33797,6 +33807,7 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
   const cleanPersonId = String(personId || "").trim();
   const formationContext = resolveFormationQrContext_();
   const selectedOffering = getSelectedFormationOffering_();
+  const scanMeta = resolveFormationQrScanMeta_(cleanPersonId);
   const requestStartedAt = Date.now();
   let qrResponse = null;
 
@@ -33843,6 +33854,9 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
           offeringId: formationContext.offeringId,
           sessionNumber: formationContext.sessionNumber,
           personId: cleanPersonId,
+          personName: scanMeta.name || "",
+          personNumber: scanMeta.participantId || "",
+          personPhone: scanMeta.phone || "",
           capturedBy: state.user?.name || ""
         });
         formationAttendanceScannerRuntime.fastRouteSupported = true;
@@ -33889,11 +33903,6 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
       formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
       setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
     }
-    scheduleFormationAttendanceContextRefresh_(
-      formationContext.offeringId,
-      formationContext.sessionNumber,
-      12000
-    );
   } catch (error) {
     const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
     const isLatestVisibleRequest = String(formationAttendanceScannerRuntime.requestPersonId || "") === cleanPersonId;
