@@ -8021,8 +8021,8 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
                 <strong data-formation-attendance-feedback="field-name">${escapeHtml(feedbackState.name)}</strong>
               </span>
               <span>
-                <small>QR</small>
-                <strong data-formation-attendance-feedback="field-qr">${escapeHtml(feedbackState.personId)}</strong>
+                <small>Sesión activa</small>
+                <strong data-formation-attendance-feedback="field-session">${escapeHtml(feedbackState.sessionName)}</strong>
               </span>
               <span>
                 <small>ID</small>
@@ -8037,8 +8037,8 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
                 <strong data-formation-attendance-feedback="field-step">${escapeHtml(feedbackState.levelName)}</strong>
               </span>
               <span>
-                <small>Sesión</small>
-                <strong data-formation-attendance-feedback="field-session">${escapeHtml(feedbackState.sessionName)}</strong>
+                <small>QR</small>
+                <strong data-formation-attendance-feedback="field-qr">${escapeHtml(feedbackState.personId)}</strong>
               </span>
             </div>
           </div>
@@ -20593,6 +20593,31 @@ function buildFormationQrProcessingResult_(personId) {
   };
 }
 
+function buildFormationQrOptimisticSuccessResult_(personId) {
+  const selectedOffering = getSelectedFormationOffering_();
+  const currentSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
+  const fallbackMeta = resolveFormationQrScanMeta_(personId);
+  const participant = Array.isArray(state.formationAttendanceContext?.participants)
+    ? (state.formationAttendanceContext.participants.find((item) => String(item?.personId || "").trim() === String(personId || "").trim()) || null)
+    : null;
+  const activeSession = state.formationAttendanceContext?.activeSession || selectedOffering?.activeSession || null;
+
+  return {
+    tone: "success",
+    badge: "QR leído",
+    title: "Asistencia registrada",
+    message: "Registro recibido. Puedes pasar al siguiente QR.",
+    name: participant?.personName || participant?.name || fallbackMeta.name || "Participante registrado",
+    groupName: selectedOffering?.name || fallbackMeta.groupName || "Paso en operación",
+    participantId: participant?.id || fallbackMeta.participantId || "Sin inscripción",
+    personId: String(personId || "").trim(),
+    processName: selectedOffering?.processName || state.formationAttendanceContext?.offering?.processName || "Proceso de Formación",
+    sessionName: activeSession?.label || activeSession?.name || `Sesión ${currentSessionNumber}`,
+    timestampLabel: formatDateTime_(new Date()),
+    levelName: selectedOffering?.levelName || fallbackMeta.levelName || "Nivel"
+  };
+}
+
 function getFormationAttendanceScannerRoot_() {
   if (isAttendanceFormationSectionActive_()) {
     return document.querySelector('#formation-operations-attendance [data-qr-scanner-root="formation-attendance"]')
@@ -27355,7 +27380,7 @@ function applyFormationAttendanceActivationState_(offeringId, sessionNumber, res
 function applyFormationAttendanceContextState_(context, options = {}) {
   const normalizedContext = context && typeof context === "object" ? context : null;
   const offeringId = String(normalizedContext?.offering?.id || options.offeringId || "").trim();
-  const sessionNumber = String(normalizedContext?.sessionNumber || options.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const sessionNumber = String(options.sessionNumber || normalizedContext?.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
 
   resetFormationManualAttendanceDraft_();
   state.formationAttendanceContext = normalizedContext;
@@ -27551,9 +27576,41 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
       context = response?.context || context;
     }
 
+    const requestedSessionNumber = String(sessionNumber || selectedSessionNumber || "1").trim();
+    const previousContext = String(state.formationAttendanceContext?.offering?.id || "") === cleanOfferingId
+      ? state.formationAttendanceContext
+      : null;
+    const previousActiveSession = previousContext?.activeSession || null;
+    const contextActiveNumber = String(context?.activeSession?.number || context?.offering?.activeSessionNumber || "").trim();
+    if (
+      requestedSessionNumber
+      && context
+      && contextActiveNumber
+      && contextActiveNumber !== requestedSessionNumber
+      && String(previousActiveSession?.number || "") === requestedSessionNumber
+    ) {
+      context = {
+        ...context,
+        sessionNumber: requestedSessionNumber,
+        activeSession: previousActiveSession,
+        captureEnabled: true,
+        offering: {
+          ...(context.offering || {}),
+          activeSession: previousActiveSession,
+          activeSessionNumber: requestedSessionNumber,
+          activeSessionLabel: previousActiveSession?.label || `Sesión ${requestedSessionNumber}`
+        }
+      };
+    } else if (requestedSessionNumber && context) {
+      context = {
+        ...context,
+        sessionNumber: requestedSessionNumber
+      };
+    }
+
     applyFormationAttendanceContextState_(context, {
       offeringId: cleanOfferingId,
-      sessionNumber
+      sessionNumber: requestedSessionNumber
     });
     return state.formationAttendanceContext;
   };
@@ -33651,11 +33708,41 @@ function processFormationAttendanceQrRawValue_(rawValue) {
 
   formationAttendanceScannerRuntime.lastValue = extractedPersonId;
   formationAttendanceScannerRuntime.lastValueAt = now;
-  formationAttendanceScannerRuntime.requestPending = true;
+  formationAttendanceScannerRuntime.requestPending = false;
   formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.requestStartedAt = now;
-  formationAttendanceScannerRuntime.pausedUntil = now + 250;
-  setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
+  formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
+  formationAttendanceScannerRuntime.suppressUntil = now + 1200;
+  formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_SUCCESS_HOLD_MS;
+
+  const optimisticResult = buildFormationQrOptimisticSuccessResult_(extractedPersonId);
+  applyFormationQrAttendanceLocally_({
+    participant: {
+      personId: extractedPersonId,
+      id: optimisticResult.participantId,
+      name: optimisticResult.name
+    },
+    attendance: {
+      personId: extractedPersonId,
+      sessionNumber: state.filters.formationOps.sessionNumber,
+      registeredAt: new Date().toISOString()
+    },
+    programmedCourse: {
+      name: optimisticResult.groupName,
+      processName: optimisticResult.processName,
+      levelName: optimisticResult.levelName,
+      activeSession: {
+        label: optimisticResult.sessionName,
+        number: state.filters.formationOps.sessionNumber
+      }
+    }
+  }, state.filters.formationOps.sessionNumber);
+  state.formationQrActivity = [
+    optimisticResult,
+    ...state.formationQrActivity
+  ].slice(0, 8);
+  setDedicatedFormationAttendanceFeedback_(optimisticResult, FORMATION_QR_SUCCESS_HOLD_MS);
+  playKioskSignal_("success");
   void submitFormationAttendanceScannerRegistration_(extractedPersonId);
 }
 
@@ -33742,14 +33829,16 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
       successResult,
       ...state.formationQrActivity
     ].slice(0, 8);
-    formationAttendanceScannerRuntime.requestPending = false;
-    formationAttendanceScannerRuntime.requestPersonId = "";
-    formationAttendanceScannerRuntime.requestStartedAt = 0;
-    formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
-    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
-    setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
-    playKioskSignal_("success");
+    const isLatestVisibleRequest = String(formationAttendanceScannerRuntime.requestPersonId || "") === cleanPersonId;
+    if (isLatestVisibleRequest) {
+      formationAttendanceScannerRuntime.requestPending = false;
+      formationAttendanceScannerRuntime.requestPersonId = "";
+      formationAttendanceScannerRuntime.requestStartedAt = 0;
+      formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
+      formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
+      formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
+      setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
+    }
     scheduleFormationAttendanceContextRefresh_(
       formationContext.offeringId,
       formationContext.sessionNumber,
@@ -33757,14 +33846,17 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     );
   } catch (error) {
     const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
-    formationAttendanceScannerRuntime.requestPending = false;
-    formationAttendanceScannerRuntime.requestPersonId = "";
-    formationAttendanceScannerRuntime.requestStartedAt = 0;
-    formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
-    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
-    setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
-    playKioskSignal_("error");
+    const isLatestVisibleRequest = String(formationAttendanceScannerRuntime.requestPersonId || "") === cleanPersonId;
+    if (isLatestVisibleRequest) {
+      formationAttendanceScannerRuntime.requestPending = false;
+      formationAttendanceScannerRuntime.requestPersonId = "";
+      formationAttendanceScannerRuntime.requestStartedAt = 0;
+      formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
+      formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
+      formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
+      setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
+      playKioskSignal_("error");
+    }
   }
 }
 
