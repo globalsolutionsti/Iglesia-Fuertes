@@ -27504,7 +27504,7 @@ function markFormationAttendanceRegisteredInRuntime_(personId, sessionNumber, op
     return;
   }
 
-  const expiresAt = Date.now() + Math.max(Number(options.ttlMs || 90000), 5000);
+  const expiresAt = Date.now() + Math.max(Number(options.ttlMs || 2500), 1200);
   getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
     lockMap[key] = expiresAt;
   });
