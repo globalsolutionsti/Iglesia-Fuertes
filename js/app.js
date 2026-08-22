@@ -24274,6 +24274,7 @@ async function handleClick(event) {
 
     if (action === "start-formation-attendance-camera") {
       const selectedOffering = getSelectedFormationOffering_();
+      primeFormationAttendanceVoice_();
       formationAttendanceScannerRuntime.enabled = true;
       formationAttendanceScannerRuntime.status = "starting";
       formationAttendanceScannerRuntime.message = `Preparando cámara ${getQrCameraLabel_(state.filters.qr.cameraFacing)} para el lector de Formación...`;
@@ -35030,6 +35031,23 @@ function inferWelcomeWord_(firstName) {
   }
 
   return cleanName.endsWith("A") ? "Bienvenida" : "Bienvenido";
+}
+
+function primeFormationAttendanceVoice_() {
+  if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+    return;
+  }
+
+  try {
+    const utterance = new window.SpeechSynthesisUtterance("listo");
+    utterance.lang = "es-MX";
+    utterance.volume = 0.01;
+    utterance.rate = 1.2;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  } catch (error) {
+    // Algunos navegadores bloquean voz automática; el kiosko sigue operando sin audio.
+  }
 }
 
 function speakFormationAttendanceWelcome_(result) {
