@@ -598,7 +598,7 @@ const qrScannerRuntime = {
 };
 
 const FORMATION_QR_PROCESSING_MIN_MS = 0;
-const FORMATION_QR_SUCCESS_HOLD_MS = 900;
+const FORMATION_QR_SUCCESS_HOLD_MS = 1500;
 const FORMATION_QR_ERROR_HOLD_MS = 900;
 
 const formationAttendanceScannerRuntime = {
@@ -33796,8 +33796,8 @@ function processFormationAttendanceQrRawValue_(rawValue) {
   formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.requestStartedAt = now;
   formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
-  formationAttendanceScannerRuntime.suppressUntil = now + 1200;
-  formationAttendanceScannerRuntime.pausedUntil = now + 8000;
+  formationAttendanceScannerRuntime.suppressUntil = now + 900;
+  formationAttendanceScannerRuntime.pausedUntil = now + 900;
 
   setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
   void submitFormationAttendanceScannerRegistration_(extractedPersonId);
@@ -33887,35 +33887,31 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, "scanner");
     applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
     markFormationAttendanceRegisteredInRuntime_(cleanPersonId, formationContext.sessionNumber, {
-      offeringId: formationContext.offeringId
+      offeringId: formationContext.offeringId,
+      ttlMs: 60000
     });
     state.formationQrActivity = [
       successResult,
       ...state.formationQrActivity
     ].slice(0, 8);
-    const isLatestVisibleRequest = String(formationAttendanceScannerRuntime.requestPersonId || "") === cleanPersonId;
-    if (isLatestVisibleRequest) {
-      formationAttendanceScannerRuntime.requestPending = false;
-      formationAttendanceScannerRuntime.requestPersonId = "";
-      formationAttendanceScannerRuntime.requestStartedAt = 0;
-      formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-      formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
-      formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
-      setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
-    }
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.requestPersonId = "";
+    formationAttendanceScannerRuntime.requestStartedAt = 0;
+    formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
+    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
+    playKioskSignal_("success");
   } catch (error) {
     const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
-    const isLatestVisibleRequest = String(formationAttendanceScannerRuntime.requestPersonId || "") === cleanPersonId;
-    if (isLatestVisibleRequest) {
-      formationAttendanceScannerRuntime.requestPending = false;
-      formationAttendanceScannerRuntime.requestPersonId = "";
-      formationAttendanceScannerRuntime.requestStartedAt = 0;
-      formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-      formationAttendanceScannerRuntime.suppressUntil = Date.now() + 1200;
-      formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
-      setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
-      playKioskSignal_("error");
-    }
+    formationAttendanceScannerRuntime.requestPending = false;
+    formationAttendanceScannerRuntime.requestPersonId = "";
+    formationAttendanceScannerRuntime.requestStartedAt = 0;
+    formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
+    formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
+    setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
+    playKioskSignal_("error");
   }
 }
 
