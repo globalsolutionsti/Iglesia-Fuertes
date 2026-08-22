@@ -8027,14 +8027,6 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
                 <strong data-formation-attendance-feedback="field-session">${escapeHtml(feedbackState.sessionName)}</strong>
               </span>
               <span>
-                <small>ID</small>
-                <strong data-formation-attendance-feedback="field-id">${escapeHtml(feedbackState.participantId)}</strong>
-              </span>
-              <span>
-                <small>Proceso</small>
-                <strong data-formation-attendance-feedback="field-process">${escapeHtml(feedbackState.processName)}</strong>
-              </span>
-              <span>
                 <small>Paso</small>
                 <strong data-formation-attendance-feedback="field-step">${escapeHtml(feedbackState.levelName)}</strong>
               </span>
@@ -20738,8 +20730,6 @@ function applyDedicatedFormationAttendanceFeedback_(snapshot) {
   const fieldMap = {
     "field-name": snapshot.name || "",
     "field-qr": snapshot.personId || "Pendiente",
-    "field-id": snapshot.participantId || "Pendiente",
-    "field-process": snapshot.processName || "Proceso de Formación",
     "field-step": snapshot.levelName || "Paso",
     "field-session": snapshot.sessionName || snapshot.meta || ""
   };
