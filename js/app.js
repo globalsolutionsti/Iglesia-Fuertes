@@ -626,6 +626,8 @@ const formationAttendanceScannerRuntime = {
   requestPersonId: "",
   requestStartedAt: 0,
   fastRouteSupported: null,
+  lockedOfferingId: "",
+  lockedSessionNumber: "",
   localAttendanceLocks: Object.create(null)
 };
 
@@ -20950,6 +20952,23 @@ function resolveFormationQrScanMeta_(personId) {
       || ""
     ).trim(),
     personId: cleanPersonId,
+    enrollmentId: String(
+      lastResult?.enrollmentId
+      || recentResult?.enrollmentId
+      || attendanceParticipant?.enrollmentId
+      || attendanceParticipant?.id
+      || enrollment?.enrollmentId
+      || enrollment?.id
+      || ""
+    ).trim(),
+    levelId: String(
+      lastResult?.levelId
+      || recentResult?.levelId
+      || attendanceParticipant?.levelId
+      || selectedOffering?.levelId
+      || enrollment?.levelId
+      || ""
+    ).trim(),
     processName: String(
       lastResult?.processName
       || recentResult?.processName
@@ -24254,9 +24273,12 @@ async function handleClick(event) {
     }
 
     if (action === "start-formation-attendance-camera") {
+      const selectedOffering = getSelectedFormationOffering_();
       formationAttendanceScannerRuntime.enabled = true;
       formationAttendanceScannerRuntime.status = "starting";
       formationAttendanceScannerRuntime.message = `Preparando cámara ${getQrCameraLabel_(state.filters.qr.cameraFacing)} para el lector de Formación...`;
+      formationAttendanceScannerRuntime.lockedOfferingId = String(selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
+      formationAttendanceScannerRuntime.lockedSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
       state.qrScanner.enabled = false;
       stopQrScannerRuntime_(true);
       clearDedicatedFormationAttendanceFeedback_();
@@ -24266,6 +24288,8 @@ async function handleClick(event) {
 
     if (action === "stop-formation-attendance-camera") {
       formationAttendanceScannerRuntime.enabled = false;
+      formationAttendanceScannerRuntime.lockedOfferingId = "";
+      formationAttendanceScannerRuntime.lockedSessionNumber = "";
       stopFormationAttendanceScanner_();
       renderApp();
       return;
@@ -27383,7 +27407,18 @@ function applyFormationAttendanceActivationState_(offeringId, sessionNumber, res
 function applyFormationAttendanceContextState_(context, options = {}) {
   const normalizedContext = context && typeof context === "object" ? context : null;
   const offeringId = String(normalizedContext?.offering?.id || options.offeringId || "").trim();
-  const sessionNumber = String(options.sessionNumber || normalizedContext?.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const lockedOfferingId = String(formationAttendanceScannerRuntime.lockedOfferingId || "").trim();
+  const lockedSessionNumber = String(formationAttendanceScannerRuntime.lockedSessionNumber || "").trim();
+  const shouldKeepLockedSession = Boolean(
+    formationAttendanceScannerRuntime.enabled
+    && lockedSessionNumber
+    && (!lockedOfferingId || !offeringId || lockedOfferingId === offeringId)
+  );
+  const sessionNumber = String(
+    shouldKeepLockedSession
+      ? lockedSessionNumber
+      : (options.sessionNumber || normalizedContext?.sessionNumber || state.filters.formationOps.sessionNumber || "1")
+  ).trim();
 
   resetFormationManualAttendanceDraft_();
   state.formationAttendanceContext = normalizedContext;
@@ -33274,12 +33309,18 @@ async function registerQrAttendance(personId, options = {}) {
 
     const source = options.source || "manual";
     const task = async () => {
-      state.qrLastResult = await apiPost("formation.levelAttendance.registerQr", {
+      const scanMeta = resolveFormationQrScanMeta_(cleanPersonId);
+      state.qrLastResult = await apiPost("formation.levelAttendance.registerQrFast", {
         offeringId: formationContext.offeringId,
         sessionNumber: formationContext.sessionNumber,
         personId: cleanPersonId,
+        enrollmentId: scanMeta.enrollmentId || "",
+        levelId: scanMeta.levelId || "",
+        personName: scanMeta.name || "",
+        personNumber: scanMeta.participantId || "",
+        personPhone: scanMeta.phone || "",
         capturedBy: state.user?.name || "",
-        skipProgressSync: source === "scanner" ? "1" : ""
+        skipOfferingLookup: "1"
       });
       const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
       applyFormationScannerFeedbackResult_(successResult, {
@@ -33294,21 +33335,12 @@ async function registerQrAttendance(personId, options = {}) {
       scheduleQrScannerResultReset_(FORMATION_QR_SUCCESS_HOLD_MS);
       playKioskSignal_(state.qrScanner.result?.tone || "success");
       try {
-        applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
-        markFormationAttendanceRegisteredInRuntime_(cleanPersonId, formationContext.sessionNumber, {
-          offeringId: formationContext.offeringId
-        });
         state.formationQrActivity = [
           {
             ...state.qrScanner.result
           },
           ...state.formationQrActivity
         ].slice(0, 8);
-        scheduleFormationAttendanceContextRefresh_(
-          formationContext.offeringId,
-          formationContext.sessionNumber,
-          12000
-        );
       } catch (postSuccessError) {
         console.error("Formation QR post-success sync warning", postSuccessError);
       }
@@ -33536,6 +33568,8 @@ function stopFormationAttendanceScanner_(keepFeedback = false) {
   formationAttendanceScannerRuntime.canvas = null;
   formationAttendanceScannerRuntime.context = null;
   formationAttendanceScannerRuntime.cameraFacing = "";
+  formationAttendanceScannerRuntime.lockedOfferingId = "";
+  formationAttendanceScannerRuntime.lockedSessionNumber = "";
   formationAttendanceScannerRuntime.status = keepFeedback && formationAttendanceScannerRuntime.enabled ? "starting" : "idle";
   formationAttendanceScannerRuntime.message = keepFeedback && formationAttendanceScannerRuntime.enabled
     ? "Preparando cámara..."
@@ -33825,35 +33859,30 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
   }
 
   try {
-    if (formationAttendanceScannerRuntime.fastRouteSupported !== false) {
-      try {
-        qrResponse = await apiPost("formation.levelAttendance.registerQrFast", {
-          offeringId: formationContext.offeringId,
-          sessionNumber: formationContext.sessionNumber,
+    try {
+      qrResponse = await apiPost("formation.levelAttendance.registerQrFast", {
+        offeringId: formationContext.offeringId,
+        sessionNumber: formationContext.sessionNumber,
           personId: cleanPersonId,
+          enrollmentId: scanMeta.enrollmentId || "",
+          levelId: scanMeta.levelId || "",
           personName: scanMeta.name || "",
           personNumber: scanMeta.participantId || "",
           personPhone: scanMeta.phone || "",
-          capturedBy: state.user?.name || ""
+          capturedBy: state.user?.name || "",
+          skipOfferingLookup: "1"
         });
-        formationAttendanceScannerRuntime.fastRouteSupported = true;
-      } catch (fastRouteError) {
-        if (!isUnknownActionError_(fastRouteError, "formation.levelAttendance.registerQrFast")) {
-          throw fastRouteError;
-        }
-
-        formationAttendanceScannerRuntime.fastRouteSupported = false;
+      formationAttendanceScannerRuntime.fastRouteSupported = true;
+    } catch (fastRouteError) {
+      formationAttendanceScannerRuntime.fastRouteSupported = false;
+      if (isUnknownActionError_(fastRouteError, "formation.levelAttendance.registerQrFast")) {
+        throw new ApiError(
+          "La API publicada todavía no tiene la ruta rápida de asistencia. Sube el backend actualizado y vuelve a desplegar la Web App.",
+          "FORMATION_FAST_QR_ROUTE_MISSING"
+        );
       }
-    }
 
-    if (!qrResponse) {
-      qrResponse = await apiPost("formation.levelAttendance.registerQr", {
-        offeringId: formationContext.offeringId,
-        sessionNumber: formationContext.sessionNumber,
-        personId: cleanPersonId,
-        capturedBy: state.user?.name || "",
-        skipProgressSync: "1"
-      });
+      throw fastRouteError;
     }
 
     if ((Date.now() - requestStartedAt) < FORMATION_QR_PROCESSING_MIN_MS) {
@@ -33862,11 +33891,6 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
 
     state.qrLastResult = qrResponse;
     const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, "scanner");
-    applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
-    markFormationAttendanceRegisteredInRuntime_(cleanPersonId, formationContext.sessionNumber, {
-      offeringId: formationContext.offeringId,
-      ttlMs: 60000
-    });
     state.formationQrActivity = [
       successResult,
       ...state.formationQrActivity
@@ -35014,14 +35038,25 @@ function resolveQrContext() {
 
 function resolveFormationQrContext_() {
   const selectedOffering = getSelectedFormationOffering_();
-  const sessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
+  const lockedOfferingId = String(formationAttendanceScannerRuntime.lockedOfferingId || "").trim();
+  const lockedSessionNumber = String(formationAttendanceScannerRuntime.lockedSessionNumber || "").trim();
+  const sessionNumber = String(
+    formationAttendanceScannerRuntime.enabled && lockedSessionNumber
+      ? lockedSessionNumber
+      : (state.filters.formationOps.sessionNumber || "1")
+  ).trim();
+  const effectiveOfferingId = String(
+    formationAttendanceScannerRuntime.enabled && lockedOfferingId
+      ? lockedOfferingId
+      : (selectedOffering?.id || "")
+  ).trim();
 
-  if (!selectedOffering?.id || !sessionNumber) {
+  if (!effectiveOfferingId || !sessionNumber) {
     return null;
   }
 
   return {
-    offeringId: String(selectedOffering.id || ""),
+    offeringId: effectiveOfferingId,
     offeringName: String(selectedOffering.name || "").trim(),
     levelName: String(selectedOffering.levelName || "").trim(),
     sessionNumber
