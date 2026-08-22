@@ -33334,6 +33334,7 @@ async function registerQrAttendance(personId, options = {}) {
       qrScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
       scheduleQrScannerResultReset_(FORMATION_QR_SUCCESS_HOLD_MS);
       playKioskSignal_(state.qrScanner.result?.tone || "success");
+      speakFormationAttendanceWelcome_(successResult);
       try {
         state.formationQrActivity = [
           {
@@ -33903,6 +33904,7 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
     setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
     playKioskSignal_("success");
+    speakFormationAttendanceWelcome_(successResult);
   } catch (error) {
     const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
     formationAttendanceScannerRuntime.requestPending = false;
@@ -35011,6 +35013,45 @@ function playKioskSignal_(tone) {
     };
   } catch (error) {
     // Si el sonido no se puede reproducir, el kiosko sigue funcionando visualmente.
+  }
+}
+
+function getFirstNameForWelcome_(fullName) {
+  return String(fullName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)[0] || "";
+}
+
+function inferWelcomeWord_(firstName) {
+  const cleanName = normalizeText_(firstName);
+  if (!cleanName) {
+    return "Bienvenido";
+  }
+
+  return cleanName.endsWith("A") ? "Bienvenida" : "Bienvenido";
+}
+
+function speakFormationAttendanceWelcome_(result) {
+  if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+    return;
+  }
+
+  const firstName = getFirstNameForWelcome_(result?.name);
+  if (!firstName) {
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new window.SpeechSynthesisUtterance(`${inferWelcomeWord_(firstName)}, ${firstName}`);
+    utterance.lang = "es-MX";
+    utterance.rate = 1.04;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  } catch (error) {
+    // Si el navegador bloquea la voz, el registro visual y el sonido corto siguen funcionando.
   }
 }
 
