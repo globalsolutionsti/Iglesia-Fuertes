@@ -15297,6 +15297,12 @@ function buildDashboardSeasonMatrix_({ seasonId, seasonName, sessions, sessionGr
 
     cell.recorded += 1;
     cell.captured = true;
+    if (!person.assignedSessions[sessionId]) {
+      cell.total += 1;
+      sessionTotal.assignedTotal += 1;
+      sessionTotal.assignedCongregants += 1;
+      person.assignedSessions[sessionId] = true;
+    }
     person.attendances[sessionId] = attended === "SI" ? "SI" : "NO";
     sessionTotal.groupsCapturedSet.add(groupId);
 
@@ -34051,6 +34057,7 @@ async function saveAttendanceCapture() {
     await loadAttendanceData({
       force: true
     });
+    invalidateDashboardSeasonMatrix_();
   }, "Guardando asistencia...");
 
   showToast("Asistencia guardada", "La captura quedo registrada correctamente.", "success");
