@@ -16406,6 +16406,10 @@ function getPersonMinistryIds_(person) {
     .filter(Boolean);
 }
 
+function getPersonPrimaryMinistryId_(person) {
+  return String(person?.ministerio1 || person?.ministerioPrincipal || "").trim();
+}
+
 function buildConnectionReportModel_() {
   syncConnectionReportsFilters_();
 
@@ -16472,8 +16476,8 @@ function buildConnectionReportModel_() {
   const ministryPeopleIds = new Set();
 
   personDirectoryById.forEach((person, personId) => {
-    const ministryIds = getPersonMinistryIds_(person);
-    if (ministryIds.some((value) => String(value) === ministryId || normalizeText(value) === normalizeText(ministry.name || ""))) {
+    const primaryMinistryId = getPersonPrimaryMinistryId_(person);
+    if (primaryMinistryId === ministryId || normalizeText(primaryMinistryId) === normalizeText(ministry.name || "")) {
       ministryPeopleIds.add(personId);
     }
   });
