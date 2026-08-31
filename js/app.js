@@ -1,4 +1,4 @@
-﻿import { APP_CONFIG } from "./config.js";
+import { APP_CONFIG } from "./config.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import {
   clearStoredApiUrl,
@@ -18548,6 +18548,105 @@ function renderDashboardReportCenter_() {
   `;
 }
 
+function getCongregantAssignmentPerson_() {
+  const personId = String(state.ui.editingCongregantAssignmentPersonId || "").trim();
+
+  if (!personId) {
+    return null;
+  }
+
+  return (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [])
+    .find((person) => String(person?.id || "").trim() === personId) || null;
+}
+
+function renderCongregantAssignmentOptions_(items, selectedValue, placeholder) {
+  return renderOptions(
+    (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        value: String(item?.id || "").trim(),
+        label: `${item?.name || item?.id || "Elemento"}${item?.id ? ` (${item.id})` : ""}`
+      }))
+      .filter((item) => item.value),
+    selectedValue || "",
+    placeholder
+  );
+}
+
+function renderCongregantAssignmentModal_() {
+  const person = getCongregantAssignmentPerson_();
+
+  if (!person) {
+    return "";
+  }
+
+  const fullName = person.nombreCompleto || [person.nombre, person.apellidos].filter(Boolean).join(" ") || "Congregante";
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card" role="dialog" aria-modal="true" aria-labelledby="congregant-assignment-title">
+        <div class="panel-head">
+          <div>
+            <span class="status-chip neutral">Congregantes</span>
+            <h2 id="congregant-assignment-title">Ministerio y grupo</h2>
+            <p>Actualiza la asignacion base del congregante para que reportes y consultas salgan con informacion correcta.</p>
+          </div>
+          <button class="btn btn-ghost" type="button" data-action="close-congregant-assignment">Cerrar</button>
+        </div>
+
+        <div class="summary-box">
+          <span class="status-chip neutral">Persona</span>
+          <strong>${escapeHtml(fullName)}</strong>
+          <span>${escapeHtml(`QR ${person.id || "-"} | No. ${person.numero || "-"}`)}</span>
+        </div>
+
+        <form id="congregant-assignment-form" style="margin-top: 18px;">
+          <input type="hidden" name="id" value="${escapeHtml(person.id || "")}">
+          <div class="field-grid two">
+            <div class="field">
+              <label for="congregant-assignment-group">Grupo de conexion</label>
+              <select id="congregant-assignment-group" name="grupo">
+                ${renderCongregantAssignmentOptions_(state.catalogs.groups, person.grupo, "Sin grupo de conexion")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-1">Ministerio principal</label>
+              <select id="congregant-assignment-ministry-1" name="ministerio1">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio1, "Sin ministerio")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-2">Ministerio secundario 1</label>
+              <select id="congregant-assignment-ministry-2" name="ministerio2">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio2, "Sin ministerio")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-3">Ministerio secundario 2</label>
+              <select id="congregant-assignment-ministry-3" name="ministerio3">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio3, "Sin ministerio")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-4">Ministerio secundario 3</label>
+              <select id="congregant-assignment-ministry-4" name="ministerio4">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio4, "Sin ministerio")}
+              </select>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" type="button" data-action="save-congregant-assignment">Guardar cambios</button>
+            <button class="btn btn-ghost" type="button" data-action="close-congregant-assignment">Cancelar</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+}
 function renderAssistantsView() {
   const filter = state.filters.assistants;
   const summary = buildPeopleDirectorySummary_();
@@ -18834,7 +18933,7 @@ function renderAssistantsView() {
                   <th>Grupo</th>
                   <th>Contacto</th>
                   <th>Estado</th>
-                  ${canDeleteScrap ? "<th>Acciones</th>" : ""}
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -18853,13 +18952,12 @@ function renderAssistantsView() {
                       <span class="row-meta">${escapeHtml(person.email || "Sin email")}</span>
                     </td>
                     <td>${renderPill(person.estado)}</td>
-                    ${canDeleteScrap ? `
-                      <td>
-                        <div class="inline-actions">
-                          <button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(person.id || "")}" data-origin-view="assistants">Eliminar scrap</button>
-                        </div>
-                      </td>
-                    ` : ""}
+                    <td>
+                      <div class="inline-actions">
+                        <button class="btn btn-secondary" type="button" data-action="open-congregant-assignment" data-person-id="${escapeHtml(person.id || "")}">Ministerio / grupo</button>
+                        ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(person.id || "")}" data-origin-view="assistants">Eliminar scrap</button>` : ""}
+                      </div>
+                    </td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -18914,6 +19012,7 @@ function renderAssistantsView() {
         `}
       </article>
     </section>
+    ${renderCongregantAssignmentModal_()}
   `;
 }
 
@@ -24055,6 +24154,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "open-congregant-assignment") {
+      const personId = String(button.dataset.personId || "").trim();
+
+      if (!personId) {
+        showToast("Congregante no disponible", "Recarga el padron e intenta de nuevo.", "warning");
+        return;
+      }
+
+      await Promise.all([
+        loadGroupsCatalog_({ showLoading: false }),
+        loadMinistriesCatalog_({ showLoading: false })
+      ]);
+      state.ui.editingCongregantAssignmentPersonId = personId;
+      renderApp();
+      return;
+    }
+
+    if (action === "close-congregant-assignment") {
+      state.ui.editingCongregantAssignmentPersonId = "";
+      renderApp();
+      return;
+    }
+
+    if (action === "save-congregant-assignment") {
+      const form = button.closest("form");
+
+      if (!(form instanceof HTMLFormElement)) {
+        showToast("Formulario no disponible", "Cierra el modal, vuelve a abrirlo e intenta guardar.", "warning");
+        return;
+      }
+
+      await saveCongregantAssignment_(form);
+      return;
+    }
     if (action === "download-people-template") {
       downloadPeopleTemplate_();
       return;
@@ -29993,6 +30126,55 @@ async function saveAssistant(rawPayload) {
   return savedPerson;
 }
 
+async function saveCongregantAssignment_(form) {
+  const formData = new FormData(form);
+  const personId = String(formData.get("id") || "").trim();
+  const person = (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [])
+    .find((item) => String(item?.id || "").trim() === personId);
+
+  if (!person) {
+    showToast("Congregante no disponible", "Recarga el padron e intenta guardar de nuevo.", "warning");
+    return;
+  }
+
+  const fallbackNameParts = splitFullName_(person.nombreCompleto || person.name || "");
+  const currentAuditUser = getCurrentSystemUserAudit_();
+  const payload = {
+    ...person,
+    id: personId,
+    nombre: person.nombre || fallbackNameParts.nombre,
+    apellidos: person.apellidos || fallbackNameParts.apellidos || person.numero || "Sin apellidos",
+    telefono: person.telefono || "",
+    email: person.email || "",
+    estado: person.estado || "ACTIVO",
+    tipoPersona: person.tipoPersona || "CONGREGANTE",
+    fechaIngreso: person.fechaIngreso || person.fecha || formatDateForInput_(new Date()),
+    grupo: String(formData.get("grupo") || "").trim(),
+    ministerio1: String(formData.get("ministerio1") || "").trim(),
+    ministerio2: String(formData.get("ministerio2") || "").trim(),
+    ministerio3: String(formData.get("ministerio3") || "").trim(),
+    ministerio4: String(formData.get("ministerio4") || "").trim(),
+    systemUserName: currentAuditUser.name,
+    systemUserEmail: currentAuditUser.email
+  };
+
+  let savedPerson = null;
+  await withLoading(async () => {
+    savedPerson = await apiPost("servers.save", payload);
+    upsertPeopleDirectoryInState_(savedPerson);
+    upsertPeopleListInState_(savedPerson);
+  }, "Guardando ministerio y grupo...");
+
+  if (!savedPerson) {
+    showToast("No se guardo la asignacion", "La API no devolvio confirmacion. Intenta de nuevo.", "warning");
+    return;
+  }
+
+  state.ui.editingCongregantAssignmentPersonId = "";
+  invalidateDashboardSeasonMatrix_();
+  showToast("Asignacion actualizada", "El ministerio y el grupo quedaron guardados correctamente.", "success");
+  renderApp();
+}
 function validateWelcomeNewForm_(form) {
   if (!(form instanceof HTMLFormElement)) {
     showToast("Formulario no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
@@ -40248,4 +40430,5 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
