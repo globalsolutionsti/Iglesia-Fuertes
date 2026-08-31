@@ -537,6 +537,10 @@ div {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.field-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .field {
   display: grid;
   gap: 9px;
@@ -11275,6 +11279,7 @@ tbody tr:hover {
   }
 
   .field-grid.two,
+  .field-grid.three,
   .metric-grid,
   .view-grid.columns-3,
   .directory-filter-grid,
@@ -11900,6 +11905,7 @@ tbody tr:hover {
   }
 
   .field-grid.two,
+  .field-grid.three,
   .directory-filter-grid,
   .bulk-impact-grid,
   .season-single-session-grid {
