@@ -38613,18 +38613,18 @@ async function buildCredentialPrintCardPngBlob_(person) {
   context.setLineDash([]);
 
   context.fillStyle = "#111111";
-  drawRoundedRectPath_(context, 60, 48, width - 120, 76, 18);
+  drawRoundedRectPath_(context, 60, 42, width - 120, 94, 20);
   context.fill();
 
-  const logoWidth = 178;
-  const logoHeight = Math.min(42, logoWidth * (whiteLogo.naturalHeight / Math.max(whiteLogo.naturalWidth, 1)));
-  context.drawImage(whiteLogo, 82, 66, logoWidth, logoHeight);
+  const logoWidth = 228;
+  const logoHeight = Math.min(60, logoWidth * (whiteLogo.naturalHeight / Math.max(whiteLogo.naturalWidth, 1)));
+  context.drawImage(whiteLogo, 82, 58, logoWidth, logoHeight);
 
   context.fillStyle = "#ffffff";
   context.font = "800 26px Manrope, Arial, sans-serif";
   context.textAlign = "right";
   context.textBaseline = "middle";
-  context.fillText("CREDENCIAL QR", width - 82, 86);
+  context.fillText("CREDENCIAL QR", width - 82, 90);
 
   context.fillStyle = "#ffffff";
   context.strokeStyle = "#e1e1e1";
@@ -38784,12 +38784,12 @@ async function downloadCredentialPrintPdf_(people, title) {
       }
 
       doc.setFillColor(17, 17, 17);
-      doc.roundedRect(x + 10, y + 10, cardWidth - 20, 24, 7, 7, "F");
-      doc.addImage(whiteLogoDataUrl, "PNG", x + 18, y + 14, 74, 18);
+      doc.roundedRect(x + 10, y + 8, cardWidth - 20, 32, 8, 8, "F");
+      doc.addImage(whiteLogoDataUrl, "PNG", x + 18, y + 13, 88, 24);
       doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7);
-      doc.text("CREDENCIAL QR", x + cardWidth - 18, y + 26, { align: "right" });
+      doc.text("CREDENCIAL QR", x + cardWidth - 18, y + 28, { align: "right" });
 
       doc.setDrawColor(230, 230, 230);
       doc.setLineWidth(0.6);
@@ -40764,6 +40764,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
