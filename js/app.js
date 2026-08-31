@@ -645,7 +645,8 @@ const formationAttendanceScannerRuntime = {
 };
 
 const credentialRenderRuntime = {
-  logoPromise: null
+  logoPromise: null,
+  whiteLogoDataUrlPromise: null
 };
 
 document.addEventListener("click", handleClick);
@@ -18994,6 +18995,7 @@ function renderAssistantsView() {
             <button class="btn btn-secondary" data-action="print-credential-preview" ${credentialPreviewRows.length ? "" : "disabled"}>Imprimir vista previa</button>
             <button class="btn btn-secondary" data-action="print-credential-batch" ${rows.length ? "" : "disabled"}>Imprimir filtradas</button>
             <button class="btn btn-secondary" data-action="download-credential-print-pdf" ${rows.length ? "" : "disabled"}>PDF para imprimir</button>
+            <button class="btn btn-secondary" data-action="download-credential-card-image-batch" ${rows.length ? "" : "disabled"}>Imagenes tarjetas ZIP</button>
             <button class="btn btn-primary" data-action="download-credential-batch" ${rows.length ? "" : "disabled"}>Descargar lote ZIP</button>
           </div>
         </div>
@@ -24243,6 +24245,11 @@ async function handleClick(event) {
 
     if (action === "download-credential-print-pdf") {
       await downloadCredentialPrintPdf_(getFilteredPeopleDirectory_(), "Credenciales QR - Impresion");
+      return;
+    }
+
+    if (action === "download-credential-card-image-batch") {
+      await downloadCredentialPrintCardImageBatchZip_(getFilteredPeopleDirectory_(), "Credenciales QR - Tarjetas");
       return;
     }
 
@@ -38552,6 +38559,161 @@ async function downloadCredentialBatchZip_(people, title) {
   showToast("Lote descargado", `Se genero un ZIP con ${rows.length} credenciales PNG y un CSV de apoyo para WhatsApp.`, "success");
 }
 
+async function getCredentialWhiteLogoDataUrl_() {
+  if (!credentialRenderRuntime.whiteLogoDataUrlPromise) {
+    credentialRenderRuntime.whiteLogoDataUrlPromise = getCredentialRenderAssets_().then(({ logo }) => {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new ApiError("No se pudo preparar el logo blanco para la credencial.", "WHITE_LOGO_CANVAS_NOT_AVAILABLE");
+      }
+
+      canvas.width = logo.naturalWidth || logo.width || 600;
+      canvas.height = logo.naturalHeight || logo.height || 220;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(logo, 0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "source-in";
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "source-over";
+      return canvas.toDataURL("image/png");
+    });
+  }
+
+  return credentialRenderRuntime.whiteLogoDataUrlPromise;
+}
+
+async function buildCredentialPrintCardPngBlob_(person) {
+  const width = 856;
+  const height = 540;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new ApiError("No se pudo crear la imagen de credencial.", "CARD_CANVAS_NOT_AVAILABLE");
+  }
+
+  const whiteLogo = await loadImageElement_(await getCredentialWhiteLogoDataUrl_());
+  const qrImage = await loadImageElement_(buildCredentialQrDataUrl_(person, 520));
+  const qrId = String(person.id || person.numero || "SIN ID");
+  const number = String(person.numero || "");
+  const name = String(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
+  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+
+  canvas.width = width;
+  canvas.height = height;
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.setLineDash([12, 10]);
+  context.strokeStyle = "#777777";
+  context.lineWidth = 4;
+  drawRoundedRectPath_(context, 28, 18, width - 56, height - 36, 24);
+  context.stroke();
+  context.setLineDash([]);
+
+  context.fillStyle = "#111111";
+  drawRoundedRectPath_(context, 60, 48, width - 120, 76, 18);
+  context.fill();
+
+  const logoWidth = 178;
+  const logoHeight = Math.min(42, logoWidth * (whiteLogo.naturalHeight / Math.max(whiteLogo.naturalWidth, 1)));
+  context.drawImage(whiteLogo, 82, 66, logoWidth, logoHeight);
+
+  context.fillStyle = "#ffffff";
+  context.font = "800 26px Manrope, Arial, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  context.fillText("CREDENCIAL QR", width - 82, 86);
+
+  context.fillStyle = "#ffffff";
+  context.strokeStyle = "#e1e1e1";
+  context.lineWidth = 2;
+  drawRoundedRectPath_(context, 64, 142, 296, 296, 18);
+  context.fill();
+  context.stroke();
+  context.drawImage(qrImage, 80, 158, 264, 264);
+
+  context.textAlign = "left";
+  context.textBaseline = "alphabetic";
+  context.fillStyle = "#111111";
+  const nameBlock = fitCanvasTextBlock_(context, name, 420, {
+    maxLines: 2,
+    maxFontSize: 34,
+    minFontSize: 22,
+    fontWeight: 800
+  });
+  context.font = `800 ${nameBlock.fontSize}px Manrope, Arial, sans-serif`;
+  let textY = 200;
+  nameBlock.lines.forEach((line) => {
+    context.fillText(line, 392, textY);
+    textY += Math.round(nameBlock.fontSize * 1.1);
+  });
+
+  context.fillStyle = "#6d6d6d";
+  context.font = "500 23px Manrope, Arial, sans-serif";
+  context.fillText("QR ID", 392, 304);
+  context.fillStyle = "#111111";
+  context.font = "800 35px Manrope, Arial, sans-serif";
+  context.fillText(qrId, 392, 348);
+
+  context.fillStyle = "#6d6d6d";
+  context.font = "500 23px Manrope, Arial, sans-serif";
+  context.fillText("FOLIO / GRUPO", 392, 416);
+  context.fillStyle = "#111111";
+  context.font = "800 27px Manrope, Arial, sans-serif";
+  wrapCanvasText_(context, [number, groupName].filter(Boolean).join(" | "), 390).slice(0, 2).forEach((line, index) => {
+    context.fillText(line, 392, 462 + (index * 31));
+  });
+
+  return canvasToBlob_(canvas, "image/png");
+}
+
+async function downloadCredentialPrintCardImageBatchZip_(people, title) {
+  const rows = Array.isArray(people) ? people.filter(Boolean) : [];
+
+  if (!rows.length) {
+    showToast("Sin credenciales", "No hay personas disponibles para generar imagenes con los filtros actuales.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const JSZipLibrary = window.JSZip;
+
+    if (!JSZipLibrary) {
+      throw new ApiError("No se encontro la libreria para generar el ZIP. Recarga la pagina y vuelve a intentar.", "ZIP_LIBRARY_NOT_AVAILABLE");
+    }
+
+    const zip = new JSZipLibrary();
+    const folder = zip.folder("credenciales_qr_tarjeta");
+    const manifestCsv = buildCredentialManifestCsv_(rows);
+
+    for (const person of rows) {
+      const fileName = `${buildCredentialFileName_(person)}_TARJETA.png`;
+      const blob = await buildCredentialPrintCardPngBlob_(person);
+      folder.file(fileName, blob);
+    }
+
+    zip.file("MANIFIESTO_CREDENCIALES.csv", manifestCsv);
+    zip.file("README_IMPRESION.txt", [
+      title || "Credenciales QR - Tarjetas",
+      `Total de credenciales: ${rows.length}`,
+      "Cada PNG usa formato horizontal tipo tarjeta de credito con linea punteada de recorte."
+    ].join("\n"));
+
+    const zipBlob = await zip.generateAsync({
+      type: "blob",
+      compression: "DEFLATE",
+      compressionOptions: {
+        level: 6
+      }
+    });
+
+    downloadBlob_(zipBlob, `CREDENCIALES_QR_TARJETAS_${formatTimestampToken_()}_${String(rows.length).padStart(3, "0")}.zip`);
+  }, `Generando ${rows.length} imagenes tipo tarjeta...`);
+
+  showToast("Imagenes listas", "Se genero el ZIP con credenciales tipo tarjeta en PNG.", "success");
+}
 async function downloadCredentialPrintPdf_(people, title) {
   const rows = Array.isArray(people) ? people.filter(Boolean) : [];
 
@@ -38585,6 +38747,7 @@ async function downloadCredentialPrintPdf_(people, title) {
     const columns = 2;
     const rowsPerPage = 4;
     const cardsPerPage = columns * rowsPerPage;
+    const whiteLogoDataUrl = await getCredentialWhiteLogoDataUrl_();
 
     rows.forEach((person, index) => {
       if (index > 0 && index % cardsPerPage === 0) {
@@ -38622,10 +38785,9 @@ async function downloadCredentialPrintPdf_(people, title) {
 
       doc.setFillColor(17, 17, 17);
       doc.roundedRect(x + 10, y + 10, cardWidth - 20, 24, 7, 7, "F");
+      doc.addImage(whiteLogoDataUrl, "PNG", x + 18, y + 14, 74, 18);
       doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.text("IGLESIA FUERTES V2", x + 18, y + 26);
       doc.setFontSize(7);
       doc.text("CREDENCIAL QR", x + cardWidth - 18, y + 26, { align: "right" });
 
@@ -40602,6 +40764,9 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
 
 
 
