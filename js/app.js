@@ -16603,7 +16603,7 @@ async function downloadConnectionReportPdf_(report) {
     `${row.totalPresent || 0}/${row.totalSessions || sessions.length}`,
     ...sessions.map((session) => {
       const status = String(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "").toUpperCase();
-      return status === "SI" ? "✓" : (status === "NO" ? "✕" : "-");
+      return status === "SI" ? "SI" : (status === "NO" ? "NO" : "-");
     })
   ]);
 
@@ -17515,6 +17515,10 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
 
 function getDashboardPdfConstructor_() {
   return window.jspdf?.jsPDF || null;
+}
+
+function getJsPdfClass_() {
+  return getDashboardPdfConstructor_();
 }
 
 function blobToDataUrl_(blob) {
@@ -25640,18 +25644,7 @@ async function handleSubmit(event) {
     }
 
     if (form.id === "catalog-ministry-form") {
-      const payload = Object.fromEntries(new FormData(form).entries());
-
-      await withLoading(async () => {
-        await apiPost("catalog.ministries.save", payload);
-        await loadMinistriesCatalog_({
-          force: true
-        });
-      }, payload.id ? "Actualizando ministerio..." : "Creando ministerio...");
-
-      state.ui.editingMinistryId = "";
-      showToast("Catalogo actualizado", "El ministerio quedo guardado correctamente.", "success");
-      renderApp();
+      await saveCatalogMinistryForm_(form);
       return;
     }
 
@@ -31185,6 +31178,52 @@ async function saveCatalogGroupForm_(form) {
   }
 
   showToast(toastTitle, toastMessage, toastTone);
+  renderApp();
+}
+
+async function saveCatalogMinistryForm_(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    showToast("Formulario no disponible", "Recarga el catalogo de ministerios e intenta nuevamente.", "warning");
+    return;
+  }
+
+  const payload = Object.fromEntries(new FormData(form).entries());
+  const name = String(payload.name || "").trim();
+  let savedMinistry = null;
+
+  if (!String(payload.id || "").trim() && state.ui.editingMinistryId) {
+    payload.id = String(state.ui.editingMinistryId || "").trim();
+  }
+
+  if (!name) {
+    const nameField = form.querySelector("[name=\"name\"]");
+    showToast("Falta el nombre", "Escribe el nombre del ministerio antes de guardar.", "warning");
+    nameField?.focus();
+    return;
+  }
+
+  payload.name = name;
+
+  await withLoading(async () => {
+    savedMinistry = await apiPost("catalog.ministries.save", payload);
+    await loadMinistriesCatalog_({
+      force: true
+    });
+  }, payload.id ? "Actualizando ministerio..." : "Creando ministerio...");
+
+  if (savedMinistry?.id && Array.isArray(state.catalogs.ministries)) {
+    const savedId = String(savedMinistry.id);
+    const index = state.catalogs.ministries.findIndex((ministry) => String(ministry.id || "") === savedId);
+    if (index >= 0) {
+      state.catalogs.ministries[index] = {
+        ...state.catalogs.ministries[index],
+        ...savedMinistry
+      };
+    }
+  }
+
+  state.ui.editingMinistryId = String(savedMinistry?.id || payload.id || "");
+  showToast("Catalogo actualizado", "El ministerio quedo guardado correctamente.", "success");
   renderApp();
 }
 
@@ -40441,5 +40480,6 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
