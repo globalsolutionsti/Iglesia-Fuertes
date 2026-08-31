@@ -104,6 +104,11 @@ const VIEW_META = {
     title: "Asignacion de Participantes",
     subtitle: "Asigna personas a grupos de forma individual o masiva."
   },
+  "connection-reports": {
+    module: "connection",
+    title: "Reportes Grupos Conexión",
+    subtitle: "Consulta asistencia por grupo o ministerio y exporta a Excel o PDF."
+  },
   qr: {
     module: "attendanceHub",
     title: "Asistencias",
@@ -187,7 +192,8 @@ const MODULE_TABS = {
   connection: [
     { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
     { view: "seasons", label: "Temporadas", description: "Sesiones y estados" },
-    { view: "participants", label: "Asignacion", description: "Individual y masiva" }
+    { view: "participants", label: "Asignacion", description: "Individual y masiva" },
+    { view: "connection-reports", label: "Reportes", description: "Excel y PDF" }
   ],
   formation: [
     { view: "formation", label: "Formación", description: "Prospectos, niveles e historial" }
@@ -208,6 +214,7 @@ const ACCESSIBLE_VIEWS = [
   "catalogs",
   "seasons",
   "participants",
+  "connection-reports",
   "formation",
   "admin-settings",
   "admin-users"
@@ -475,6 +482,12 @@ const state = {
       peopleSearch: "",
       bulkSearch: "",
       moveTargets: {}
+    },
+    connectionReports: {
+      seasonId: "",
+      type: "group",
+      groupId: "",
+      ministryId: ""
     },
     attendance: {
       seasonId: "",
@@ -767,6 +780,13 @@ function getUserPermissions_() {
     && !basePermissions.includes("welcome-prospects")
   ) {
     basePermissions.push("welcome-prospects");
+  }
+
+  if (
+    (basePermissions.includes("catalogs") || basePermissions.includes("participants") || basePermissions.includes("seasons"))
+    && !basePermissions.includes("connection-reports")
+  ) {
+    basePermissions.push("connection-reports");
   }
 
   return basePermissions;
@@ -7686,6 +7706,8 @@ function renderCurrentView() {
       return renderConnectionSectionView_(renderSeasonsView());
     case "participants":
       return renderConnectionSectionView_(renderParticipantsView());
+    case "connection-reports":
+      return renderConnectionSectionView_(renderConnectionReportsView_());
     case "attendance":
       return renderAttendanceHubView_();
     case "qr":
@@ -8041,6 +8063,164 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
         </div>
       </div>
     </div>
+  `;
+}
+
+function renderConnectionReportsView_() {
+  syncConnectionReportsFilters_();
+
+  const filter = state.filters.connectionReports;
+  const scope = getConnectionReportScope_();
+  const report = buildConnectionReportModel_();
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+  const canChooseType = scope.canUseGroupReport && scope.canUseMinistryReport;
+  const typeLabel = filter.type === "ministry" ? "Ministerio" : "Grupo de Conexión";
+
+  return `
+    <section class="view-grid connection-reports-view">
+      ${renderModuleMobileHero_({
+        tone: "dashboard",
+        eyebrow: "Reportes",
+        title: "Reportes de Grupos Conexión",
+        copy: "Consulta asistencias por grupo o por ministerio y exporta el resultado a Excel o PDF.",
+        badge: {
+          label: typeLabel,
+          kind: "dark"
+        },
+        metrics: [
+          { label: "Temporada", value: resolveSeasonName_(filter.seasonId) || "Sin temporada" },
+          { label: "Registros", value: String(rows.length || 0) },
+          { label: "Sesiones", value: String(sessions.length || 0) }
+        ]
+      })}
+
+      <article class="panel-card connection-report-toolbar">
+        <div class="panel-head">
+          <div>
+            <h2>Consulta operativa</h2>
+            <p>El sistema valida tu usuario: líderes ven solo su grupo, líderes de ministerio solo su ministerio y Pastor/Admin puede consultar todo.</p>
+          </div>
+          <span class="pill ${isPastorOrAdminUser_() ? "success" : "dark"}">${escapeHtml(isPastorOrAdminUser_() ? "Vista global" : "Vista limitada")}</span>
+        </div>
+
+        <div class="field-grid three">
+          <div class="field">
+            <label for="connection-report-season">Temporada</label>
+            <select id="connection-report-season">
+              ${renderOptions(state.seasons.map((season) => ({
+                value: season.id,
+                label: season.name
+              })), filter.seasonId, "Selecciona temporada")}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="connection-report-type">Tipo de reporte</label>
+            <select id="connection-report-type" ${canChooseType ? "" : "disabled"}>
+              ${renderOptions([
+                ...(scope.canUseGroupReport ? [{ value: "group", label: "Asistencia por grupo" }] : []),
+                ...(scope.canUseMinistryReport ? [{ value: "ministry", label: "Asistencia por ministerio" }] : [])
+              ], filter.type, "Selecciona reporte")}
+            </select>
+          </div>
+
+          ${filter.type === "ministry" ? `
+            <div class="field">
+              <label for="connection-report-ministry">Ministerio</label>
+              <select id="connection-report-ministry" ${isPastorOrAdminUser_() ? "" : "disabled"}>
+                ${renderOptions(scope.ministries.map((ministry) => ({
+                  value: ministry.id,
+                  label: ministry.name
+                })), filter.ministryId, "Selecciona ministerio")}
+              </select>
+            </div>
+          ` : `
+            <div class="field">
+              <label for="connection-report-group">Grupo de Conexión</label>
+              <select id="connection-report-group" ${isPastorOrAdminUser_() ? "" : "disabled"}>
+                ${renderOptions(scope.groups.map((group) => ({
+                  value: group.id,
+                  label: group.name
+                })), filter.groupId, "Selecciona grupo")}
+              </select>
+            </div>
+          `}
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" data-action="refresh-connection-report">Generar reporte</button>
+          <button class="btn btn-ghost" data-action="export-connection-report-excel" ${rows.length ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-connection-report-pdf" ${rows.length ? "" : "disabled"}>PDF</button>
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Usuario:</strong> ${escapeHtml(state.user?.name || state.user?.email || "Sin usuario")}</span>
+          <span class="context-item"><strong>Permiso:</strong> ${escapeHtml(isPastorOrAdminUser_() ? "Puede consultar todos los grupos y ministerios." : "Consulta limitada a su liderazgo configurado.")}</span>
+          <span class="context-item"><strong>Fuente:</strong> Matriz de asistencia por temporada</span>
+        </div>
+      </article>
+
+      <article class="detail-card connection-report-result">
+        <div class="panel-head">
+          <div>
+            <h2>${escapeHtml(report?.title || "Resultado del reporte")}</h2>
+            <p>${escapeHtml(report ? `${report.seasonName} · ${filter.type === "ministry" ? (report.ministryName || "") : (report.groupName || "")}` : "Selecciona temporada y genera el reporte.")}</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(rows.length || 0))} personas</span>
+        </div>
+
+        ${report ? `
+          <div class="summary-strip">
+            <span class="context-item"><strong>${filter.type === "ministry" ? "Ministerio" : "Grupo"}:</strong> ${escapeHtml(filter.type === "ministry" ? report.ministryName : report.groupName)}</span>
+            <span class="context-item"><strong>Líderes:</strong> ${escapeHtml((report.leaders || []).join(" / ") || "Sin liderazgo registrado")}</span>
+            <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(sessions.length))}</span>
+          </div>
+
+          <div class="table-wrap dashboard-group-roster-wrap connection-report-table-wrap">
+            <table class="dashboard-group-roster-table connection-report-table">
+              <thead>
+                <tr>
+                  <th>${filter.type === "ministry" ? "Participante" : "Asistente"}</th>
+                  ${filter.type === "ministry" ? "<th>Grupo</th>" : ""}
+                  <th>Total</th>
+                  ${sessions.map((session) => `<th>${escapeHtml(session.shortLabel || session.name || session.id)}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.length ? rows.map((row) => `
+                  <tr>
+                    <td>
+                      <span class="row-title">${escapeHtml(row.name || row.personId || "")}</span>
+                      <span class="row-meta">QR ${escapeHtml(row.personId || "-")}</span>
+                    </td>
+                    ${filter.type === "ministry" ? `<td>${escapeHtml(row.groupName || row.groupId || "Sin grupo")}</td>` : ""}
+                    <td><strong>${escapeHtml(`${row.totalPresent || 0}/${row.totalSessions || sessions.length}`)}</strong></td>
+                    ${sessions.map((session) => `
+                      <td>
+                        <div class="dashboard-attendance-cell">
+                          ${renderDashboardAttendanceMark_(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "")}
+                        </div>
+                      </td>
+                    `).join("")}
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="${escapeHtml(String(Math.max(sessions.length + (filter.type === "ministry" ? 3 : 2), 3)))}">
+                      <div class="empty-state">No hay personas para este alcance. Verifica temporada, grupo/ministerio y que existan asistencias capturadas.</div>
+                    </td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state">
+            No hay información lista para este reporte. Presiona Generar reporte o revisa que el usuario tenga un grupo/ministerio configurado.
+          </div>
+        `}
+      </article>
+    </section>
   `;
 }
 
@@ -12689,7 +12869,7 @@ function renderCatalogsView_() {
     return !groupSearch || haystack.includes(groupSearch);
   });
   const ministries = state.catalogs.ministries.filter((ministry) => {
-    const haystack = `${ministry.id} ${ministry.name}`.toLowerCase();
+    const haystack = `${ministry.id} ${ministry.name} ${ministry.leader1Name || ""} ${ministry.leader2Name || ""}`.toLowerCase();
     return !ministrySearch || haystack.includes(ministrySearch);
   });
   const editingGroup = state.catalogs.groups.find((group) => String(group.id) === String(state.ui.editingGroupId || "")) || null;
@@ -12884,6 +13064,30 @@ function renderCatalogsView_() {
                 <label for="catalog-ministry-name">Nombre del ministerio</label>
                 <input id="catalog-ministry-name" name="name" value="${escapeHtml(editingMinistry?.name || "")}" placeholder="Nuevo ministerio" required>
               </div>
+              <div class="field">
+                <label for="catalog-ministry-leader1-name">Líder 1</label>
+                <input id="catalog-ministry-leader1-name" name="leader1Name" value="${escapeHtml(editingMinistry?.leader1Name || "")}" placeholder="Nombre del líder principal">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader1-phone">WhatsApp líder 1</label>
+                <input id="catalog-ministry-leader1-phone" name="leader1Phone" value="${escapeHtml(editingMinistry?.leader1Phone || "")}" placeholder="5215551234567">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader1-email">Correo líder 1</label>
+                <input id="catalog-ministry-leader1-email" name="leader1Email" type="email" value="${escapeHtml(editingMinistry?.leader1Email || "")}" placeholder="lider@iglesia.com">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader2-name">Líder 2</label>
+                <input id="catalog-ministry-leader2-name" name="leader2Name" value="${escapeHtml(editingMinistry?.leader2Name || "")}" placeholder="Nombre del segundo líder">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader2-phone">WhatsApp líder 2</label>
+                <input id="catalog-ministry-leader2-phone" name="leader2Phone" value="${escapeHtml(editingMinistry?.leader2Phone || "")}" placeholder="5215559876543">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader2-email">Correo líder 2</label>
+                <input id="catalog-ministry-leader2-email" name="leader2Email" type="email" value="${escapeHtml(editingMinistry?.leader2Email || "")}" placeholder="lider2@iglesia.com">
+              </div>
             </div>
 
             <div class="actions-row">
@@ -12903,6 +13107,7 @@ function renderCatalogsView_() {
                 <tr>
                   <th>ID</th>
                   <th>Ministerio</th>
+                  <th>Liderazgo</th>
                   <th>Accion</th>
                 </tr>
               </thead>
@@ -12911,11 +13116,16 @@ function renderCatalogsView_() {
                   <tr>
                     <td>${escapeHtml(String(ministry.id))}</td>
                     <td>${escapeHtml(ministry.name)}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml([ministry.leader1Name, ministry.leader2Name].filter(Boolean).join(" / ") || "Sin líderes")}</span>
+                      <span class="row-meta">${escapeHtml([ministry.leader1Phone, ministry.leader2Phone].filter(Boolean).join(" / ") || "Sin teléfonos")}</span>
+                      <span class="row-meta">${escapeHtml([ministry.leader1Email, ministry.leader2Email].filter(Boolean).join(" / ") || "Sin correos")}</span>
+                    </td>
                     <td><button class="btn btn-secondary" data-action="edit-ministry-catalog" data-ministry-id="${escapeHtml(String(ministry.id))}">Editar</button></td>
                   </tr>
                 `).join("") : `
                   <tr>
-                    <td colspan="3"><div class="empty-state">No hay ministerios que coincidan con la busqueda.</div></td>
+                    <td colspan="4"><div class="empty-state">No hay ministerios que coincidan con la busqueda.</div></td>
                   </tr>
                 `}
               </tbody>
@@ -16105,6 +16315,321 @@ function downloadExcelHtmlFile_(htmlText, fileName) {
     type: "application/vnd.ms-excel;charset=utf-8"
   });
   downloadBlob_(blob, fileName);
+}
+
+function isPastorOrAdminUser_() {
+  const roleKey = getNormalizedUserRole_();
+  return ["admin", "administrador", "pastor"].includes(roleKey);
+}
+
+function getUserScopedConnectionMinistries_() {
+  if (isPastorOrAdminUser_()) {
+    return Array.isArray(state.catalogs.ministries) ? state.catalogs.ministries : [];
+  }
+
+  const userName = normalizeText(state.user?.name || "");
+  const userEmail = normalizeText(state.user?.email || "");
+
+  if (!userName && !userEmail) {
+    return [];
+  }
+
+  return (Array.isArray(state.catalogs.ministries) ? state.catalogs.ministries : []).filter((ministry) => {
+    return [
+      ministry?.leader1Name,
+      ministry?.leader2Name,
+      ministry?.leader1Email,
+      ministry?.leader2Email
+    ].some((value) => {
+      const normalized = normalizeText(value || "");
+      return normalized && (normalized === userName || normalized === userEmail);
+    });
+  });
+}
+
+function getConnectionReportScope_() {
+  const allGroups = Array.isArray(state.catalogs.groups) ? state.catalogs.groups : [];
+  const allMinistries = Array.isArray(state.catalogs.ministries) ? state.catalogs.ministries : [];
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const scopedMinistries = getUserScopedConnectionMinistries_();
+  const canSeeAll = isPastorOrAdminUser_();
+
+  return {
+    canSeeAll,
+    groups: canSeeAll ? allGroups : scopedGroups,
+    ministries: canSeeAll ? allMinistries : scopedMinistries,
+    canUseGroupReport: canSeeAll || scopedGroups.length > 0,
+    canUseMinistryReport: canSeeAll || scopedMinistries.length > 0
+  };
+}
+
+function syncConnectionReportsFilters_() {
+  const filter = state.filters.connectionReports;
+  const scope = getConnectionReportScope_();
+  const seasonId = ensureValidSeasonIdFromList_(filter.seasonId, state.seasons) || getLatestSeason()?.id || "";
+
+  filter.seasonId = seasonId;
+
+  if (!scope.canUseMinistryReport && filter.type === "ministry") {
+    filter.type = "group";
+  }
+
+  if (!scope.canUseGroupReport && filter.type === "group") {
+    filter.type = "ministry";
+  }
+
+  if (!["group", "ministry"].includes(filter.type)) {
+    filter.type = scope.canUseGroupReport ? "group" : "ministry";
+  }
+
+  if (!scope.groups.some((group) => String(group.id || "") === String(filter.groupId || ""))) {
+    filter.groupId = scope.groups[0]?.id || "";
+  }
+
+  if (!scope.ministries.some((ministry) => String(ministry.id || "") === String(filter.ministryId || ""))) {
+    filter.ministryId = scope.ministries[0]?.id || "";
+  }
+}
+
+function getPersonMinistryIds_(person) {
+  return [
+    person?.ministerio1,
+    person?.ministerio2,
+    person?.ministerio3,
+    person?.ministerio4,
+    person?.ministerioPrincipal,
+    person?.ministerioSec1,
+    person?.ministerioSec2,
+    person?.ministerioSec3
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function buildConnectionReportModel_() {
+  syncConnectionReportsFilters_();
+
+  const filter = state.filters.connectionReports;
+  const seasonMatrix = state.dashboardSeasonMatrix && String(state.dashboardSeasonMatrix.seasonId || "") === String(filter.seasonId || "")
+    ? state.dashboardSeasonMatrix
+    : null;
+  const sessions = Array.isArray(seasonMatrix?.sessions) ? seasonMatrix.sessions : [];
+  const seasonName = seasonMatrix?.seasonName || resolveSeasonName_(filter.seasonId) || "Temporada";
+  const scope = getConnectionReportScope_();
+  const reportType = filter.type === "ministry" ? "ministry" : "group";
+
+  if (!seasonMatrix || !sessions.length) {
+    return null;
+  }
+
+  if (reportType === "group") {
+    const allowedGroupIds = new Set(scope.groups.map((group) => String(group.id || "")));
+    const groupId = String(filter.groupId || "");
+    const group = seasonMatrix.groups.find((item) => String(item.groupId || "") === groupId) || null;
+
+    if (!group || !allowedGroupIds.has(groupId)) {
+      return null;
+    }
+
+    const catalogGroup = state.catalogs.groups.find((item) => String(item.id || "") === groupId) || {};
+    const leaders = [
+      [catalogGroup.leader1Name, catalogGroup.leader1Phone].filter(Boolean).join(" | "),
+      [catalogGroup.leader2Name, catalogGroup.leader2Phone].filter(Boolean).join(" | ")
+    ].filter(Boolean);
+
+    return {
+      type: "group",
+      title: "Reporte de Asistencias por Grupo de Conexión",
+      seasonId: filter.seasonId,
+      seasonName,
+      groupId,
+      groupName: group.groupName || resolveGroupName_(groupId) || groupId,
+      leaders,
+      sessions,
+      rows: (group.people || []).map((person) => ({
+        personId: person.personId,
+        name: person.name,
+        groupId,
+        groupName: group.groupName,
+        totalPresent: person.totalPresent || 0,
+        totalSessions: person.totalAssignedSessions || sessions.length,
+        attendances: person.attendances || {}
+      }))
+    };
+  }
+
+  const ministryId = String(filter.ministryId || "");
+  const allowedMinistryIds = new Set(scope.ministries.map((ministry) => String(ministry.id || "")));
+  const ministry = state.catalogs.ministries.find((item) => String(item.id || "") === ministryId) || null;
+
+  if (!ministry || !allowedMinistryIds.has(ministryId)) {
+    return null;
+  }
+
+  const personDirectoryById = new Map(
+    (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).map((person) => [String(person.id || person.personId || ""), person])
+  );
+  const ministryPeopleIds = new Set();
+
+  personDirectoryById.forEach((person, personId) => {
+    const ministryIds = getPersonMinistryIds_(person);
+    if (ministryIds.some((value) => String(value) === ministryId || normalizeText(value) === normalizeText(ministry.name || ""))) {
+      ministryPeopleIds.add(personId);
+    }
+  });
+
+  const rows = [];
+
+  (seasonMatrix.groups || []).forEach((group) => {
+    (group.people || []).forEach((person) => {
+      const personId = String(person.personId || "");
+      if (!ministryPeopleIds.has(personId)) {
+        return;
+      }
+
+      rows.push({
+        personId,
+        name: person.name,
+        groupId: group.groupId,
+        groupName: group.groupName,
+        totalPresent: person.totalPresent || 0,
+        totalSessions: person.totalAssignedSessions || sessions.length,
+        attendances: person.attendances || {}
+      });
+    });
+  });
+
+  rows.sort((left, right) => {
+    const groupCompare = normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es");
+    return groupCompare || normalizeText(left.name).localeCompare(normalizeText(right.name), "es");
+  });
+
+  return {
+    type: "ministry",
+    title: "Reporte de Asistencias por Ministerio",
+    seasonId: filter.seasonId,
+    seasonName,
+    ministryId,
+    ministryName: ministry.name || ministryId,
+    leaders: [
+      [ministry.leader1Name, ministry.leader1Phone].filter(Boolean).join(" | "),
+      [ministry.leader2Name, ministry.leader2Phone].filter(Boolean).join(" | ")
+    ].filter(Boolean),
+    sessions,
+    rows
+  };
+}
+
+function buildConnectionReportExcelHtml_(report) {
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+  const reportName = report?.type === "ministry" ? (report.ministryName || "Ministerio") : (report.groupName || "Grupo");
+
+  return `
+    <html>
+      <head><meta charset="utf-8"></head>
+      <body>
+        <h1>${escapeHtml(report?.title || "Reporte")}</h1>
+        <p><strong>Temporada:</strong> ${escapeHtml(report?.seasonName || "")}</p>
+        <p><strong>${report?.type === "ministry" ? "Ministerio" : "Grupo"}:</strong> ${escapeHtml(reportName)}</p>
+        <p><strong>Liderazgo:</strong> ${escapeHtml((report?.leaders || []).join(" / ") || "Sin liderazgo registrado")}</p>
+        <table border="1">
+          <thead>
+            <tr>
+              <th>${report?.type === "ministry" ? "Participante" : "Asistente"}</th>
+              ${report?.type === "ministry" ? "<th>Grupo de Conexion</th>" : ""}
+              <th>Total</th>
+              ${sessions.map((session) => `<th>${escapeHtml(session.shortLabel || session.name || session.id)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.name || row.personId || "")}</td>
+                ${report?.type === "ministry" ? `<td>${escapeHtml(row.groupName || row.groupId || "")}</td>` : ""}
+                <td>${escapeHtml(`${row.totalPresent || 0}/${row.totalSessions || sessions.length}`)}</td>
+                ${sessions.map((session) => {
+                  const status = String(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "").toUpperCase();
+                  return `<td>${status === "SI" ? "✓" : (status === "NO" ? "✕" : "-")}</td>`;
+                }).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+async function downloadConnectionReportPdf_(report) {
+  const JsPdfClass = getJsPdfClass_();
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+
+  if (!JsPdfClass) {
+    throw new Error("JSPDF_UNAVAILABLE");
+  }
+
+  const doc = new JsPdfClass({
+    orientation: "landscape",
+    unit: "pt",
+    format: "letter"
+  });
+
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+  }
+
+  const reportName = report?.type === "ministry" ? (report.ministryName || "Ministerio") : (report.groupName || "Grupo");
+  const head = [[
+    report?.type === "ministry" ? "Participante" : "Asistente",
+    ...(report?.type === "ministry" ? ["Grupo"] : []),
+    "Total",
+    ...sessions.map((session) => session.shortLabel || session.name || session.id)
+  ]];
+  const body = rows.map((row) => [
+    row.name || row.personId || "",
+    ...(report?.type === "ministry" ? [row.groupName || row.groupId || ""] : []),
+    `${row.totalPresent || 0}/${row.totalSessions || sessions.length}`,
+    ...sessions.map((session) => {
+      const status = String(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "").toUpperCase();
+      return status === "SI" ? "✓" : (status === "NO" ? "✕" : "-");
+    })
+  ]);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(report?.title || "Reporte", 36, 42);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Temporada: ${report?.seasonName || ""}`, 36, 62);
+  doc.text(`${report?.type === "ministry" ? "Ministerio" : "Grupo"}: ${reportName}`, 36, 78);
+  doc.text(`Liderazgo: ${(report?.leaders || []).join(" / ") || "Sin liderazgo registrado"}`, 36, 94);
+
+  doc.autoTable({
+    head,
+    body,
+    startY: 112,
+    styles: {
+      fontSize: 8,
+      cellPadding: 4,
+      overflow: "linebreak"
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255]
+    },
+    columnStyles: {
+      0: { cellWidth: report?.type === "ministry" ? 150 : 190 },
+      1: { cellWidth: report?.type === "ministry" ? 110 : 48 }
+    }
+  });
+
+  doc.save(buildDashboardBinaryExportFileName_(
+    report?.type === "ministry" ? "REPORTE_MINISTERIO" : "REPORTE_GRUPO_CONEXION",
+    reportName,
+    "pdf"
+  ));
 }
 
 function buildWhatsappTextShareUrl_(message, phone = "") {
@@ -23742,6 +24267,50 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "refresh-connection-report") {
+      await ensureConnectionReportsViewData_({
+        force: true
+      });
+      renderApp();
+      showToast("Reporte actualizado", "La consulta de Grupos Conexión quedó lista para revisar o exportar.", "success");
+      return;
+    }
+
+    if (action === "export-connection-report-excel") {
+      const report = buildConnectionReportModel_();
+
+      if (!report?.rows?.length) {
+        showToast("Sin datos", "Genera primero el reporte y verifica que tenga personas visibles.", "warning");
+        return;
+      }
+
+      downloadExcelHtmlFile_(
+        buildConnectionReportExcelHtml_(report),
+        buildDashboardBinaryExportFileName_(
+          report.type === "ministry" ? "REPORTE_MINISTERIO" : "REPORTE_GRUPO_CONEXION",
+          report.type === "ministry" ? report.ministryName : report.groupName,
+          "xls"
+        )
+      );
+      showToast("Excel listo", "Se descargó el reporte de Grupos Conexión.", "success");
+      return;
+    }
+
+    if (action === "export-connection-report-pdf") {
+      const report = buildConnectionReportModel_();
+
+      if (!report?.rows?.length) {
+        showToast("Sin datos", "Genera primero el reporte y verifica que tenga personas visibles.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        await downloadConnectionReportPdf_(report);
+      }, "Generando PDF...");
+      showToast("PDF listo", "Se descargó el reporte de Grupos Conexión.", "success");
+      return;
+    }
+
     if (action === "save-pending-prospect-group") {
       await savePendingProspectGroupAlert_(button.dataset.personId || "");
       return;
@@ -25318,6 +25887,34 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "connection-report-season") {
+      state.filters.connectionReports.seasonId = target.value;
+      await ensureConnectionReportsViewData_({
+        force: true
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-report-type") {
+      state.filters.connectionReports.type = target.value === "ministry" ? "ministry" : "group";
+      syncConnectionReportsFilters_();
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-report-group") {
+      state.filters.connectionReports.groupId = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-report-ministry") {
+      state.filters.connectionReports.ministryId = target.value;
+      renderApp();
+      return;
+    }
+
     if (target.id === "qr-season") {
       state.filters.qr.seasonId = target.value;
       state.filters.qr.sessionId = "";
@@ -25890,6 +26487,9 @@ async function loadCurrentViewData(options = {}) {
       return;
     case "participants":
       await ensureParticipantsViewData_(options);
+      return;
+    case "connection-reports":
+      await ensureConnectionReportsViewData_(options);
       return;
     case "attendance":
       await ensureAttendanceHubViewData_(options);
@@ -28308,6 +28908,30 @@ async function ensureParticipantsViewData_(options = {}) {
     });
 }
 
+async function ensureConnectionReportsViewData_(options = {}) {
+  await Promise.all([
+    loadGroupsCatalog_({
+      showLoading: false
+    }),
+    loadMinistriesCatalog_({
+      showLoading: false
+    }),
+    state.loaded.peopleDirectory ? Promise.resolve() : loadPeopleDirectory()
+  ]);
+
+  syncConnectionReportsFilters_();
+
+  if (!state.filters.connectionReports.seasonId) {
+    return;
+  }
+
+  await loadDashboardSeasonMatrix_({
+    force: options.force,
+    seasonId: state.filters.connectionReports.seasonId,
+    showLoading: false
+  });
+}
+
 async function ensureDashboardViewData_(options = {}) {
   const task = async () => {
     syncDashboardFilterState_();
@@ -28981,9 +29605,11 @@ async function loadDashboardSessionInsights_(options = {}) {
 }
 
 async function loadDashboardSeasonMatrix_(options = {}) {
-  syncDashboardFilterState_();
+  if (!options.seasonId) {
+    syncDashboardFilterState_();
+  }
 
-  const seasonId = state.filters.dashboard.seasonId || getLatestSeason()?.id || "";
+  const seasonId = String(options.seasonId || state.filters.dashboard.seasonId || getLatestSeason()?.id || "");
   const cacheKey = String(seasonId || "");
   const loadKey = `dashboardSeasonMatrix::${cacheKey || "none"}`;
 
@@ -38299,6 +38925,7 @@ function getPermissionLabel_(permission) {
     catalogs: "Catalogos",
     seasons: "Temporadas",
     participants: "Asignacion",
+    "connection-reports": "Reportes Grupos Conexión",
     attendance: "Asistencias",
     formation: "Formación",
     "admin-settings": "Configuracion",
@@ -38319,6 +38946,7 @@ function getPermissionDescription_(permission) {
     catalogs: "Catalogos de grupos y ministerios.",
     seasons: "Temporadas, sesiones y estados operativos.",
     participants: "Asignacion individual y masiva a grupos.",
+    "connection-reports": "Reportes por grupo y ministerio con exportacion Excel/PDF.",
     attendance: "Captura manual, QR asistido y kiosko.",
     formation: "Prospectos, validaciones, catálogo de niveles e historial formativo.",
     "admin-settings": "URL de API y conexion del sistema.",
