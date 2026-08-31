@@ -4138,7 +4138,6 @@ function renderApp() {
     ${renderSystemConfirmationDialog_()}
     ${renderConnectionEncounterActionModal_()}
     ${renderWelcomeActionModal_()}
-    ${renderCongregantAssignmentModal_()}
     ${renderAdminLeaderAccountModal_()}
     ${renderFormationPortalAdminModal_()}
   `;
@@ -18555,6 +18554,7 @@ function renderAssistantsView() {
         `}
       </article>
     </section>
+    ${renderCongregantAssignmentModal_()}
   `;
 }
 
