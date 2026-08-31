@@ -18993,6 +18993,7 @@ function renderAssistantsView() {
           <div class="inline-actions">
             <button class="btn btn-secondary" data-action="print-credential-preview" ${credentialPreviewRows.length ? "" : "disabled"}>Imprimir vista previa</button>
             <button class="btn btn-secondary" data-action="print-credential-batch" ${rows.length ? "" : "disabled"}>Imprimir filtradas</button>
+            <button class="btn btn-secondary" data-action="download-credential-print-pdf" ${rows.length ? "" : "disabled"}>PDF para imprimir</button>
             <button class="btn btn-primary" data-action="download-credential-batch" ${rows.length ? "" : "disabled"}>Descargar lote ZIP</button>
           </div>
         </div>
@@ -24237,6 +24238,11 @@ async function handleClick(event) {
 
     if (action === "print-credential-batch") {
       printCredentialCards_(getFilteredPeopleDirectory_(), "Credenciales QR - Lote completo");
+      return;
+    }
+
+    if (action === "download-credential-print-pdf") {
+      await downloadCredentialPrintPdf_(getFilteredPeopleDirectory_(), "Credenciales QR - Impresion");
       return;
     }
 
@@ -38546,6 +38552,122 @@ async function downloadCredentialBatchZip_(people, title) {
   showToast("Lote descargado", `Se genero un ZIP con ${rows.length} credenciales PNG y un CSV de apoyo para WhatsApp.`, "success");
 }
 
+async function downloadCredentialPrintPdf_(people, title) {
+  const rows = Array.isArray(people) ? people.filter(Boolean) : [];
+
+  if (!rows.length) {
+    showToast("Sin credenciales", "No hay personas disponibles para generar credenciales con los filtros actuales.", "warning");
+    return;
+  }
+
+  const JsPdf = getDashboardPdfConstructor_();
+
+  if (!JsPdf) {
+    showToast("PDF no disponible", "No se encontro la libreria PDF. Recarga la pagina e intenta nuevamente.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const doc = new JsPdf({
+      orientation: "portrait",
+      unit: "pt",
+      format: "letter",
+      compress: true
+    });
+    const pageWidth = 612;
+    const pageHeight = 792;
+    const cardWidth = 242.6;
+    const cardHeight = 153.1;
+    const marginX = 44;
+    const marginY = 36;
+    const gapX = 38;
+    const gapY = 18;
+    const columns = 2;
+    const rowsPerPage = 4;
+    const cardsPerPage = columns * rowsPerPage;
+
+    rows.forEach((person, index) => {
+      if (index > 0 && index % cardsPerPage === 0) {
+        doc.addPage("letter", "portrait");
+      }
+
+      const slot = index % cardsPerPage;
+      const column = slot % columns;
+      const row = Math.floor(slot / columns);
+      const x = marginX + (column * (cardWidth + gapX));
+      const y = marginY + (row * (cardHeight + gapY));
+      const qrId = String(person.id || person.numero || "SIN ID");
+      const number = String(person.numero || "");
+      const name = String(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
+      const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+      const qrDataUrl = buildCredentialQrDataUrl_(person, 280);
+      const qrSize = 82;
+      const qrX = x + 15;
+      const qrY = y + 43;
+      const textX = x + 110;
+      const textWidth = cardWidth - 124;
+      const nameLines = doc.splitTextToSize(name, textWidth).slice(0, 2);
+
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x, y, cardWidth, cardHeight, 8, 8, "F");
+      if (typeof doc.setLineDashPattern === "function") {
+        doc.setLineDashPattern([4, 3], 0);
+      }
+      doc.setDrawColor(120, 120, 120);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(x, y, cardWidth, cardHeight, 8, 8, "S");
+      if (typeof doc.setLineDashPattern === "function") {
+        doc.setLineDashPattern([], 0);
+      }
+
+      doc.setFillColor(17, 17, 17);
+      doc.roundedRect(x + 10, y + 10, cardWidth - 20, 24, 7, 7, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.text("IGLESIA FUERTES V2", x + 18, y + 26);
+      doc.setFontSize(7);
+      doc.text("CREDENCIAL QR", x + cardWidth - 18, y + 26, { align: "right" });
+
+      doc.setDrawColor(230, 230, 230);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 7, 7, "S");
+      doc.addImage(qrDataUrl, "PNG", qrX, qrY, qrSize, qrSize);
+
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(nameLines.length > 1 ? 10 : 11);
+      doc.text(nameLines, textX, y + 55, { maxWidth: textWidth });
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(96, 96, 96);
+      doc.setFontSize(7.5);
+      doc.text("QR ID", textX, y + 88);
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(qrId, textX, y + 101, { maxWidth: textWidth });
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(96, 96, 96);
+      doc.setFontSize(7.5);
+      doc.text("FOLIO / GRUPO", textX, y + 122);
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text(doc.splitTextToSize([number, groupName].filter(Boolean).join(" | "), textWidth).slice(0, 2), textX, y + 135);
+    });
+
+    doc.setProperties({
+      title: title || "Credenciales QR",
+      subject: "Credenciales QR listas para imprimir y recortar"
+    });
+    doc.save(`CREDENCIALES_QR_IMPRESION_${formatTimestampToken_()}_${String(rows.length).padStart(3, "0")}.pdf`);
+  }, `Generando PDF imprimible con ${rows.length} credenciales...`);
+
+  showToast("PDF listo", "Se genero la hoja carta con credenciales tamaño tarjeta y linea punteada de recorte.", "success");
+}
+
 async function buildCredentialPngBlob_(person, options = {}) {
   const width = Number(options.width || 1080);
   const height = Number(options.height || 1600);
@@ -40480,6 +40602,10 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
+
 
 
 
