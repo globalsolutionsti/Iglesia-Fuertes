@@ -196,480 +196,7 @@ const MODULE_TABS = {
     { view: "connection-reports", label: "Reportes", description: "Excel y PDF" }
   ],
   formation: [
-    { view: "formation", label: "Formación", description: "Prospectos, niveles e historial" }
-  ],
-  admin: [
-    { view: "admin-settings", label: "Configuracion", description: "API y conexion" },
-    { view: "admin-users", label: "Usuarios", description: "Perfiles y accesos" }
-  ]
-};
-
-const ACCESSIBLE_VIEWS = [
-  "attendance",
-  "dashboard",
-  "assistants",
-  "congregants-new",
-  "welcome-followup",
-  "welcome-prospects",
-  "catalogs",
-  "seasons",
-  "participants",
-  "connection-reports",
-  "formation",
-  "admin-settings",
-  "admin-users"
-];
-const DELETE_SCRAP_PERMISSION = "delete-scrap";
-const USER_PERMISSION_OPTIONS = [...ACCESSIBLE_VIEWS, DELETE_SCRAP_PERMISSION];
-
-const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
-const PERSON_TYPE_OPTIONS = ["NUEVO", "PROSPECTO GP", "CONGREGANTE", "PROSPECTO GF", "VOLUNTARIOS", "LIDER", "COORDINADOR"];
-const CREDENTIAL_PREVIEW_LIMIT = 8;
-const MOBILE_NAV_ITEMS = [
-  { module: "attendanceHub", view: "attendance", label: "Asistencia", description: "Captura" },
-  { module: "dashboard", view: "dashboard", label: "Inicio", description: "Pastor" },
-  { module: "welcome", view: "congregants-new", label: "Bienvenida", description: "Nuevos" },
-  { module: "directory", view: "assistants", label: "Congregantes", description: "Padron" },
-  { module: "connection", view: "catalogs", label: "Grupos", description: "Operacion" },
-  { module: "formation", view: "formation", label: "Formacion", description: "Proceso" },
-  { module: "admin", view: "admin-settings", label: "Admin", description: "Accesos" }
-];
-const WELCOME_NEW_SNAPSHOT_KEY = `${APP_CONFIG.storagePrefix}.welcomeNewSnapshot`;
-const WELCOME_NEW_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-
-const state = {
-  user: initialStoredUser,
-  apiUrl: getStoredApiUrl(),
-  globalApiUrl: APP_CONFIG.defaultApiUrl,
-  globalWebUrl: "",
-  currentView: initialLaunchContext.forceStudentPortal
-    ? "login"
-    : initialStoredUser
-    ? (initialStoredUser.sessionType === "student" ? "student-portal" : "attendance")
-    : "login",
-  connectionStatus: null,
-  metrics: {
-    peopleCount: null,
-    directoryCount: null
-  },
-  dashboardExecutive: null,
-  dashboardLeaderDetail: null,
-  dashboardSessionInsights: null,
-  dashboardSeasonMatrix: null,
-  welcomePeople: [],
-  welcomeProfile: null,
-  formationProcesses: [],
-  formationCatalog: [],
-  formationRecords: [],
-  formationCandidates: [],
-  formationProfile: null,
-  formationProfilesByKey: {},
-  formationOfferings: [],
-  formationEnrollments: [],
-  formationPortalOfferings: [],
-  formationPortalRoster: [],
-  formationProcessRoster: [],
-  formationWorkspace: {
-    portal: {
-      processId: "",
-      rows: []
-    },
-    journey: {
-      processId: "",
-      rows: []
-    }
-  },
-  formationAttendanceContext: null,
-  connectionEncounterCandidates: [],
-  studentPortal: null,
-  studentPortalByPerson: {},
-  telegramConfig: null,
-  adminUsers: [],
-  adminUsersSupport: {
-    available: true,
-    message: ""
-  },
-  backendSupport: {
-    dashboardSeasonMatrixRoute: null
-  },
-  viewLoadToken: 0,
-  cacheKeys: {
-    participants: "",
-    participantSeasonAssignments: "",
-    attendance: "",
-    attendanceDetail: "",
-    qrSummary: "",
-    dashboardSeasonMatrix: "",
-    welcomePeople: "",
-    formationProcesses: "",
-    formationRecords: "",
-    formationCandidates: "",
-    formationOfferings: "",
-    formationEnrollments: "",
-    formationPortalOfferings: "",
-    formationPortalRoster: "",
-    formationProcessRoster: "",
-    formationWorkspacePortal: "",
-    formationWorkspaceJourney: "",
-    formationAttendanceContext: "",
-    connectionEncounterCandidates: ""
-  },
-  loaded: {
-    bootstrap: false,
-    groups: false,
-    ministries: false,
-    seasons: false,
-    people: false,
-    peopleDirectory: false,
-    activeSession: false,
-    users: false,
-    telegramConfig: false,
-    welcome: false,
-    formationProcesses: false,
-    formationCatalog: false,
-    formationRecords: false,
-    formationCandidates: false,
-    formationOfferings: false,
-    formationEnrollments: false,
-    formationPortalOfferings: false,
-    formationPortalRoster: false,
-    formationProcessRoster: false,
-    formationWorkspacePortal: false,
-    formationWorkspaceJourney: false,
-    formationAttendanceContext: false,
-    connectionEncounterCandidates: false,
-    studentPortal: false
-  },
-  catalogs: {
-    groups: [],
-    ministries: []
-  },
-  seasons: [],
-  sessionsBySeason: {},
-  sessionGroupsByKey: {},
-  people: [],
-  peopleDirectory: [],
-  activeSession: null,
-  participants: [],
-  participantContext: null,
-  participantSeasonAssignments: {},
-  attendanceContext: null,
-  attendanceForm: {},
-  attendanceBaseline: {},
-  attendanceDetail: null,
-  realtimeSummary: null,
-  qrSessionActivity: [],
-  formationQrActivity: [],
-  peopleImport: {
-    fileName: "",
-    rows: [],
-    summary: null,
-    progress: null
-  },
-  qrLastResult: null,
-  qrScanner: {
-    enabled: false,
-    status: "idle",
-    message: "Activa la camara para comenzar el registro automatico.",
-    result: null,
-    displayResult: null,
-    cameraFacing: ""
-  },
-  selectedBulkPeople: [],
-  selectedFormationRoutePeople: [],
-  ui: {
-    mobileNavOpen: false,
-    attendanceCenterSection: "home",
-    attendanceFormationHydrating: false,
-    attendanceFormationHydratingMessage: "",
-    dashboardHydrating: false,
-    dashboardHydratingMessage: "",
-    editingGroupId: "",
-    editingMinistryId: "",
-    editingCongregantAssignmentPersonId: "",
-    editingUserEmail: "",
-    editingWelcomeNewId: "",
-    editingFormationProcessId: "",
-    editingFormationLevelId: "",
-    editingFormationRecordId: "",
-    editingFormationOfferingId: "",
-    formationProcessSaving: false,
-    formationProcessSavingMessage: "",
-    formationAttendanceActivating: false,
-    formationSection: "route",
-    formationStructureDrafts: {},
-    formationStructureExpanded: {},
-    formationProfileLoading: false,
-    formationProfileLoadingPersonId: "",
-    welcomeNewRefreshing: false,
-    welcomeNewSnapshotSource: "",
-    selectedWelcomePersonId: "",
-    selectedWelcomeFollowupId: "",
-    welcomeWorkbenchMode: "",
-    welcomeModal: null,
-    connectionEncounterModal: null,
-    selectedFormationPersonId: "",
-    pendingFormationEnrollmentPersonId: "",
-    selectedFormationOfferingId: "",
-    selectedFormationEnrollmentId: "",
-    selectedFormationPortalPersonId: "",
-    formationPortalModal: null,
-    lastFormationEnrolledOfferingId: "",
-    formationRouteEnrollmentBusyPersonId: "",
-    formationRouteEnrollmentProgressPercent: 0,
-    formationRouteEnrollmentProgressMessage: "",
-    formationRouteEnrollmentProgressDetail: "",
-    formationRouteBulkBusy: false,
-    formationRouteBulkAction: "",
-    formationRouteBulkProgressPercent: 0,
-    formationRouteBulkProgressMessage: "",
-    formationRouteBulkProgressDetail: "",
-    formationSectionLoading: {
-      active: false,
-      section: "",
-      percent: 0,
-      title: "",
-      detail: ""
-    },
-    formationAttendanceManualDraft: {},
-    formationFilterBusy: false,
-    formationFilterMessage: "",
-    formationFilterDraft: null,
-    pendingProspectDrafts: {},
-    selectedScrapPersonId: "",
-    scrapPreview: null,
-    selectedScrapSeasonId: "",
-    scrapSeasonPreview: null,
-    selectedScrapFormationProcessId: "",
-    scrapFormationProcessPreview: null,
-    studentPortalTab: "profile",
-    studentPortalProfileTab: "summary",
-    studentPortalMenuOpen: false,
-    studentPortalConnectionSeasonId: "",
-    adminLeaderAccountEmail: "",
-    loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
-    confirmation: null
-  },
-  filters: {
-    dashboard: {
-      seasonId: "",
-      sessionId: "",
-      groupId: "",
-      reportGroupId: "",
-      recentFrom: "",
-      recentTo: ""
-    },
-    assistants: {
-      search: "",
-      status: "ACTIVO",
-      type: "ALL"
-    },
-    congregants: {
-      recentFrom: "",
-      recentTo: ""
-    },
-    welcome: {
-      search: "",
-      status: "SIN_SEGUIMIENTO",
-      groupId: ""
-    },
-    seasons: {
-      seasonId: ""
-    },
-    participants: {
-      seasonId: "",
-      sessionId: "",
-      groupId: "",
-      peopleSearch: "",
-      bulkSearch: "",
-      moveTargets: {}
-    },
-    attendance: {
-      seasonId: "",
-      sessionId: "",
-      groupId: "",
-      search: "",
-      mode: "manual",
-      scope: "today",
-      pickerSeasonId: "",
-      pickerSessionId: ""
-    },
-    qr: {
-      mode: "active",
-      surface: "scanner",
-      seasonId: "",
-      sessionId: "",
-      personId: "",
-      peopleSearch: "",
-      cameraFacing: DEFAULT_QR_CAMERA_FACING
-    },
-    formation: {
-      seasonId: "",
-      groupId: "",
-      levelId: "",
-      status: "ALL",
-      search: ""
-    },
-    formationOps: {
-      processId: "",
-      levelId: "",
-      offeringId: "",
-      enrollmentStatus: "ALL",
-      search: "",
-      sessionNumber: "1",
-      personSearch: "",
-      captureMode: "manual"
-    },
-    formationPortal: {
-      processId: "",
-      levelId: "",
-      offeringId: "",
-      enrollmentStatus: "ALL",
-      search: "",
-      personSearch: ""
-    },
-    formationJourney: {
-      processId: "",
-      levelId: "",
-      enrollmentStatus: "ALL",
-      search: ""
-    },
-    connectionReports: {
-      seasonId: "",
-      type: "group",
-      groupId: "",
-      ministryId: ""
-    },
-    admin: {
-      userSearch: "",
-      groupSearch: "",
-      ministrySearch: "",
-      scrapSearch: ""
-    }
-  }
-};
-
-const pendingResourceLoads = {
-  bootstrap: null,
-  groups: null,
-  ministries: null,
-  seasons: null,
-  people: null,
-  peopleDirectory: null,
-  activeSession: null,
-  users: null,
-  telegramConfig: null,
-  welcome: null,
-  welcomeProfile: null,
-  formationProcesses: null,
-  formationCatalog: null,
-  formationRecords: null,
-  formationCandidates: null,
-  formationOfferings: null,
-  formationEnrollments: null,
-  formationAttendanceContext: null,
-  formationProfile: null,
-  connectionEncounterCandidates: null,
-  studentPortal: null
-};
-
-let peopleSourcesResyncTimer = 0;
-let backgroundWarmersTimer = 0;
-let welcomePeopleLoadVersion = 0;
-let formationManualAttendanceHydrationToken = 0;
-const inputRerenderTimers = Object.create(null);
-const optimisticWelcomePeople = new Map();
-
-const qrScannerRuntime = {
-  stream: null,
-  detector: null,
-  engine: "",
-  canvas: null,
-  context: null,
-  animationFrameId: 0,
-  busy: false,
-  lastScanAt: 0,
-  pausedUntil: 0,
-  lastValue: "",
-  lastValueAt: 0,
-  resetResultTimeoutId: 0,
-  contextRefreshTimeoutId: 0,
-  retryStartTimeoutId: 0,
-  awaitingFrameClear: false,
-  clearFrameCount: 0,
-  feedbackResult: null,
-  feedbackUntil: 0,
-  fixedCardResult: null,
-  fixedCardUntil: 0,
-  visualLockResult: null,
-  visualLockUntil: 0,
-  requestPending: false,
-  requestPersonId: "",
-  requestStartedAt: 0,
-  duplicateSuppressValue: "",
-  duplicateSuppressUntil: 0,
-  localAttendanceLocks: Object.create(null)
-};
-
-const FORMATION_QR_PROCESSING_MIN_MS = 0;
-const FORMATION_QR_SUCCESS_HOLD_MS = 1500;
-const FORMATION_QR_ERROR_HOLD_MS = 900;
-
-const formationAttendanceScannerRuntime = {
-  enabled: false,
-  stream: null,
-  detector: null,
-  engine: "",
-  canvas: null,
-  context: null,
-  animationFrameId: 0,
-  busy: false,
-  requestPending: false,
-  pausedUntil: 0,
-  lastScanAt: 0,
-  lastValue: "",
-  lastValueAt: 0,
-  suppressPersonId: "",
-  suppressUntil: 0,
-  feedback: null,
-  feedbackTimeoutId: 0,
-  activeToken: "",
-  cameraFacing: "",
-  status: "idle",
-  message: "Activa la camara para comenzar el registro automatico.",
-  requestPersonId: "",
-  requestStartedAt: 0,
-  fastRouteSupported: null,
-  lockedOfferingId: "",
-  lockedSessionNumber: "",
-  localAttendanceLocks: Object.create(null)
-};
-
-const credentialRenderRuntime = {
-  logoPromise: null
-};
-
-document.addEventListener("click", handleClick);
-document.addEventListener("submit", handleSubmit);
-document.addEventListener("change", handleChange);
-document.addEventListener("input", handleInput);
-window.addEventListener("resize", () => {
-  syncAppShellAfterRender_();
-});
-window.addEventListener("beforeunload", () => {
-  stopQrScannerRuntime_();
-  stopFormationAttendanceScanner_();
-});
-
-init();
-
-async function init() {
-  initializeDateFilters_();
-  renderApp();
-  const apiConfigWarmup = warmupApiConfiguration_();
-
-  if (state.user) {
-    if (isStudentSession_()) {
+    { view: "formation", label: "Formacf (isStudentSession_()) {
       void apiConfigWarmup.finally(() => {
         void bootstrapStudentPortal_().catch(handleError);
       });
@@ -4814,7 +4341,7 @@ function renderCongregantAssignmentModal_() {
           </div>
 
           <div class="actions-row">
-            <button class="btn btn-primary" type="submit">Guardar cambios</button>
+            <button class="btn btn-primary" type="button" data-action="save-congregant-assignment">Guardar cambios</button>
             <button class="btn btn-ghost" type="button" data-action="close-congregant-assignment-modal">Cancelar</button>
           </div>
         </form>
@@ -24097,6 +23624,18 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "save-congregant-assignment") {
+      const form = button.closest("form");
+
+      if (!(form instanceof HTMLFormElement)) {
+        showToast("Formulario no disponible", "Cierra el modal, vuelve a abrirlo e intenta guardar.", "warning");
+        return;
+      }
+
+      await saveCongregantAssignment_(form);
+      return;
+    }
+
     if (action === "edit-admin-user") {
       state.ui.editingUserEmail = String(button.dataset.userEmail || "");
       renderApp();
@@ -30150,11 +29689,12 @@ async function saveCongregantAssignment_(form) {
     return;
   }
 
+  const fallbackNameParts = splitFullName_(person.nombreCompleto || person.name || "");
   const payload = {
     ...person,
     id: personId,
-    nombre: person.nombre || "",
-    apellidos: person.apellidos || "",
+    nombre: person.nombre || fallbackNameParts.nombre,
+    apellidos: person.apellidos || fallbackNameParts.apellidos || person.numero || "Sin apellidos",
     telefono: person.telefono || "",
     email: person.email || "",
     estado: person.estado || "ACTIVO",
@@ -30167,9 +29707,15 @@ async function saveCongregantAssignment_(form) {
     ministerio4: String(formData.get("ministerio4") || "").trim()
   };
 
-  const savedPerson = await saveAssistant(payload);
+  let savedPerson = null;
+  await withLoading(async () => {
+    savedPerson = await apiPost("servers.save", payload);
+    upsertPeopleDirectoryInState_(savedPerson);
+    upsertPeopleListInState_(savedPerson);
+  }, "Guardando ministerio y grupo...");
 
   if (!savedPerson) {
+    showToast("No se guardó la asignación", "La API no devolvió confirmación. Intenta de nuevo.", "warning");
     return;
   }
 
