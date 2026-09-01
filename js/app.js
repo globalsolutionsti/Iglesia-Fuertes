@@ -446,6 +446,7 @@ const state = {
     studentPortalMenuOpen: false,
     studentPortalConnectionSeasonId: "",
     adminLeaderAccountEmail: "",
+    adminLeaderAccessPreview: null,
     loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
   },
@@ -4688,23 +4689,37 @@ function renderAdminLeaderAccountModal_() {
           </div>
         </div>
 
-        <div class="leader-account-modal-detail">
-          <div class="leader-account-modal-line">
-            <strong>Estado de la cuenta</strong>
-            <span>${escapeHtml(leader.synced ? (leader.user?.status || "Activa") : "Pendiente de creación")}</span>
-          </div>
-          <div class="leader-account-modal-line">
-            <strong>Permisos</strong>
-            <span>${escapeHtml(leader.user?.permissions?.map((permission) => getPermissionLabel_(permission)).join(" / ") || "participants / attendance")}</span>
-          </div>
-          <div class="leader-account-modal-line">
-            <strong>Grupo(s) visibles</strong>
-            <span>${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
-          </div>
-        </div>
+        ${(() => {
+          const preview = getAdminLeaderAccessPreview_(leader.email);
+          return `
+            <div class="leader-account-modal-detail">
+              <div class="leader-account-modal-line">
+                <strong>Usuario</strong>
+                <span>${escapeHtml(leader.email || "Sin usuario")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Contraseña soporte</strong>
+                <span>${escapeHtml(preview?.temporaryPassword || "Genera una nueva contraseña temporal para poder verla")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Estado de la cuenta</strong>
+                <span>${escapeHtml(leader.synced ? (leader.user?.status || "Activa") : "Pendiente de creación")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Permisos</strong>
+                <span>${escapeHtml(leader.user?.permissions?.map((permission) => getPermissionLabel_(permission)).join(" / ") || "participants / attendance")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Grupo(s) visibles</strong>
+                <span>${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
+              </div>
+            </div>
+          `;
+        })()}
 
         <div class="actions-row">
           <button class="btn btn-ghost" data-action="close-admin-leader-account-modal">Cerrar</button>
+          <button class="btn btn-secondary" data-action="generate-leader-support-password" data-user-email="${escapeHtml(leader.email)}">Generar contraseña soporte</button>
           <button class="btn btn-secondary" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>Preparar WhatsApp</button>
           <button class="btn btn-primary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}" ${leader.telegramReady ? "" : "disabled"}>Enviar acceso por Telegram</button>
         </div>
@@ -13920,6 +13935,17 @@ function getSelectedAdminLeaderAccount_() {
   return buildLeaderAutoAccountRows_().find((leader) => String(leader.email || "").toLowerCase() === email) || null;
 }
 
+function getAdminLeaderAccessPreview_(email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  const preview = state.ui.adminLeaderAccessPreview || null;
+
+  if (!cleanEmail || String(preview?.email || "").trim().toLowerCase() !== cleanEmail) {
+    return null;
+  }
+
+  return preview;
+}
+
 function renderAdminUsersView_() {
   const editingUser = state.adminUsers.find((user) => String(user.email) === String(state.ui.editingUserEmail || "")) || null;
   const users = getFilteredAdminUsers_();
@@ -13971,12 +13997,15 @@ function renderAdminUsersView_() {
                   <span class="pill ${escapeHtml(leader.operationalStatus?.tone || "dark")}">${escapeHtml(leader.operationalStatus?.label || "Pendiente")}</span>
                 </div>
                 <div class="leader-auto-meta">
+                  <span><strong>Usuario:</strong> ${escapeHtml(leader.email || "Sin usuario")}</span>
+                  <span><strong>Contraseña soporte:</strong> ${escapeHtml(getAdminLeaderAccessPreview_(leader.email)?.temporaryPassword || "Generar para verla")}</span>
                   <span><strong>Grupo(s):</strong> ${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
                   <span><strong>Teléfono(s):</strong> ${escapeHtml(leader.phones.join(" / ") || "Sin teléfono")}</span>
                 </div>
                 <div class="inline-actions leader-auto-actions">
                   <button class="btn btn-primary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}" ${leader.telegramReady ? "" : "disabled"}>Enviar acceso</button>
                   <button class="btn btn-secondary" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>WhatsApp</button>
+                  <button class="btn btn-ghost" data-action="generate-leader-support-password" data-user-email="${escapeHtml(leader.email)}">Generar contraseña</button>
                   <button class="btn btn-ghost" data-action="open-admin-leader-account-modal" data-user-email="${escapeHtml(leader.email)}">Detalle</button>
                 </div>
               </article>
@@ -24104,6 +24133,44 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "generate-leader-support-password") {
+      const email = String(button.dataset.userEmail || "").trim();
+
+      if (!email) {
+        showToast("Usuario no disponible", "No fue posible identificar la cuenta del líder para generar soporte.", "warning");
+        return;
+      }
+
+      const result = await withLoading(async () => {
+        try {
+          return await apiPost("users.leaderAccess.prepare", {
+            email
+          });
+        } catch (error) {
+          if (isUnknownActionError_(error, "users.leaderAccess.prepare")) {
+            throw buildBackendRouteMissingError_("users.leaderAccess.prepare", "la ruta users.leaderAccess.prepare");
+          }
+
+          throw error;
+        }
+      }, "Generando contraseña temporal...");
+
+      state.ui.adminLeaderAccessPreview = result || null;
+      state.ui.adminLeaderAccountEmail = email;
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+      renderApp();
+
+      showToast(
+        "Contraseña generada",
+        `Usuario ${result?.email || email}. Contraseña temporal ${result?.temporaryPassword || "generada"}.`,
+        "success"
+      );
+      return;
+    }
+
     if (action === "send-leader-access-telegram") {
       const email = String(button.dataset.userEmail || "").trim();
 
@@ -24116,6 +24183,7 @@ async function handleClick(event) {
         email
       }), "Enviando acceso del líder por Telegram...");
 
+      state.ui.adminLeaderAccessPreview = result || null;
       await loadAdminUsers_({
         force: true,
         silentUnsupported: true
@@ -24152,6 +24220,8 @@ async function handleClick(event) {
         }
       }, "Preparando acceso del líder por WhatsApp...");
 
+      state.ui.adminLeaderAccessPreview = result || null;
+      state.ui.adminLeaderAccountEmail = email;
       await loadAdminUsers_({
         force: true,
         silentUnsupported: true
@@ -40231,6 +40301,7 @@ function resetRuntimeState() {
   state.studentPortal = null;
   state.studentPortalByPerson = {};
   state.telegramConfig = null;
+  state.ui.adminLeaderAccessPreview = null;
   state.adminUsers = [];
   state.adminUsersSupport = {
     available: true,
@@ -40791,6 +40862,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
 
 
 
