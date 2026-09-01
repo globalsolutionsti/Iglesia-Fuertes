@@ -858,6 +858,44 @@ function getUserScopedConnectionGroups_() {
   return getUserScopedDashboardGroups_();
 }
 
+function getLeaderScopeLabel_() {
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const names = scopedGroups
+    .map((group) => String(group?.name || group?.nombre || group?.id || "").trim())
+    .filter(Boolean);
+
+  if (!names.length && Array.isArray(state.user?.scopedGroups)) {
+    state.user.scopedGroups.forEach((group) => {
+      const name = String(group?.name || group?.groupName || group?.id || group?.groupId || "").trim();
+      if (name) {
+        names.push(name);
+      }
+    });
+  }
+
+  return names.length ? names.join(" / ") : "Grupo de Conexión asignado";
+}
+
+function renderLeaderScopeBanner_() {
+  if (!isLeaderScopedUser_()) {
+    return "";
+  }
+
+  const groupLabel = getLeaderScopeLabel_();
+
+  return `
+    <section class="panel-card leader-scope-banner" aria-label="Alcance del coordinador">
+      <div class="panel-head">
+        <div>
+          <span class="status-chip success">Operando como coordinador</span>
+          <h2>${escapeHtml(groupLabel)}</h2>
+          <p>Solo estás trabajando información y asistencias de este Grupo de Conexión.</p>
+        </div>
+        <span class="pill success">Alcance limitado</span>
+      </div>
+    </section>
+  `;
+}
 function isSeasonDemo_(season) {
   const name = normalizeText(season?.name || "");
   return name.includes("demo") || name.includes("demostracion");
@@ -4604,6 +4642,8 @@ function renderApp() {
         </header>
 
         ${renderModuleTabs_(currentModule)}
+
+        ${renderLeaderScopeBanner_()}
 
         ${renderCurrentView()}
       </main>
@@ -40862,6 +40902,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
 
 
 
