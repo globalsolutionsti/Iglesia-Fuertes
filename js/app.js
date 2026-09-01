@@ -858,15 +858,26 @@ function getUserScopedConnectionGroups_() {
   return getUserScopedDashboardGroups_();
 }
 
+function formatConnectionGroupDisplayName_(value) {
+  const text = String(value || "").trim();
+  const key = normalizeText(text).replace(/\s+/g, " ").toUpperCase();
+  const descriptions = {
+    "INSEPARABLES A": "Recién casados y con hijos hasta 8 años",
+    "INSEPARABLES B": "Matrimonios con hijos de 9 a 23 años",
+    "INSEPARABLES C": "Matrimonios con hijos 24+"
+  };
+
+  return descriptions[key] ? `${text} - ${descriptions[key]}` : text;
+}
 function getLeaderScopeLabel_() {
   const scopedGroups = getUserScopedConnectionGroups_();
   const names = scopedGroups
-    .map((group) => String(group?.name || group?.nombre || group?.id || "").trim())
+    .map((group) => formatConnectionGroupDisplayName_(group?.name || group?.nombre || group?.id || ""))
     .filter(Boolean);
 
   if (!names.length && Array.isArray(state.user?.scopedGroups)) {
     state.user.scopedGroups.forEach((group) => {
-      const name = String(group?.name || group?.groupName || group?.id || group?.groupId || "").trim();
+      const name = formatConnectionGroupDisplayName_(group?.name || group?.groupName || group?.id || group?.groupId || "");
       if (name) {
         names.push(name);
       }
@@ -40902,6 +40913,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
