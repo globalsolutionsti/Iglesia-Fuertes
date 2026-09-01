@@ -13692,7 +13692,11 @@ function renderAdminSettingsView_() {
           <div class="field" style="margin-top: 18px;">
             <label for="system-web-url-input">Link global del sistema</label>
             <input id="system-web-url-input" value="${escapeHtml(state.globalWebUrl || "")}" placeholder="https://tusitio.com/iglesia-fuertes-v2/">
-            <span class="field-help">Este enlace es el que viajará en Telegram cuando el sistema envíe usuario y contraseña a cada líder.</span>
+            <span class="field-help">Este enlace es el que viajará en Telegram y WhatsApp cuando el sistema envíe usuario y contraseña a cada líder.</span>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" data-action="save-global-api-url">Guardar link global del sistema</button>
           </div>
 
           ${!usersSupport.available ? `
@@ -40787,6 +40791,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
