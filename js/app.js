@@ -504,6 +504,7 @@ const state = {
       surface: "scanner",
       seasonId: "",
       sessionId: "",
+      groupId: "",
       personId: "",
       peopleSearch: "",
       cameraFacing: DEFAULT_QR_CAMERA_FACING
@@ -7734,7 +7735,8 @@ function renderConnectionSectionView_(content) {
 }
 
 function renderAttendanceHubView_() {
-  const section = getActiveAttendanceCenterSection_();
+  const leaderScoped = isLeaderScopedUser_();
+  const section = leaderScoped ? "connection" : getActiveAttendanceCenterSection_();
   const isHome = section === "home";
   const isFormation = section === "formation";
   const isConnection = section === "connection";
@@ -7760,14 +7762,16 @@ function renderAttendanceHubView_() {
             <span>Usa captura manual, QR asistido y kiosko para sesiones de grupos.</span>
           </button>
 
-          <button
-            class="mode-card attendance-hub-card ${isFormation ? "active" : ""}"
-            data-action="set-attendance-center-section"
-            data-section-key="formation"
-          >
-            <strong>Asistencia Proceso de Formación</strong>
-            <span>Selecciona el proceso activo, detecta la sesión de hoy y escanea desde celular o tablet.</span>
-          </button>
+          ${leaderScoped ? "" : `
+            <button
+              class="mode-card attendance-hub-card ${isFormation ? "active" : ""}"
+              data-action="set-attendance-center-section"
+              data-section-key="formation"
+            >
+              <strong>Asistencia Proceso de Formación</strong>
+              <span>Selecciona el proceso activo, detecta la sesión de hoy y escanea desde celular o tablet.</span>
+            </button>
+          `}
         </div>
 
         ${isHome ? `
@@ -23188,6 +23192,9 @@ async function handleClick(event) {
 
     if (action === "set-attendance-center-section") {
       state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(button.dataset.sectionKey || "");
+      if (isLeaderScopedUser_()) {
+        state.ui.attendanceCenterSection = "connection";
+      }
       state.qrScanner.enabled = false;
       clearQrScannerFeedbackResult_();
       stopQrScannerRuntime_(true);
@@ -23223,7 +23230,7 @@ async function handleClick(event) {
       formationAttendanceScannerRuntime.enabled = false;
       stopFormationAttendanceScanner_();
       if (state.currentView === "attendance") {
-        state.ui.attendanceCenterSection = "home";
+        state.ui.attendanceCenterSection = isLeaderScopedUser_() ? "connection" : "home";
       }
       if (state.currentView === "congregants-new") {
         primeWelcomeNewView_();
@@ -34266,6 +34273,10 @@ async function registerQrAttendance(personId, options = {}) {
     payload.sessionId = context.sessionId;
   }
 
+  if (context?.groupId) {
+    payload.groupId = context.groupId;
+  }
+
   const source = options.source || "manual";
   const task = async () => {
     state.qrLastResult = await apiPost("qr.registerAttendance", payload);
@@ -35945,6 +35956,15 @@ function speakFormationAttendanceWelcome_(result) {
 }
 
 function resolveQrContext() {
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const scopedDefaultGroupId = scopedGroups.length ? String(scopedGroups[0]?.id || "").trim() : "";
+  const groupId = String(
+    state.filters.qr.groupId
+    || state.filters.attendance.groupId
+    || scopedDefaultGroupId
+    || ""
+  ).trim();
+
   if (state.filters.qr.mode === "manual") {
     if (!state.filters.qr.seasonId || !state.filters.qr.sessionId) {
       return null;
@@ -35952,14 +35972,16 @@ function resolveQrContext() {
 
     return {
       seasonId: state.filters.qr.seasonId,
-      sessionId: state.filters.qr.sessionId
+      sessionId: state.filters.qr.sessionId,
+      groupId
     };
   }
 
   if (state.activeSession && state.activeSession.found) {
     return {
       seasonId: state.activeSession.session.seasonId,
-      sessionId: state.activeSession.session.id
+      sessionId: state.activeSession.session.id,
+      groupId
     };
   }
 
@@ -36335,6 +36357,7 @@ function syncAttendanceContextIntoQr_() {
   state.filters.qr.mode = "manual";
   state.filters.qr.seasonId = attendanceFilter.seasonId;
   state.filters.qr.sessionId = attendanceFilter.sessionId;
+  state.filters.qr.groupId = attendanceFilter.groupId || "";
 }
 
 function buildQrSessionActivity_(records) {
@@ -40764,6 +40787,10 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
+
 
 
 
