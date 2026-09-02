@@ -13996,6 +13996,37 @@ function getAdminLeaderAccessPreview_(email) {
 
   return preview;
 }
+function getLeaderAccessExportWebUrl_() {
+  return String(state.globalWebUrl || "https://globalsolutionsti.github.io/Iglesia-Fuertes/").trim();
+}
+
+function buildLeaderAccessWhatsappExportText_(payload) {
+  const leaders = Array.isArray(payload?.leaders) ? payload.leaders : [];
+  const webUrl = String(payload?.webUrl || getLeaderAccessExportWebUrl_()).trim();
+  const lines = [
+    "IGLESIA FUERTES V2",
+    "CUENTAS DE LÍDERES / COORDINADORES PARA WHATSAPP",
+    `Link global del sistema: ${webUrl}`,
+    `Generado: ${formatDateTime_(payload?.generatedAt || new Date())}`,
+    `Total cuentas: ${leaders.length}`,
+    "",
+    "INSTRUCCIÓN: copia el bloque de cada líder y envíalo por WhatsApp al teléfono indicado.",
+    ""
+  ];
+
+  leaders.forEach((leader, index) => {
+    lines.push("========================================");
+    lines.push(`${index + 1}. ${leader?.name || "Líder"}`);
+    lines.push(`Teléfono WhatsApp: ${(leader?.phones || []).join(" / ") || "Sin teléfono"}`);
+    lines.push(`Grupo(s): ${(leader?.groups || []).map((group) => group.name).join(" / ") || "Sin grupo"}`);
+    lines.push("");
+    lines.push("MENSAJE PARA ENVIAR:");
+    lines.push(leader?.whatsappText || "Sin mensaje generado");
+    lines.push("");
+  });
+
+  return lines.join("\n");
+}
 
 function renderAdminUsersView_() {
   const editingUser = state.adminUsers.find((user) => String(user.email) === String(state.ui.editingUserEmail || "")) || null;
@@ -14032,7 +14063,10 @@ function renderAdminUsersView_() {
             <h2>Cuentas automáticas de líderes</h2>
             <p>Estas cuentas nacen al guardar líderes en el catálogo de grupos. Aquí puedes validarlas y enviar su acceso sin buscarlas dentro del listado general.</p>
           </div>
-          <span class="pill dark">${escapeHtml(String(leaderAccounts.length))} líderes</span>
+          <div class="actions-row">
+            <button class="btn btn-primary" data-action="export-leader-whatsapp-access" ${leaderAccounts.length ? "" : "disabled"}>Exportar WhatsApp</button>
+            <span class="pill dark">${escapeHtml(String(leaderAccounts.length))} líderes</span>
+          </div>
         </div>
 
         ${leaderAccounts.length ? `
@@ -15804,6 +15838,12 @@ function buildCsvText_(rows) {
 function downloadCsvTextFile_(csvText, fileName) {
   const blob = new Blob(["\ufeff", csvText], {
     type: "text/csv;charset=utf-8"
+  });
+  downloadBlob_(blob, fileName);
+}
+function downloadPlainTextFile_(text, fileName) {
+  const blob = new Blob([text], {
+    type: "text/plain;charset=utf-8"
   });
   downloadBlob_(blob, fileName);
 }
@@ -24181,6 +24221,33 @@ async function handleClick(event) {
     if (action === "close-admin-leader-account-modal") {
       state.ui.adminLeaderAccountEmail = "";
       renderApp();
+      return;
+    }
+
+    if (action === "export-leader-whatsapp-access") {
+      const webUrl = getLeaderAccessExportWebUrl_();
+      const result = await withLoading(async () => {
+        try {
+          return await apiPost("users.leaderAccess.prepareAll", {
+            webUrl
+          });
+        } catch (error) {
+          if (isUnknownActionError_(error, "users.leaderAccess.prepareAll")) {
+            throw buildBackendRouteMissingError_("users.leaderAccess.prepareAll", "la exportación masiva de accesos de líderes");
+          }
+
+          throw error;
+        }
+      }, "Generando accesos para WhatsApp...");
+
+      const exportText = buildLeaderAccessWhatsappExportText_(result);
+      downloadPlainTextFile_(exportText, `ACCESOS_LIDERES_WHATSAPP_${formatTimestampToken_()}.txt`);
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+      renderApp();
+      showToast("Exportación lista", `${result?.total || 0} cuenta(s) preparadas con contraseña temporal y link global.`, "success");
       return;
     }
 
@@ -40913,6 +40980,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
