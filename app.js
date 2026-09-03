@@ -1,4 +1,4 @@
-﻿import { APP_CONFIG } from "./config.js";
+import { APP_CONFIG } from "./config.js";
 import { ApiError, apiGet, apiPost } from "./api.js";
 import {
   clearStoredApiUrl,
@@ -104,6 +104,11 @@ const VIEW_META = {
     title: "Asignacion de Participantes",
     subtitle: "Asigna personas a grupos de forma individual o masiva."
   },
+  "connection-reports": {
+    module: "connection",
+    title: "Reportes Grupos Conexión",
+    subtitle: "Consulta asistencia por grupo o ministerio y exporta a Excel o PDF."
+  },
   qr: {
     module: "attendanceHub",
     title: "Asistencias",
@@ -187,7 +192,8 @@ const MODULE_TABS = {
   connection: [
     { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
     { view: "seasons", label: "Temporadas", description: "Sesiones y estados" },
-    { view: "participants", label: "Asignacion", description: "Individual y masiva" }
+    { view: "participants", label: "Asignacion", description: "Individual y masiva" },
+    { view: "connection-reports", label: "Reportes", description: "Excel y PDF" }
   ],
   formation: [
     { view: "formation", label: "Formación", description: "Prospectos, niveles e historial" }
@@ -208,6 +214,7 @@ const ACCESSIBLE_VIEWS = [
   "catalogs",
   "seasons",
   "participants",
+  "connection-reports",
   "formation",
   "admin-settings",
   "admin-users"
@@ -259,7 +266,19 @@ const state = {
   formationProfilesByKey: {},
   formationOfferings: [],
   formationEnrollments: [],
+  formationPortalOfferings: [],
+  formationPortalRoster: [],
   formationProcessRoster: [],
+  formationWorkspace: {
+    portal: {
+      processId: "",
+      rows: []
+    },
+    journey: {
+      processId: "",
+      rows: []
+    }
+  },
   formationAttendanceContext: null,
   connectionEncounterCandidates: [],
   studentPortal: null,
@@ -287,7 +306,11 @@ const state = {
     formationCandidates: "",
     formationOfferings: "",
     formationEnrollments: "",
+    formationPortalOfferings: "",
+    formationPortalRoster: "",
     formationProcessRoster: "",
+    formationWorkspacePortal: "",
+    formationWorkspaceJourney: "",
     formationAttendanceContext: "",
     connectionEncounterCandidates: ""
   },
@@ -308,7 +331,11 @@ const state = {
     formationCandidates: false,
     formationOfferings: false,
     formationEnrollments: false,
+    formationPortalOfferings: false,
+    formationPortalRoster: false,
     formationProcessRoster: false,
+    formationWorkspacePortal: false,
+    formationWorkspaceJourney: false,
     formationAttendanceContext: false,
     connectionEncounterCandidates: false,
     studentPortal: false
@@ -349,9 +376,12 @@ const state = {
     cameraFacing: ""
   },
   selectedBulkPeople: [],
+  selectedFormationRoutePeople: [],
   ui: {
     mobileNavOpen: false,
     attendanceCenterSection: "home",
+    attendanceFormationHydrating: false,
+    attendanceFormationHydratingMessage: "",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
     editingGroupId: "",
@@ -383,6 +413,24 @@ const state = {
     selectedFormationEnrollmentId: "",
     selectedFormationPortalPersonId: "",
     formationPortalModal: null,
+    lastFormationEnrolledOfferingId: "",
+    formationRouteEnrollmentBusyPersonId: "",
+    formationRouteEnrollmentProgressPercent: 0,
+    formationRouteEnrollmentProgressMessage: "",
+    formationRouteEnrollmentProgressDetail: "",
+    formationRouteBulkBusy: false,
+    formationRouteBulkAction: "",
+    formationRouteBulkProgressPercent: 0,
+    formationRouteBulkProgressMessage: "",
+    formationRouteBulkProgressDetail: "",
+    formationSectionLoading: {
+      active: false,
+      section: "",
+      percent: 0,
+      title: "",
+      detail: ""
+    },
+    formationAttendanceManualDraft: {},
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
@@ -393,10 +441,12 @@ const state = {
     scrapSeasonPreview: null,
     selectedScrapFormationProcessId: "",
     scrapFormationProcessPreview: null,
-    studentPortalTab: "home",
+    studentPortalTab: "profile",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
+    studentPortalConnectionSeasonId: "",
     adminLeaderAccountEmail: "",
+    adminLeaderAccessPreview: null,
     loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
   },
@@ -434,6 +484,12 @@ const state = {
       bulkSearch: "",
       moveTargets: {}
     },
+    connectionReports: {
+      seasonId: "",
+      type: "group",
+      groupId: "",
+      ministryId: ""
+    },
     attendance: {
       seasonId: "",
       sessionId: "",
@@ -449,6 +505,7 @@ const state = {
       surface: "scanner",
       seasonId: "",
       sessionId: "",
+      groupId: "",
       personId: "",
       peopleSearch: "",
       cameraFacing: DEFAULT_QR_CAMERA_FACING
@@ -469,6 +526,20 @@ const state = {
       sessionNumber: "1",
       personSearch: "",
       captureMode: "manual"
+    },
+    formationPortal: {
+      processId: "",
+      levelId: "",
+      offeringId: "",
+      enrollmentStatus: "ALL",
+      search: "",
+      personSearch: ""
+    },
+    formationJourney: {
+      processId: "",
+      levelId: "",
+      enrollmentStatus: "ALL",
+      search: ""
     },
     admin: {
       userSearch: "",
@@ -506,6 +577,8 @@ const pendingResourceLoads = {
 let peopleSourcesResyncTimer = 0;
 let backgroundWarmersTimer = 0;
 let welcomePeopleLoadVersion = 0;
+let formationManualAttendanceHydrationToken = 0;
+const inputRerenderTimers = Object.create(null);
 const optimisticWelcomePeople = new Map();
 
 const qrScannerRuntime = {
@@ -535,11 +608,13 @@ const qrScannerRuntime = {
   requestPersonId: "",
   requestStartedAt: 0,
   duplicateSuppressValue: "",
-  duplicateSuppressUntil: 0
+  duplicateSuppressUntil: 0,
+  localAttendanceLocks: Object.create(null)
 };
 
+const FORMATION_QR_PROCESSING_MIN_MS = 0;
 const FORMATION_QR_SUCCESS_HOLD_MS = 1500;
-const FORMATION_QR_ERROR_HOLD_MS = 1500;
+const FORMATION_QR_ERROR_HOLD_MS = 900;
 
 const formationAttendanceScannerRuntime = {
   enabled: false,
@@ -564,11 +639,16 @@ const formationAttendanceScannerRuntime = {
   status: "idle",
   message: "Activa la cámara para comenzar el registro automático.",
   requestPersonId: "",
-  requestStartedAt: 0
+  requestStartedAt: 0,
+  fastRouteSupported: null,
+  lockedOfferingId: "",
+  lockedSessionNumber: "",
+  localAttendanceLocks: Object.create(null)
 };
 
 const credentialRenderRuntime = {
-  logoPromise: null
+  logoPromise: null,
+  whiteLogoDataUrlPromise: null
 };
 
 document.addEventListener("click", handleClick);
@@ -587,22 +667,44 @@ init();
 
 async function init() {
   initializeDateFilters_();
-  await resolveApiUrlConfiguration_();
   renderApp();
+  const apiConfigWarmup = warmupApiConfiguration_();
 
   if (state.user) {
     if (isStudentSession_()) {
-      void bootstrapStudentPortal_().catch(handleError);
+      void apiConfigWarmup.finally(() => {
+        void bootstrapStudentPortal_().catch(handleError);
+      });
     } else {
-      bootstrapApplicationInBackground_({
-        message: state.currentView === "dashboard"
-          ? "Preparando Dashboard Iglesia..."
-          : (state.currentView === "attendance"
-            ? "Preparando Centro de Asistencias..."
-            : "Preparando tu grupo de conexión...")
+      void apiConfigWarmup.finally(() => {
+        bootstrapApplicationInBackground_({
+          message: state.currentView === "dashboard"
+            ? "Preparando Dashboard Iglesia..."
+            : (state.currentView === "attendance"
+              ? "Preparando Centro de Asistencias..."
+              : "Preparando tu grupo de conexión...")
+        });
       });
     }
   }
+}
+
+async function warmupApiConfiguration_() {
+  const configTask = resolveApiUrlConfiguration_()
+    .then(() => {
+      renderApp();
+    })
+    .catch(() => {
+      renderApp();
+    });
+
+  try {
+    await Promise.race([configTask, waitForAnimationDelay_(1200)]);
+  } catch (error) {
+    void error;
+  }
+
+  return configTask;
 }
 
 async function resolveApiUrlConfiguration_() {
@@ -662,6 +764,183 @@ function initializeDateFilters_() {
   }
 }
 
+function normalizeText_(value) {
+  return normalizeText(value);
+}
+
+function clampPercentage_(value) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function waitForAnimationDelay_(ms = 0) {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function normalizeAttendanceCenterSection_(section) {
+  const clean = String(section || "").trim();
+  return ["home", "connection", "formation"].includes(clean) ? clean : "home";
+}
+
+function getActiveAttendanceCenterSection_() {
+  state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(state.ui.attendanceCenterSection);
+  return state.ui.attendanceCenterSection;
+}
+
+function normalizeFormationSection_(section) {
+  const clean = String(section || "").trim();
+  return ["route", "report", "portal", "journey", "catalog", "levels", "operations", "attendance"].includes(clean) ? clean : "route";
+}
+
+function getActiveFormationSection_() {
+  state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
+  return state.ui.formationSection;
+}
+
+function getFormationSectionLabel_(section) {
+  const labels = {
+    route: "Ruta a Encuentro",
+    report: "Reporte Pre-Encuentro",
+    portal: "Inscritos y portal",
+    journey: "Camino Proceso de Formación",
+    catalog: "Catálogos",
+    levels: "Niveles",
+    operations: "Operación",
+    attendance: "Asistencia"
+  };
+
+  return labels[normalizeFormationSection_(section)] || "Proceso de Formación";
+}
+
+function getFormationPortalFilters_() {
+  state.filters.formationPortal = state.filters.formationPortal || {
+    processId: "",
+    levelId: "",
+    offeringId: "",
+    enrollmentStatus: "ALL",
+    search: "",
+    personSearch: ""
+  };
+
+  return state.filters.formationPortal;
+}
+
+function getFormationJourneyFilters_() {
+  state.filters.formationJourney = state.filters.formationJourney || {
+    processId: "",
+    levelId: "",
+    enrollmentStatus: "ALL",
+    search: ""
+  };
+
+  return state.filters.formationJourney;
+}
+
+function getFormationPortalDefaultOffering_(processId = "") {
+  const cleanProcessId = String(processId || getFormationPortalFilters_().processId || state.filters.formationOps.processId || "").trim();
+  const offerings = Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [];
+
+  return offerings.find((offering) => !cleanProcessId || String(offering?.processId || "").trim() === cleanProcessId) || offerings[0] || null;
+}
+
+function getSelectedFormationPortalProcessId_() {
+  return String(getFormationPortalFilters_().processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || "").trim();
+}
+
+function getSelectedFormationJourneyProcessId_() {
+  return String(getFormationJourneyFilters_().processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || "").trim();
+}
+
+function normalizeFormationStatusToken_(value) {
+  return String(value || "").trim().toUpperCase() || "PENDIENTE";
+}
+
+function clearFormationProfileSelection_() {
+  state.formationProfile = null;
+  state.ui.formationProfileLoading = false;
+  state.ui.formationProfileLoadingPersonId = "";
+  state.ui.selectedFormationPersonId = "";
+}
+
+function clearFormationSectionLoading_() {
+  state.ui.formationSectionLoading = {
+    active: false,
+    section: "",
+    percent: 0,
+    title: "",
+    detail: ""
+  };
+}
+
+async function withFormationSectionLoading_(section, task, options = {}) {
+  state.ui.formationSectionLoading = {
+    active: true,
+    section: normalizeFormationSection_(section),
+    percent: clampPercentage_(options.percent || 12),
+    title: options.title || `Cargando ${getFormationSectionLabel_(section)}...`,
+    detail: options.detail || "Preparando información."
+  };
+  renderApp();
+
+  try {
+    return await task();
+  } finally {
+    clearFormationSectionLoading_();
+    renderApp();
+  }
+}
+
+function clearStudentPortalByPersonCache_(personId = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (cleanPersonId) {
+    delete state.studentPortalByPerson[cleanPersonId];
+    return;
+  }
+
+  state.studentPortalByPerson = {};
+}
+
+function applyStudentPortalSnapshot_(portal) {
+  if (!portal) {
+    return;
+  }
+
+  state.studentPortal = portal;
+  state.loaded.studentPortal = true;
+
+  const personId = String(portal?.person?.id || "").trim();
+  if (personId) {
+    state.studentPortalByPerson[personId] = portal;
+  }
+
+  if (!state.ui.studentPortalConnectionSeasonId && Array.isArray(portal?.connectionSeasons) && portal.connectionSeasons.length) {
+    state.ui.studentPortalConnectionSeasonId = String(portal.connectionSeasons[0]?.seasonId || "").trim();
+  }
+}
+
+function applyPortalAccountToStudentPortal_(personId, account) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId || !account) {
+    return;
+  }
+
+  [state.studentPortal, state.studentPortalByPerson[cleanPersonId]].forEach((portal) => {
+    if (portal?.person && String(portal.person.id || "").trim() === cleanPersonId) {
+      portal.account = {
+        ...(portal.account || {}),
+        ...account
+      };
+    }
+  });
+}
+
 function getCurrentModule_() {
   const view = VIEW_META[state.currentView];
   return view?.module || "dashboard";
@@ -683,6 +962,13 @@ function getUserPermissions_() {
     basePermissions.push("welcome-prospects");
   }
 
+  if (
+    (basePermissions.includes("catalogs") || basePermissions.includes("participants") || basePermissions.includes("seasons"))
+    && !basePermissions.includes("connection-reports")
+  ) {
+    basePermissions.push("connection-reports");
+  }
+
   return basePermissions;
 }
 
@@ -694,9 +980,28 @@ function canAccessView_(view) {
   return hasUserPermission_(view);
 }
 
+function ensureAccessibleCurrentView_() {
+  if (!state.user || isStudentSession_()) {
+    return;
+  }
+
+  if (VIEW_META[state.currentView] && canAccessView_(state.currentView)) {
+    return;
+  }
+
+  state.currentView = canAccessView_("attendance")
+    ? "attendance"
+    : getFirstAccessibleView_(ACCESSIBLE_VIEWS);
+}
+
 function canUseScrapDelete_() {
   const roleKey = normalizeText(state.user?.role || "");
   return (roleKey === "admin" || roleKey === "administrador") && hasUserPermission_(DELETE_SCRAP_PERMISSION);
+}
+
+function canAdminCorrectFormationEnrollment_() {
+  const roleKey = normalizeText(state.user?.role || "");
+  return roleKey === "admin" || roleKey === "administrador";
 }
 
 function getNormalizedUserRole_() {
@@ -744,6 +1049,55 @@ function getUserScopedConnectionGroups_() {
   return getUserScopedDashboardGroups_();
 }
 
+function formatConnectionGroupDisplayName_(value) {
+  const text = String(value || "").trim();
+  const key = normalizeText(text).replace(/\s+/g, " ").toUpperCase();
+  const descriptions = {
+    "INSEPARABLES A": "Recién casados y con hijos hasta 8 años",
+    "INSEPARABLES B": "Matrimonios con hijos de 9 a 23 años",
+    "INSEPARABLES C": "Matrimonios con hijos 24+"
+  };
+
+  return descriptions[key] ? `${text} - ${descriptions[key]}` : text;
+}
+function getLeaderScopeLabel_() {
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const names = scopedGroups
+    .map((group) => formatConnectionGroupDisplayName_(group?.name || group?.nombre || group?.id || ""))
+    .filter(Boolean);
+
+  if (!names.length && Array.isArray(state.user?.scopedGroups)) {
+    state.user.scopedGroups.forEach((group) => {
+      const name = formatConnectionGroupDisplayName_(group?.name || group?.groupName || group?.id || group?.groupId || "");
+      if (name) {
+        names.push(name);
+      }
+    });
+  }
+
+  return names.length ? names.join(" / ") : "Grupo de Conexión asignado";
+}
+
+function renderLeaderScopeBanner_() {
+  if (!isLeaderScopedUser_()) {
+    return "";
+  }
+
+  const groupLabel = getLeaderScopeLabel_();
+
+  return `
+    <section class="panel-card leader-scope-banner" aria-label="Alcance del coordinador">
+      <div class="panel-head">
+        <div>
+          <span class="status-chip success">Operando como coordinador</span>
+          <h2>${escapeHtml(groupLabel)}</h2>
+          <p>Solo estás trabajando información y asistencias de este Grupo de Conexión.</p>
+        </div>
+        <span class="pill success">Alcance limitado</span>
+      </div>
+    </section>
+  `;
+}
 function isSeasonDemo_(season) {
   const name = normalizeText(season?.name || "");
   return name.includes("demo") || name.includes("demostracion");
@@ -787,6 +1141,51 @@ function getEncounterCandidateByPersonId_(personId) {
     || state.formationCandidates.find((item) => String(item?.personId || "") === cleanPersonId)
     || null
   );
+}
+
+function getSelectedFormationRoutePersonIds_() {
+  return (Array.isArray(state.selectedFormationRoutePeople) ? state.selectedFormationRoutePeople : [])
+    .map((personId) => String(personId || "").trim())
+    .filter(Boolean);
+}
+
+function isFormationRoutePersonSelected_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return false;
+  }
+
+  return getSelectedFormationRoutePersonIds_().includes(cleanPersonId);
+}
+
+function toggleFormationRouteSelection_(personId, checked) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  if (!Array.isArray(state.selectedFormationRoutePeople)) {
+    state.selectedFormationRoutePeople = [];
+  }
+
+  if (checked) {
+    if (!state.selectedFormationRoutePeople.includes(cleanPersonId)) {
+      state.selectedFormationRoutePeople.push(cleanPersonId);
+    }
+    return;
+  }
+
+  state.selectedFormationRoutePeople = state.selectedFormationRoutePeople.filter((item) => String(item || "").trim() !== cleanPersonId);
+}
+
+function getSelectedFormationRouteCandidates_() {
+  const selectedIds = new Set(getSelectedFormationRoutePersonIds_());
+
+  return (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((candidate) => (
+    selectedIds.has(String(candidate?.personId || "").trim())
+  ));
 }
 
 function getDashboardSelectableGroups_(preferredGroups) {
@@ -876,164 +1275,693 @@ function resolveDashboardGroupReportScope_() {
 
 function getFirstAccessibleView_(views) {
   const allowed = views.find((view) => canAccessView_(view));
-  return allowed || "dashboard";
+  return allowed || "attendance";
 }
 
-function getDefaultViewForModule_(moduleId) {
-  const meta = MODULE_META[moduleId];
-  const tabs = getModuleTabs_(moduleId);
+function syncFormationPortalSelectionFromRows_(rows, options = {}) {
+  const portalFilters = getFormationPortalFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  const cleanProcessId = String(options.processId || portalFilters.processId || "").trim();
+  const preferredOfferingId = String(options.preferredOfferingId || "").trim();
+  let changed = false;
 
-  if (tabs.length) {
-    return tabs[0].view;
+  if (cleanProcessId && portalFilters.processId !== cleanProcessId) {
+    portalFilters.processId = cleanProcessId;
+    changed = true;
   }
 
-  return meta?.defaultView || "dashboard";
-}
-
-function ensureAccessibleCurrentView_() {
-  if (!state.user || isStudentSession_()) {
-    return;
+  if (preferredOfferingId && cleanRows.some((row) => String(row?.offeringId || "").trim() === preferredOfferingId)) {
+    if (portalFilters.offeringId !== preferredOfferingId) {
+      portalFilters.offeringId = preferredOfferingId;
+      changed = true;
+    }
   }
 
-  if (!VIEW_META[state.currentView] || !canAccessView_(state.currentView)) {
-    state.currentView = getFirstAccessibleView_(ACCESSIBLE_VIEWS);
-  }
-}
-
-function renderModuleTabs_(moduleId) {
-  const tabs = getModuleTabs_(moduleId);
-
-  if (tabs.length <= 1) {
-    return "";
+  if (portalFilters.offeringId && !cleanRows.some((row) => String(row?.offeringId || "").trim() === String(portalFilters.offeringId || "").trim())) {
+    portalFilters.offeringId = "";
+    changed = true;
   }
 
-  return `
-    <div class="module-tabs" role="tablist" aria-label="Fichas del modulo">
-      ${tabs.map((tab) => renderModuleTabButton_(tab)).join("")}
-    </div>
-  `;
+  if (portalFilters.levelId && !cleanRows.some((row) => String(row?.levelId || "").trim() === String(portalFilters.levelId || "").trim())) {
+    portalFilters.levelId = "";
+    changed = true;
+  }
+
+  return changed;
 }
 
-function renderModuleTabButton_(tab) {
-  const isActive = state.currentView === tab.view || (tab.view === "attendance" && state.currentView === "qr");
+function syncFormationJourneySelectionFromRows_(rows, options = {}) {
+  const journeyFilters = getFormationJourneyFilters_();
+  const sortedRows = buildFormationJourneyRows_(Array.isArray(rows) ? rows : []);
+  const cleanProcessId = String(options.processId || journeyFilters.processId || "").trim();
+  const currentLevelId = String(journeyFilters.levelId || "").trim();
+  const levelStillExists = currentLevelId
+    ? sortedRows.some((row) => String(row?.levelId || "").trim() === currentLevelId)
+    : false;
 
-  return `
-    <button
-      class="module-tab-button ${isActive ? "active" : ""}"
-      data-action="navigate"
-      data-view="${escapeHtml(tab.view)}"
-      role="tab"
-      aria-selected="${isActive ? "true" : "false"}"
-    >
-      <strong>${escapeHtml(tab.label)}</strong>
-      <small>${escapeHtml(tab.description || "")}</small>
-    </button>
-  `;
-}
+  if (cleanProcessId) {
+    journeyFilters.processId = cleanProcessId;
+  }
 
-function normalizeAttendanceCenterSection_(value) {
-  const cleanValue = String(value || "").trim().toLowerCase();
-  return ["home", "connection", "formation"].includes(cleanValue) ? cleanValue : "home";
-}
+  if (!levelStillExists) {
+    journeyFilters.levelId = "";
+  }
 
-function getActiveAttendanceCenterSection_() {
-  state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(state.ui.attendanceCenterSection);
-  return state.ui.attendanceCenterSection;
-}
+  const selectedEnrollmentId = String(state.ui.selectedFormationEnrollmentId || "").trim();
+  const selectedPersonId = String(state.ui.selectedFormationPersonId || "").trim();
+  const enrollmentStillExists = selectedEnrollmentId
+    ? sortedRows.some((row) => String(row?.id || "").trim() === selectedEnrollmentId)
+    : false;
+  const personStillExists = selectedPersonId
+    ? sortedRows.some((row) => String(row?.personId || "").trim() === selectedPersonId)
+    : false;
 
-function normalizeFormationSection_(value) {
-  const cleanValue = String(value || "").trim().toLowerCase();
-  return ["route", "portal", "operations", "levels"].includes(cleanValue) ? cleanValue : "route";
-}
+  if (!enrollmentStillExists) {
+    state.ui.selectedFormationEnrollmentId = "";
+  }
 
-function getActiveFormationSection_() {
-  state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
-  return state.ui.formationSection;
-}
-
-function clearFormationProfileSelection_(options = {}) {
-  state.ui.selectedFormationPersonId = "";
-  state.formationProfile = null;
-  state.ui.formationProfileLoading = false;
-  state.ui.formationProfileLoadingPersonId = "";
-
-  if (!options.keepRecord) {
-    state.ui.editingFormationRecordId = "";
+  if (!personStillExists) {
+    state.ui.selectedFormationPersonId = "";
   }
 }
+function countVisibleFormationPortalRows_(rows) {
+  const portalFilters = getFormationPortalFilters_();
+  const offeringId = String(portalFilters.offeringId || "").trim();
+  const levelId = String(portalFilters.levelId || "").trim();
+  const search = normalizeText(portalFilters.search || "");
+  const status = String(portalFilters.enrollmentStatus || "ALL").trim().toUpperCase();
 
-function cacheStudentPortalByPerson_(personId, portal) {
+  return (Array.isArray(rows) ? rows : []).filter((enrollment) => {
+    if (offeringId && String(enrollment?.offeringId || "").trim() !== offeringId) {
+      return false;
+    }
+
+    if (levelId && String(enrollment?.levelId || "").trim() !== levelId) {
+      return false;
+    }
+
+    if (status !== "ALL" && String(enrollment?.status || "").trim().toUpperCase() !== status) {
+      return false;
+    }
+
+    const haystack = normalizeText([
+      enrollment?.personId,
+      enrollment?.personName,
+      enrollment?.personNumber,
+      enrollment?.personPhone,
+      enrollment?.levelName,
+      enrollment?.offeringName,
+      enrollment?.status
+    ].join(" "));
+
+    return !search || haystack.includes(search);
+  }).length;
+}
+
+function normalizeFormationPortalVisibleState_(rows, options = {}) {
+  const portalFilters = getFormationPortalFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  const preferredOfferingId = String(options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "").trim();
+
+  if (!cleanRows.length) {
+    return false;
+  }
+
+  let changed = false;
+  changed = Boolean(syncFormationPortalSelectionFromRows_(cleanRows, {
+    processId: options.processId,
+    preferredOfferingId
+  })) || changed;
+
+  if (countVisibleFormationPortalRows_(cleanRows) > 0) {
+    return changed;
+  }
+
+  if (portalFilters.search || String(portalFilters.enrollmentStatus || "ALL").toUpperCase() !== "ALL") {
+    portalFilters.search = "";
+    portalFilters.enrollmentStatus = "ALL";
+    changed = true;
+  }
+
+  if (countVisibleFormationPortalRows_(cleanRows) > 0) {
+    return changed;
+  }
+
+  if (portalFilters.levelId || portalFilters.offeringId || state.ui.selectedFormationOfferingId) {
+    portalFilters.levelId = "";
+    portalFilters.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
+    changed = true;
+  }
+
+  changed = Boolean(syncFormationPortalSelectionFromRows_(cleanRows, {
+    processId: options.processId,
+    preferredOfferingId
+  })) || changed;
+
+  return changed;
+}
+
+function normalizeFormationJourneyVisibleState_(rows, options = {}) {
+  const journeyFilters = getFormationJourneyFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  let changed = false;
+
+  if (!cleanRows.length) {
+    return false;
+  }
+
+  syncFormationJourneySelectionFromRows_(cleanRows, {
+    processId: options.processId
+  });
+
+  const buildVisibleRows = () => {
+    const selectedLevelId = String(journeyFilters.levelId || "").trim();
+    const scopedRows = cleanRows.filter((row) => {
+      return !selectedLevelId || String(row?.levelId || "").trim() === selectedLevelId;
+    });
+    return buildFormationJourneyRows_(scopedRows);
+  };
+
+  if (buildVisibleRows().length > 0) {
+    return changed;
+  }
+
+  if (journeyFilters.search || String(journeyFilters.enrollmentStatus || "ALL").toUpperCase() !== "ALL") {
+    journeyFilters.search = "";
+    journeyFilters.enrollmentStatus = "ALL";
+    changed = true;
+  }
+
+  if (buildVisibleRows().length > 0) {
+    return changed;
+  }
+
+  if (journeyFilters.levelId) {
+    journeyFilters.levelId = "";
+    changed = true;
+  }
+
+  syncFormationJourneySelectionFromRows_(cleanRows, {
+    processId: options.processId
+  });
+
+  return changed;
+}
+
+function syncFormationSectionFiltersAfterEnrollment_(enrollment, offering) {
+  const cleanProcessId = String(enrollment?.processId || offering?.processId || "").trim();
+  const cleanLevelId = String(enrollment?.levelId || offering?.levelId || "").trim();
+  const cleanOfferingId = String(enrollment?.offeringId || offering?.id || "").trim();
+  const portalFilters = getFormationPortalFilters_();
+  const journeyFilters = getFormationJourneyFilters_();
+
+  if (cleanProcessId) {
+    state.filters.formationOps.processId = cleanProcessId;
+    portalFilters.processId = cleanProcessId;
+    journeyFilters.processId = cleanProcessId;
+  }
+
+  if (cleanLevelId) {
+    state.filters.formationOps.levelId = cleanLevelId;
+    portalFilters.levelId = cleanLevelId;
+  }
+
+  if (cleanOfferingId) {
+    state.filters.formationOps.offeringId = cleanOfferingId;
+    portalFilters.offeringId = cleanOfferingId;
+    state.ui.selectedFormationOfferingId = cleanOfferingId;
+    state.ui.lastFormationEnrolledOfferingId = cleanOfferingId;
+  }
+
+  journeyFilters.levelId = "";
+  state.ui.selectedFormationEnrollmentId = String(enrollment?.id || "").trim();
+  state.ui.selectedFormationPersonId = String(enrollment?.personId || "").trim();
+}
+
+function getFilteredFormationPortalOfferings_() {
+  const filters = getFormationPortalFilters_();
+  const processId = String(filters.processId || state.filters.formationOps.processId || "").trim();
+  const levelId = String(filters.levelId || "").trim();
+
+  return (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [])
+    .filter((offering) => {
+      if (processId && String(offering?.processId || "").trim() !== processId) {
+        return false;
+      }
+
+      if (levelId && String(offering?.levelId || "").trim() !== levelId) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => {
+      if (Number(left?.levelOrder || 0) !== Number(right?.levelOrder || 0)) {
+        return Number(left?.levelOrder || 0) - Number(right?.levelOrder || 0);
+      }
+
+      return String(right?.startDate || "").localeCompare(String(left?.startDate || ""));
+    });
+}
+
+function getSelectedFormationPortalOffering_() {
+  const filters = getFormationPortalFilters_();
+  const requestedId = String(filters.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const processId = String(filters.processId || state.filters.formationOps.processId || "").trim();
+  const filteredOfferings = getFilteredFormationPortalOfferings_();
+  const allOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
+    return !processId || String(offering?.processId || "").trim() === processId;
+  });
+  const sourceRows = getFormationPortalSourceRows_().filter((row) => {
+    return !processId || String(row?.processId || "").trim() === processId;
+  });
+
+  if (requestedId) {
+    return filteredOfferings.find((offering) => String(offering?.id || "").trim() === requestedId)
+      || allOfferings.find((offering) => String(offering?.id || "").trim() === requestedId)
+      || (() => {
+        const fallbackRow = sourceRows.find((row) => String(row?.offeringId || "").trim() === requestedId);
+
+        if (!fallbackRow) {
+          return null;
+        }
+
+        return {
+          id: String(fallbackRow?.offeringId || "").trim(),
+          processId: String(fallbackRow?.processId || "").trim(),
+          levelId: String(fallbackRow?.levelId || "").trim(),
+          name: fallbackRow?.offeringName || fallbackRow?.levelName || "Paso",
+          levelName: fallbackRow?.levelName || fallbackRow?.offeringName || "Paso",
+          leaderName: fallbackRow?.leaderName || "",
+          totalSessions: Number(fallbackRow?.attendance?.totalSessions || fallbackRow?.totalSessions || 0) || 0
+        };
+      })();
+  }
+
+  if (filteredOfferings[0] || allOfferings[0]) {
+    return filteredOfferings[0] || allOfferings[0] || null;
+  }
+
+  if (sourceRows[0]) {
+    return {
+      id: String(sourceRows[0]?.offeringId || "").trim(),
+      processId: String(sourceRows[0]?.processId || "").trim(),
+      levelId: String(sourceRows[0]?.levelId || "").trim(),
+      name: sourceRows[0]?.offeringName || sourceRows[0]?.levelName || "Paso",
+      levelName: sourceRows[0]?.levelName || sourceRows[0]?.offeringName || "Paso",
+      leaderName: sourceRows[0]?.leaderName || "",
+      totalSessions: Number(sourceRows[0]?.attendance?.totalSessions || sourceRows[0]?.totalSessions || 0) || 0
+    };
+  }
+
+  return null;
+}
+
+function ensureFormationPortalSelection_(options = {}) {
+  const filters = getFormationPortalFilters_();
+  const processId = String(filters.processId || state.filters.formationOps.processId || "").trim();
+  const levelId = String(filters.levelId || "").trim();
+  const requestedId = String(filters.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const preferredOfferingId = String(options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "").trim();
+  const filteredOfferings = getFilteredFormationPortalOfferings_();
+  const allOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
+    return !processId || String(offering?.processId || "").trim() === processId;
+  });
+  let nextOffering = null;
+
+  if (requestedId) {
+    nextOffering = filteredOfferings.find((offering) => String(offering?.id || "").trim() === requestedId)
+      || allOfferings.find((offering) => String(offering?.id || "").trim() === requestedId)
+      || null;
+  }
+
+  if (!nextOffering && preferredOfferingId) {
+    nextOffering = filteredOfferings.find((offering) => String(offering?.id || "").trim() === preferredOfferingId)
+      || allOfferings.find((offering) => String(offering?.id || "").trim() === preferredOfferingId)
+      || null;
+  }
+
+  if (!nextOffering) {
+    nextOffering = filteredOfferings[0] || allOfferings[0] || null;
+  }
+
+  if (!nextOffering?.id) {
+    const changed = Boolean(filters.offeringId || state.ui.selectedFormationOfferingId);
+    filters.offeringId = "";
+    state.ui.selectedFormationOfferingId = "";
+    if (!levelId) {
+      filters.levelId = "";
+    }
+    return changed;
+  }
+
+  const nextLevelId = String(nextOffering.levelId || "").trim();
+  const nextOfferingId = String(nextOffering.id || "").trim();
+  const changed = nextOfferingId !== requestedId || nextLevelId !== levelId;
+
+  filters.levelId = nextLevelId;
+  filters.offeringId = nextOfferingId;
+  state.ui.selectedFormationOfferingId = nextOfferingId;
+
+  return changed;
+}
+
+function getFilteredFormationPortalRoster_(offeringId) {
+  const filters = getFormationPortalFilters_();
+  const selectedOffering = getSelectedFormationPortalOffering_();
+  const normalizedOfferingId = String(offeringId || selectedOffering?.id || filters.offeringId || "").trim();
+  const levelId = String(filters.levelId || "").trim();
+  const search = normalizeText(filters.search);
+  const status = String(filters.enrollmentStatus || "ALL").toUpperCase();
+
+  return getFormationPortalSourceRows_()
+    .filter((enrollment) => {
+      if (normalizedOfferingId && String(enrollment?.offeringId || "").trim() !== normalizedOfferingId) {
+        return false;
+      }
+
+      if (levelId && String(enrollment?.levelId || "").trim() !== levelId) {
+        return false;
+      }
+
+      if (status !== "ALL" && String(enrollment?.status || "").trim().toUpperCase() !== status) {
+        return false;
+      }
+
+      const haystack = normalizeText([
+        enrollment?.personId,
+        enrollment?.personName,
+        enrollment?.personNumber,
+        enrollment?.personPhone,
+        enrollment?.levelName,
+        enrollment?.offeringName,
+        enrollment?.status
+      ].join(" "));
+
+      return !search || haystack.includes(search);
+    })
+    .sort((left, right) => String(left?.personName || "").localeCompare(String(right?.personName || "")));
+}
+
+async function getFormationPortalFreshRows_(processId, options = {}) {
+  const cleanProcessId = String(processId || "").trim();
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
+  let rows = [];
+
+  if (!cleanProcessId) {
+    return [];
+  }
+
+  try {
+    rows = await apiGet("formation.enrollments.list", {
+      processId: cleanProcessId,
+      skipSync: shouldSkipSync ? "1" : ""
+    });
+  } catch (error) {
+    if (isUnknownActionError_(error, "formation.enrollments.list")) {
+      throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Inscritos y portal");
+    }
+
+    if (isFormationPortalRepositoryMissingError_(error)) {
+      throw new ApiError(
+        "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+        "BACKEND_OUTDATED",
+        {
+          file: "V2_44_FormationPortalRepository.gs"
+        }
+      );
+    }
+
+    rows = [];
+  }
+
+  rows = Array.isArray(rows) ? rows : [];
+
+  if (rows.length) {
+    return rows;
+  }
+
+  return getFormationEnrollmentFallbackRows_(cleanProcessId);
+}
+
+async function getFormationJourneyFreshRows_(processId, options = {}) {
+  const cleanProcessId = String(processId || "").trim();
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
+  let rows = [];
+
+  if (!cleanProcessId) {
+    return [];
+  }
+
+  try {
+    rows = await apiGet("formation.enrollments.list", {
+      processId: cleanProcessId,
+      skipSync: shouldSkipSync ? "1" : ""
+    });
+  } catch (error) {
+    if (isUnknownActionError_(error, "formation.enrollments.list")) {
+      throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Camino Proceso de Formación");
+    }
+
+    if (isFormationPortalRepositoryMissingError_(error)) {
+      throw new ApiError(
+        "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+        "BACKEND_OUTDATED",
+        {
+          file: "V2_44_FormationPortalRepository.gs"
+        }
+      );
+    }
+
+    rows = [];
+  }
+
+  rows = Array.isArray(rows) ? rows : [];
+
+  if (rows.length) {
+    return rows;
+  }
+
+  return getFormationEnrollmentFallbackRows_(cleanProcessId);
+}
+
+async function loadFormationPortalWorkspaceFresh_(options = {}) {
+  ensureFormationWorkspaceState_();
+  const portalFilters = getFormationPortalFilters_();
+
+  await Promise.all([
+    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+      showLoading: false
+    }),
+    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  const selectedProcessId = String(
+    options.processId !== undefined
+      ? options.processId
+      : (portalFilters.processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
+  ).trim();
+
+  let effectiveProcessId = selectedProcessId;
+
+  portalFilters.processId = effectiveProcessId;
+
+  if (!effectiveProcessId) {
+    state.formationWorkspace.portal = {
+      processId: "",
+      rows: []
+    };
+    state.formationPortalOfferings = [];
+    state.loaded.formationWorkspacePortal = true;
+    state.cacheKeys.formationWorkspacePortal = "EMPTY";
+    return [];
+  }
+
+  await loadFormationPortalOfferingsList_(effectiveProcessId, "", {
+    force: Boolean(options.force),
+    showLoading: false
+  });
+
+  ensureFormationPortalSelection_({
+    preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
+  });
+
+  const cacheKey = `PROCESS::${effectiveProcessId}`;
+  if (
+    !options.force
+    && state.loaded.formationWorkspacePortal
+    && String(state.cacheKeys.formationWorkspacePortal || "") === cacheKey
+    && String(state.formationWorkspace.portal?.processId || "") === effectiveProcessId
+  ) {
+    return getFormationPortalSourceRows_();
+  }
+
+  let rows = await getFormationPortalFreshRows_(effectiveProcessId, options);
+
+  if (!rows.length) {
+    const fallback = await loadFormationProcessRosterFallback_(effectiveProcessId);
+    const fallbackProcessId = String(fallback?.processId || "").trim();
+    const fallbackRows = Array.isArray(fallback?.rows) ? fallback.rows : [];
+
+    if (fallbackProcessId && fallbackRows.length && fallbackProcessId !== effectiveProcessId) {
+      effectiveProcessId = fallbackProcessId;
+      portalFilters.processId = effectiveProcessId;
+      portalFilters.levelId = "";
+      portalFilters.offeringId = "";
+      state.filters.formationOps.processId = effectiveProcessId;
+      state.ui.selectedFormationOfferingId = "";
+      state.ui.lastFormationEnrolledOfferingId = "";
+
+      await loadFormationPortalOfferingsList_(effectiveProcessId, "", {
+        force: true,
+        showLoading: false
+      });
+
+      rows = fallbackRows;
+    }
+  }
+
+  state.formationWorkspace.portal = {
+    processId: effectiveProcessId,
+    rows
+  };
+  state.formationPortalRoster = rows.slice();
+  normalizeFormationPortalVisibleState_(rows, {
+    processId: effectiveProcessId,
+    preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
+  });
+  state.loaded.formationWorkspacePortal = true;
+  state.cacheKeys.formationWorkspacePortal = `PROCESS::${effectiveProcessId}`;
+  state.loaded.formationPortalRoster = true;
+  state.cacheKeys.formationPortalRoster = `PROCESS::${effectiveProcessId}`;
+  return rows;
+}
+
+async function loadFormationJourneyWorkspaceFresh_(options = {}) {
+  ensureFormationWorkspaceState_();
+  const journeyFilters = getFormationJourneyFilters_();
+
+  await Promise.all([
+    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+      showLoading: false
+    }),
+    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  const selectedProcessId = String(
+    options.processId !== undefined
+      ? options.processId
+      : (journeyFilters.processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
+  ).trim();
+
+  let effectiveProcessId = selectedProcessId;
+
+  journeyFilters.processId = effectiveProcessId;
+
+  if (!effectiveProcessId) {
+    state.formationWorkspace.journey = {
+      processId: "",
+      rows: []
+    };
+    state.loaded.formationWorkspaceJourney = true;
+    state.cacheKeys.formationWorkspaceJourney = "EMPTY";
+    state.formationProcessRoster = [];
+    state.loaded.formationProcessRoster = true;
+    state.cacheKeys.formationProcessRoster = "EMPTY";
+    state.ui.selectedFormationEnrollmentId = "";
+    return [];
+  }
+
+  const cacheKey = `PROCESS::${effectiveProcessId}`;
+  if (
+    !options.force
+    && state.loaded.formationWorkspaceJourney
+    && String(state.cacheKeys.formationWorkspaceJourney || "") === cacheKey
+    && String(state.formationWorkspace.journey?.processId || "") === effectiveProcessId
+  ) {
+    return getFormationJourneySourceRows_();
+  }
+
+  let rows = await getFormationJourneyFreshRows_(effectiveProcessId, options);
+
+  if (!rows.length) {
+    const fallback = await loadFormationProcessRosterFallback_(effectiveProcessId);
+    const fallbackProcessId = String(fallback?.processId || "").trim();
+    const fallbackRows = Array.isArray(fallback?.rows) ? fallback.rows : [];
+
+    if (fallbackProcessId && fallbackRows.length && fallbackProcessId !== effectiveProcessId) {
+      effectiveProcessId = fallbackProcessId;
+      journeyFilters.processId = effectiveProcessId;
+      journeyFilters.levelId = "";
+      state.filters.formationOps.processId = effectiveProcessId;
+      state.ui.selectedFormationEnrollmentId = "";
+      state.ui.selectedFormationPersonId = "";
+      rows = fallbackRows;
+    }
+  }
+
+  state.formationWorkspace.journey = {
+    processId: effectiveProcessId,
+    rows
+  };
+  state.formationProcessRoster = rows.slice();
+  normalizeFormationJourneyVisibleState_(rows, {
+    processId: effectiveProcessId
+  });
+  state.loaded.formationWorkspaceJourney = true;
+  state.cacheKeys.formationWorkspaceJourney = `PROCESS::${effectiveProcessId}`;
+  state.loaded.formationProcessRoster = true;
+  state.cacheKeys.formationProcessRoster = `PROCESS::${effectiveProcessId}`;
+  return rows;
+}
+
+function getAssignableFormationPortalOfferingsForPerson_(personId) {
   const cleanPersonId = String(personId || "").trim();
-
-  if (!cleanPersonId || !portal) {
-    return;
-  }
-
-  state.studentPortalByPerson[cleanPersonId] = portal;
-}
-
-function clearStudentPortalByPersonCache_(personId = "") {
-  const cleanPersonId = String(personId || "").trim();
+  const offerings = getFilteredFormationPortalOfferings_();
 
   if (!cleanPersonId) {
-    state.studentPortalByPerson = {};
-    return;
+    return offerings;
   }
 
-  delete state.studentPortalByPerson[cleanPersonId];
+  return offerings.filter((offering) => canAssignPersonToFormationOffering_(cleanPersonId, offering));
 }
 
-function applyStudentPortalSnapshot_(portal) {
-  const cleanPersonId = String(portal?.person?.id || "").trim();
+function getFormationRouteEnrollmentOfferingsForProcess_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  const portalOfferings = Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [];
+  const operationalOfferings = Array.isArray(state.formationOfferings) ? state.formationOfferings : [];
+  const sourceOfferings = portalOfferings.length ? portalOfferings : operationalOfferings;
+  const seenOfferings = new Set();
 
-  if (!cleanPersonId || !portal) {
-    return;
-  }
+  return sourceOfferings
+    .filter((offering) => {
+      const offeringId = String(offering?.id || "").trim();
+      const offeringProcessId = String(offering?.processId || "").trim();
+      const status = String(offering?.status || "ACTIVO").trim().toUpperCase();
 
-  state.studentPortal = portal;
-  state.loaded.studentPortal = true;
-  state.ui.selectedFormationPortalPersonId = cleanPersonId;
-  cacheStudentPortalByPerson_(cleanPersonId, portal);
-}
-
-function applyPortalAccountToStudentPortal_(personId, account) {
-  const cleanPersonId = String(personId || "").trim();
-
-  if (!cleanPersonId || !account) {
-    return;
-  }
-
-  if (String(state.studentPortal?.person?.id || "") === cleanPersonId) {
-    state.studentPortal = {
-      ...(state.studentPortal || {}),
-      account: {
-        ...(state.studentPortal?.account || {}),
-        ...account
+      if (!offeringId || seenOfferings.has(offeringId)) {
+        return false;
       }
-    };
-    cacheStudentPortalByPerson_(cleanPersonId, state.studentPortal);
-    return;
-  }
 
-  if (state.studentPortalByPerson[cleanPersonId]) {
-    state.studentPortalByPerson[cleanPersonId] = {
-      ...(state.studentPortalByPerson[cleanPersonId] || {}),
-      account: {
-        ...(state.studentPortalByPerson[cleanPersonId]?.account || {}),
-        ...account
+      if (cleanProcessId && offeringProcessId !== cleanProcessId) {
+        return false;
       }
-    };
-  }
-}
 
-function getFormationPortalDefaultOffering_() {
-  const processId = String(state.filters.formationOps.processId || "").trim();
-  const offerings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
-    .filter((item) => !processId || String(item?.processId || "").trim() === processId)
-    .slice()
+      if (status === "INACTIVO" || status === "CANCELADO") {
+        return false;
+      }
+
+      seenOfferings.add(offeringId);
+      return true;
+    })
     .sort((left, right) => {
-      const leftOrder = Number(left?.levelOrder || 0);
-      const rightOrder = Number(right?.levelOrder || 0);
+      const leftOrder = Number(left?.levelOrder || left?.structureOrder || left?.order || 0);
+      const rightOrder = Number(right?.levelOrder || right?.structureOrder || right?.order || 0);
 
       if (leftOrder !== rightOrder) {
         return leftOrder - rightOrder;
@@ -1041,8 +1969,268 @@ function getFormationPortalDefaultOffering_() {
 
       return String(left?.startDate || "").localeCompare(String(right?.startDate || ""));
     });
+}
 
-  return offerings[0] || null;
+function personHasFormationEnrollmentInProcess_(personId, processId) {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanProcessId = String(processId || "").trim();
+
+  if (!cleanPersonId || !cleanProcessId) {
+    return false;
+  }
+
+  return getFormationEnrollmentFallbackRows_(cleanProcessId).some((enrollment) => {
+    return String(enrollment?.personId || "").trim() === cleanPersonId;
+  });
+}
+
+function getRouteEncounterEnrollmentOfferingForPerson_(personId, processId) {
+  const cleanPersonId = String(personId || "").trim();
+  const cleanProcessId = String(processId || "").trim();
+  const offerings = getFormationRouteEnrollmentOfferingsForProcess_(cleanProcessId);
+
+  if (!cleanPersonId || !offerings.length) {
+    return null;
+  }
+
+  const eligibleOffering = offerings.find((offering) => canAssignPersonToFormationOffering_(cleanPersonId, offering));
+
+  if (eligibleOffering) {
+    return eligibleOffering;
+  }
+
+  // Ruta a Encuentro starts a person's Formation journey. If they are not yet
+  // enrolled in this process, stale UI filters must not block the first step.
+  if (!personHasFormationEnrollmentInProcess_(cleanPersonId, cleanProcessId)) {
+    return offerings[0] || null;
+  }
+
+  return null;
+}
+
+async function loadFormationPortalOfferingsList_(processId, levelId = "", options = {}) {
+  const cleanProcessId = String(processId || state.filters.formationOps.processId || "").trim();
+  const cleanLevelId = String(levelId || "").trim();
+  const cacheKey = `${cleanProcessId || "ALL"}::${cleanLevelId || "ALL"}`;
+
+  if (!options.force && state.loaded.formationPortalOfferings && String(state.cacheKeys.formationPortalOfferings || "") === cacheKey) {
+    return state.formationPortalOfferings;
+  }
+
+  const task = async () => {
+    const params = {};
+
+    if (cleanProcessId) {
+      params.processId = cleanProcessId;
+    }
+
+    if (cleanLevelId) {
+      params.levelId = cleanLevelId;
+    }
+
+    let offerings;
+
+    try {
+      offerings = await apiGet("formation.offerings.list", params);
+    } catch (error) {
+      if (isUnknownActionError_(error, "formation.offerings.list")) {
+        throw buildBackendRouteMissingError_("formation.offerings.list", "las rutas de Inscritos y portal");
+      }
+
+      if (isFormationPortalRepositoryMissingError_(error)) {
+        throw new ApiError(
+          "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+          "BACKEND_OUTDATED",
+          {
+            file: "V2_44_FormationPortalRepository.gs"
+          }
+        );
+      }
+
+      throw error;
+    }
+
+    state.formationPortalOfferings = Array.isArray(offerings) ? offerings : [];
+    state.loaded.formationPortalOfferings = true;
+    state.cacheKeys.formationPortalOfferings = cacheKey;
+    return state.formationPortalOfferings;
+  };
+
+  const sharedTask = () => runSharedLoad_(`formationPortalOfferings::${cacheKey}`, task);
+
+  if (options.showLoading === false) {
+    return sharedTask();
+  }
+
+  return withLoading(sharedTask, options.message || "Cargando pasos inscritos...");
+}
+
+async function loadFormationPortalWorkspaceData_(options = {}) {
+  await Promise.all([
+    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+      showLoading: false
+    }),
+    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+      showLoading: false
+    })
+  ]);
+
+  const preferredProcessId = String(
+    options.processId !== undefined
+      ? options.processId
+      : (state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || state.formationProcesses[0]?.id || "")
+  ).trim();
+  const preferredLevelId = String(
+    options.levelId !== undefined
+      ? options.levelId
+      : (state.filters.formationOps.levelId || "")
+  ).trim();
+  const preferredOfferingId = String(
+    options.offeringId !== undefined
+      ? options.offeringId
+      : (state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "")
+  ).trim();
+
+  state.filters.formationOps.processId = preferredProcessId;
+  state.filters.formationOps.levelId = preferredLevelId;
+  state.filters.formationOps.offeringId = preferredOfferingId;
+  state.ui.selectedFormationOfferingId = preferredOfferingId;
+
+  await loadFormationPortalOfferingsList_(preferredProcessId, preferredLevelId, {
+    force: options.force,
+    showLoading: false
+  });
+
+  ensureFormationPortalSelection_({
+    preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || preferredOfferingId
+  });
+
+  const selectedOffering = getSelectedFormationPortalOffering_();
+  let availableOfferings = getFilteredFormationPortalOfferings_();
+  const selectedOfferingId = String(selectedOffering?.id || "").trim();
+  const rosterCacheKey = `${preferredProcessId || "ALL"}::${preferredLevelId || "ALL"}::${selectedOfferingId || "PROCESS"}`;
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
+
+  if (!selectedOfferingId && !availableOfferings.length) {
+    state.formationPortalRoster = [];
+    state.loaded.formationPortalRoster = true;
+    state.cacheKeys.formationPortalRoster = rosterCacheKey;
+    return;
+  }
+
+  const task = async () => {
+    let enrollments = [];
+
+    try {
+      if (selectedOfferingId) {
+        enrollments = await apiGet("formation.enrollments.list", {
+          offeringId: selectedOfferingId,
+          skipSync: shouldSkipSync ? "1" : ""
+        });
+      }
+
+      if ((!Array.isArray(enrollments) || !enrollments.length) && preferredProcessId) {
+        if (preferredLevelId || !availableOfferings.length) {
+          state.filters.formationOps.levelId = "";
+          state.filters.formationOps.offeringId = "";
+          state.ui.selectedFormationOfferingId = "";
+          await loadFormationPortalOfferingsList_(preferredProcessId, "", {
+            force: true,
+            showLoading: false
+          });
+          availableOfferings = getFilteredFormationPortalOfferings_();
+        }
+
+        const processEnrollments = await apiGet("formation.enrollments.list", {
+          processId: preferredProcessId,
+          skipSync: shouldSkipSync ? "1" : ""
+        });
+        const normalizedProcessRows = Array.isArray(processEnrollments) ? processEnrollments : [];
+
+        const bestOfferingWithRows = availableOfferings.find((offering) => {
+          const offeringId = String(offering?.id || "").trim();
+          return offeringId && normalizedProcessRows.some((row) => String(row?.offeringId || "").trim() === offeringId);
+        }) || null;
+
+        if (bestOfferingWithRows?.id) {
+          state.filters.formationOps.levelId = String(bestOfferingWithRows.levelId || "").trim();
+          state.filters.formationOps.offeringId = String(bestOfferingWithRows.id || "").trim();
+          state.ui.selectedFormationOfferingId = String(bestOfferingWithRows.id || "").trim();
+          enrollments = normalizedProcessRows.filter((row) => {
+            return String(row?.offeringId || "").trim() === String(bestOfferingWithRows.id || "").trim();
+          });
+        } else {
+          enrollments = normalizedProcessRows;
+        }
+      }
+    } catch (error) {
+      if (isUnknownActionError_(error, "formation.enrollments.list")) {
+        throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de Inscritos y portal");
+      }
+
+      if (isFormationPortalRepositoryMissingError_(error)) {
+        throw new ApiError(
+          "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+          "BACKEND_OUTDATED",
+          {
+            file: "V2_44_FormationPortalRepository.gs"
+          }
+        );
+      }
+
+      throw error;
+    }
+
+    state.formationPortalRoster = Array.isArray(enrollments) ? enrollments : [];
+    state.loaded.formationPortalRoster = true;
+    state.cacheKeys.formationPortalRoster = rosterCacheKey;
+
+    const effectiveOffering = getSelectedFormationPortalOffering_();
+
+    if (Number(effectiveOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
+      Promise.resolve()
+        .then(() => loadPeopleDirectory({
+          showLoading: false
+        }))
+        .then(() => {
+          if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+            renderApp();
+          }
+        })
+        .catch(() => {});
+    }
+  };
+
+  if (
+    !options.force
+    && state.loaded.formationPortalRoster
+    && String(state.cacheKeys.formationPortalRoster || "") === rosterCacheKey
+  ) {
+    const effectiveOffering = getSelectedFormationPortalOffering_();
+
+    if (Number(effectiveOffering?.levelOrder || 0) <= 1 && !state.loaded.peopleDirectory) {
+      Promise.resolve()
+        .then(() => loadPeopleDirectory({
+          showLoading: false
+        }))
+        .then(() => {
+          if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+            renderApp();
+          }
+        })
+        .catch(() => {});
+    }
+    return;
+  }
+
+  const sharedTask = () => runSharedLoad_(`formationPortalRoster::${rosterCacheKey}`, task);
+
+  if (options.showLoading === false) {
+    await sharedTask();
+    return;
+  }
+
+  await withLoading(sharedTask, options.message || "Cargando inscritos del paso...");
 }
 
 function getPreferredActiveFormationProcess_() {
@@ -1053,11 +2241,158 @@ function getPreferredActiveFormationProcess_() {
     || null;
 }
 
+function ensureFormationWorkspaceState_() {
+  if (!state.formationWorkspace || typeof state.formationWorkspace !== "object") {
+    state.formationWorkspace = {
+      portal: {
+        processId: "",
+        rows: []
+      },
+      journey: {
+        processId: "",
+        rows: []
+      }
+    };
+    return;
+  }
+
+  if (!state.formationWorkspace.portal || typeof state.formationWorkspace.portal !== "object") {
+    state.formationWorkspace.portal = {
+      processId: "",
+      rows: []
+    };
+  }
+
+  if (!state.formationWorkspace.journey || typeof state.formationWorkspace.journey !== "object") {
+    state.formationWorkspace.journey = {
+      processId: "",
+      rows: []
+    };
+  }
+}
+
+function invalidateFormationWorkspaceCache_(scope = "both") {
+  ensureFormationWorkspaceState_();
+  const cleanScope = String(scope || "both").trim().toLowerCase();
+
+  if (cleanScope === "portal" || cleanScope === "both") {
+    state.formationWorkspace.portal = {
+      processId: "",
+      rows: []
+    };
+    state.loaded.formationWorkspacePortal = false;
+    state.cacheKeys.formationWorkspacePortal = "";
+    state.loaded.formationPortalRoster = false;
+    state.cacheKeys.formationPortalRoster = "";
+    state.formationPortalRoster = [];
+  }
+
+  if (cleanScope === "journey" || cleanScope === "both") {
+    state.formationWorkspace.journey = {
+      processId: "",
+      rows: []
+    };
+    state.loaded.formationWorkspaceJourney = false;
+    state.cacheKeys.formationWorkspaceJourney = "";
+    state.loaded.formationProcessRoster = false;
+    state.cacheKeys.formationProcessRoster = "";
+    state.formationProcessRoster = [];
+  }
+}
+
+function getFormationPortalSourceRows_() {
+  ensureFormationWorkspaceState_();
+  const workspaceRows = Array.isArray(state.formationWorkspace.portal?.rows)
+    ? state.formationWorkspace.portal.rows
+    : [];
+
+  if (workspaceRows.length) {
+    return workspaceRows;
+  }
+
+  if (Array.isArray(state.formationPortalRoster) && state.formationPortalRoster.length) {
+    return state.formationPortalRoster;
+  }
+
+  return getFormationEnrollmentFallbackRows_(
+    getFormationPortalFilters_().processId || state.filters.formationOps.processId || ""
+  );
+}
+
+function getFormationJourneySourceRows_() {
+  ensureFormationWorkspaceState_();
+  const workspaceRows = Array.isArray(state.formationWorkspace.journey?.rows)
+    ? state.formationWorkspace.journey.rows
+    : [];
+
+  if (workspaceRows.length) {
+    return workspaceRows;
+  }
+
+  if (Array.isArray(state.formationProcessRoster) && state.formationProcessRoster.length) {
+    return state.formationProcessRoster;
+  }
+
+  return getFormationEnrollmentFallbackRows_(
+    getFormationJourneyFilters_().processId || state.filters.formationOps.processId || ""
+  );
+}
+
+function getFormationEnrollmentFallbackRows_(processId = "") {
+  const cleanProcessId = String(processId || "").trim();
+  const rows = Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [];
+
+  return rows
+    .filter((row) => {
+      return !cleanProcessId || String(row?.processId || "").trim() === cleanProcessId;
+    })
+    .slice()
+    .sort((left, right) => {
+      const leftOrder = Number(left?.levelOrder || 0);
+      const rightOrder = Number(right?.levelOrder || 0);
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return String(right?.enrolledAt || right?.startDate || "").localeCompare(
+        String(left?.enrolledAt || left?.startDate || "")
+      );
+    });
+}
+
 function ensureFormationPortalDefaultOffering_(options = {}) {
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "").trim();
+  const lastEnrolledOfferingId = String(state.ui.lastFormationEnrolledOfferingId || "").trim();
+
+  if (currentOfferingId) {
+    const currentOfferingExists = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).some((offering) => {
+      return String(offering?.id || "").trim() === currentOfferingId;
+    });
+
+    if (currentOfferingExists) {
+      return false;
+    }
+  }
 
   if (currentOfferingId && !options.force) {
     return false;
+  }
+
+  if (lastEnrolledOfferingId) {
+    const lastEnrolledOffering = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).find((offering) => {
+      return String(offering?.id || "").trim() === lastEnrolledOfferingId;
+    }) || null;
+
+    if (lastEnrolledOffering?.id) {
+      state.filters.formationOps.levelId = String(lastEnrolledOffering.levelId || "");
+      state.filters.formationOps.offeringId = String(lastEnrolledOffering.id || "");
+      state.ui.selectedFormationOfferingId = String(lastEnrolledOffering.id || "");
+      if (!state.filters.formationOps.sessionNumber) {
+        state.filters.formationOps.sessionNumber = "1";
+      }
+      return true;
+    }
   }
 
   const preferred = getFormationPortalDefaultOffering_();
@@ -1954,9 +3289,11 @@ function getPreviousFormationOffering_(offering) {
 function getLatestFormationEnrollmentByPersonLevel_(personId, levelId) {
   const cleanPersonId = String(personId || "").trim();
   const cleanLevelId = String(levelId || "").trim();
-  const sourceRows = Array.isArray(state.formationProcessRoster) && state.formationProcessRoster.length
-    ? state.formationProcessRoster
-    : state.formationEnrollments;
+  const sourceRows = getFormationJourneySourceRows_().length
+    ? getFormationJourneySourceRows_()
+    : (getFormationPortalSourceRows_().length
+      ? getFormationPortalSourceRows_()
+      : (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []));
 
   if (!cleanPersonId || !cleanLevelId) {
     return null;
@@ -2136,6 +3473,23 @@ function resolveFormationNextLevelFromLoadedData_(currentLevelName = "", current
   }
 
   return levels[currentIndex] || levels[0];
+}
+
+function resolveFormationSequentialNextLevelName_(currentLevelName = "") {
+  const levels = getFormationSortedLevels_();
+
+  if (!levels.length) {
+    return "Sin siguiente paso";
+  }
+
+  const normalizedLevelName = normalizeText(currentLevelName);
+  const currentIndex = levels.findIndex((level) => normalizeText(level.name) === normalizedLevelName);
+
+  if (currentIndex === -1) {
+    return levels[0]?.name || "Sin siguiente paso";
+  }
+
+  return levels[currentIndex + 1]?.name || "Ruta completada";
 }
 
 function buildFormationProfileFromLoadedData_(personId, seasonId = "") {
@@ -2333,6 +3687,99 @@ function applyFormationRecordToLocalState_(record, extra = {}) {
   } else if (extra.portalAccount) {
     clearFormationProfileCache_(personId, seasonId);
   }
+}
+
+function applyFormationEnrollmentToLocalState_(enrollment) {
+  if (!enrollment?.id) {
+    return;
+  }
+
+  const enrollmentId = String(enrollment.id || "").trim();
+  const nextRows = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter((item) => {
+    return String(item?.id || "").trim() !== enrollmentId;
+  });
+
+  nextRows.unshift(enrollment);
+  state.formationEnrollments = nextRows.sort((left, right) => {
+    const leftOrder = Number(left?.levelOrder || 0);
+    const rightOrder = Number(right?.levelOrder || 0);
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return String(right?.enrolledAt || "").localeCompare(String(left?.enrolledAt || ""));
+  });
+  state.loaded.formationEnrollments = true;
+}
+
+function markFormationEncounterEnrollmentLocally_(personId, enrollment = null, record = null) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  const registeredAt = String(
+    record?.encounterRegisteredAt
+    || enrollment?.registeredAt
+    || enrollment?.enrolledAt
+    || new Date().toISOString()
+  ).trim();
+  const nextLevelName = String(
+    enrollment?.offeringName
+    || enrollment?.levelName
+    || record?.levelName
+    || "Encuentro"
+  ).trim();
+  const nextStatus = String(
+    record?.status
+    || enrollment?.status
+    || "EN_CURSO"
+  ).trim();
+
+  state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).map((candidate) => {
+    if (String(candidate?.personId || "").trim() !== cleanPersonId) {
+      return candidate;
+    }
+
+    return {
+      ...candidate,
+      formationStatus: nextStatus,
+      currentLevel: nextLevelName,
+      encounterRegisteredAt: registeredAt
+    };
+  });
+}
+
+function setFormationRouteEnrollmentProgress_(personId, percent, message = "", detail = "") {
+  state.ui.formationRouteEnrollmentBusyPersonId = String(personId || "").trim();
+  state.ui.formationRouteEnrollmentProgressPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  state.ui.formationRouteEnrollmentProgressMessage = String(message || "").trim();
+  state.ui.formationRouteEnrollmentProgressDetail = String(detail || "").trim();
+}
+
+function clearFormationRouteEnrollmentProgress_() {
+  state.ui.formationRouteEnrollmentBusyPersonId = "";
+  state.ui.formationRouteEnrollmentProgressPercent = 0;
+  state.ui.formationRouteEnrollmentProgressMessage = "";
+  state.ui.formationRouteEnrollmentProgressDetail = "";
+}
+
+function setFormationRouteBulkProgress_(action, percent, message = "", detail = "") {
+  state.ui.formationRouteBulkBusy = true;
+  state.ui.formationRouteBulkAction = String(action || "").trim();
+  state.ui.formationRouteBulkProgressPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  state.ui.formationRouteBulkProgressMessage = String(message || "").trim();
+  state.ui.formationRouteBulkProgressDetail = String(detail || "").trim();
+}
+
+function clearFormationRouteBulkProgress_() {
+  state.ui.formationRouteBulkBusy = false;
+  state.ui.formationRouteBulkAction = "";
+  state.ui.formationRouteBulkProgressPercent = 0;
+  state.ui.formationRouteBulkProgressMessage = "";
+  state.ui.formationRouteBulkProgressDetail = "";
 }
 
 function applyPortalAccountToFormationProfile_(personId, account, options = {}) {
@@ -2636,6 +4083,147 @@ function setDashboardHydrationState_(enabled, message = "") {
     : "";
 }
 
+function setAttendanceFormationHydrationState_(enabled, message = "") {
+  state.ui.attendanceFormationHydrating = Boolean(enabled);
+  state.ui.attendanceFormationHydratingMessage = enabled
+    ? (message || "Preparando selectores de asistencia...")
+    : "";
+}
+
+function resetFormationManualAttendanceDraft_() {
+  state.ui.formationAttendanceManualDraft = {};
+}
+
+function getFormationManualAttendanceDraft_() {
+  if (!state.ui.formationAttendanceManualDraft || typeof state.ui.formationAttendanceManualDraft !== "object") {
+    state.ui.formationAttendanceManualDraft = {};
+  }
+
+  return state.ui.formationAttendanceManualDraft;
+}
+
+function getFormationManualAttendanceDraftCount_() {
+  return Object.keys(getFormationManualAttendanceDraft_()).length;
+}
+
+function getFormationManualAttendanceDraftValue_(personId, fallbackValue = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return String(fallbackValue || "").trim().toUpperCase();
+  }
+
+  const draft = getFormationManualAttendanceDraft_();
+  const entry = draft[cleanPersonId];
+
+  if (!entry) {
+    return String(fallbackValue || "").trim().toUpperCase();
+  }
+
+  return String(entry.value || "").trim().toUpperCase();
+}
+
+function setFormationManualAttendanceDraftValue_(personId, nextValue, currentAttendance = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return false;
+  }
+
+  const normalizedNextValue = String(nextValue || "").trim().toUpperCase();
+  const normalizedCurrentAttendance = String(currentAttendance || "").trim().toUpperCase();
+  const draft = {
+    ...getFormationManualAttendanceDraft_()
+  };
+
+  if (normalizedNextValue === normalizedCurrentAttendance || !normalizedNextValue) {
+    if (draft[cleanPersonId]) {
+      delete draft[cleanPersonId];
+      state.ui.formationAttendanceManualDraft = draft;
+      return true;
+    }
+
+    return false;
+  }
+
+  draft[cleanPersonId] = {
+    value: normalizedNextValue,
+    currentAttendance: normalizedCurrentAttendance
+  };
+  state.ui.formationAttendanceManualDraft = draft;
+  return true;
+}
+
+function applyBulkFormationManualAttendanceDraft_(nextValue) {
+  const normalizedNextValue = String(nextValue || "").trim().toUpperCase();
+
+  if (normalizedNextValue !== "SI" && normalizedNextValue !== "NO") {
+    return 0;
+  }
+
+  const participants = Array.isArray(state.formationAttendanceContext?.participants)
+    ? state.formationAttendanceContext.participants
+    : [];
+  let changed = 0;
+
+  participants.forEach((participant) => {
+    const personId = String(participant?.personId || "").trim();
+    const currentAttendance = String(participant?.selectedSessionAttendance || "").trim().toUpperCase();
+
+    if (personId && setFormationManualAttendanceDraftValue_(personId, normalizedNextValue, currentAttendance)) {
+      changed += 1;
+    }
+  });
+
+  return changed;
+}
+
+function hydrateFormationManualAttendanceInBackground_(offeringId, options = {}) {
+  const cleanOfferingId = String(offeringId || "").trim();
+
+  if (!cleanOfferingId) {
+    resetFormationAttendanceParticipantsState_();
+    setAttendanceFormationHydrationState_(false);
+    renderApp();
+    return;
+  }
+
+  const token = ++formationManualAttendanceHydrationToken;
+  const sessionNumber = String(
+    options.sessionNumber !== undefined
+      ? options.sessionNumber
+      : (state.filters.formationOps.sessionNumber || "1")
+  ).trim() || "1";
+
+  resetFormationAttendanceParticipantsState_();
+  setAttendanceFormationHydrationState_(true, options.message || "Cargando inscritos del paso...");
+  renderApp();
+
+  void loadFormationAttendanceContext_(cleanOfferingId, {
+    force: options.force !== false,
+    showLoading: false,
+    autoActivate: false,
+    sessionNumber
+  })
+    .then(() => {
+      if (token !== formationManualAttendanceHydrationToken) {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+    })
+    .catch((error) => {
+      if (token !== formationManualAttendanceHydrationToken) {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+      handleError(error);
+    });
+}
+
 function scheduleBackgroundWarmers_() {
   if (!state.user) {
     return;
@@ -2772,6 +4360,40 @@ function loadViewDataInBackground_(view) {
     });
 }
 
+function hydrateAttendanceFormationInBackground_(options = {}) {
+  const token = ++state.viewLoadToken;
+  const targetView = state.currentView;
+
+  setAttendanceFormationHydrationState_(true, options.message || "Preparando selectores de asistencia...");
+  renderApp();
+
+  void loadFormationAttendanceSectionData_({
+    force: options.force,
+    showLoading: false,
+    processId: options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || ""),
+    sessionNumber: options.sessionNumber !== undefined ? options.sessionNumber : (state.filters.formationOps.sessionNumber || "1"),
+    captureMode: options.captureMode !== undefined ? options.captureMode : resolveFormationAttendanceMode_(),
+    skipParticipants: options.skipParticipants !== false
+  })
+    .then(() => {
+      if (!state.user || token !== state.viewLoadToken || state.currentView !== targetView || getActiveAttendanceCenterSection_() !== "formation") {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+    })
+    .catch((error) => {
+      if (token !== state.viewLoadToken || state.currentView !== targetView || getActiveAttendanceCenterSection_() !== "formation") {
+        return;
+      }
+
+      setAttendanceFormationHydrationState_(false);
+      renderApp();
+      handleError(error);
+    });
+}
+
 function renderApp() {
   if (!state.user) {
     root.innerHTML = `
@@ -2860,10 +4482,11 @@ function renderApp() {
 
         ${renderModuleTabs_(currentModule)}
 
+        ${renderLeaderScopeBanner_()}
+
         ${renderCurrentView()}
       </main>
 
-      ${renderMobileTabBar_()}
     </div>
 
     ${renderSystemConfirmationDialog_()}
@@ -2945,23 +4568,37 @@ function renderAdminLeaderAccountModal_() {
           </div>
         </div>
 
-        <div class="leader-account-modal-detail">
-          <div class="leader-account-modal-line">
-            <strong>Estado de la cuenta</strong>
-            <span>${escapeHtml(leader.synced ? (leader.user?.status || "Activa") : "Pendiente de creación")}</span>
-          </div>
-          <div class="leader-account-modal-line">
-            <strong>Permisos</strong>
-            <span>${escapeHtml(leader.user?.permissions?.map((permission) => getPermissionLabel_(permission)).join(" / ") || "participants / attendance")}</span>
-          </div>
-          <div class="leader-account-modal-line">
-            <strong>Grupo(s) visibles</strong>
-            <span>${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
-          </div>
-        </div>
+        ${(() => {
+          const preview = getAdminLeaderAccessPreview_(leader.email);
+          return `
+            <div class="leader-account-modal-detail">
+              <div class="leader-account-modal-line">
+                <strong>Usuario</strong>
+                <span>${escapeHtml(leader.email || "Sin usuario")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Contraseña soporte</strong>
+                <span>${escapeHtml(preview?.temporaryPassword || "Genera una nueva contraseña temporal para poder verla")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Estado de la cuenta</strong>
+                <span>${escapeHtml(leader.synced ? (leader.user?.status || "Activa") : "Pendiente de creación")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Permisos</strong>
+                <span>${escapeHtml(leader.user?.permissions?.map((permission) => getPermissionLabel_(permission)).join(" / ") || "participants / attendance")}</span>
+              </div>
+              <div class="leader-account-modal-line">
+                <strong>Grupo(s) visibles</strong>
+                <span>${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
+              </div>
+            </div>
+          `;
+        })()}
 
         <div class="actions-row">
           <button class="btn btn-ghost" data-action="close-admin-leader-account-modal">Cerrar</button>
+          <button class="btn btn-secondary" data-action="generate-leader-support-password" data-user-email="${escapeHtml(leader.email)}">Generar contraseña soporte</button>
           <button class="btn btn-secondary" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>Preparar WhatsApp</button>
           <button class="btn btn-primary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}" ${leader.telegramReady ? "" : "disabled"}>Enviar acceso por Telegram</button>
         </div>
@@ -3232,7 +4869,7 @@ function getConnectionEncounterModalState_() {
     || state.formationProcesses[0]?.id
     || ""
   ).trim();
-  const eligibleOfferings = getAssignableFormationOfferings_(candidate?.personId || "")
+  const eligibleOfferings = getAssignableFormationPortalOfferingsForPerson_(candidate?.personId || "")
     .filter((offering) => !processId || String(offering?.processId || "") === processId);
   const selectedProcess = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((process) => {
     return String(process?.id || "") === processId;
@@ -3815,6 +5452,16 @@ async function confirmSystemAction_() {
     return;
   }
 
+  if (confirmation.kind === "scrap-reset-formation-process") {
+    await executeScrapResetFormationProcess_(confirmation.payload.processId);
+    return;
+  }
+
+  if (confirmation.kind === "scrap-delete-encounter-route") {
+    await executeScrapDeleteEncounterRoute_(confirmation.payload.seasonId, confirmation.payload.groupId);
+    return;
+  }
+
   if (confirmation.kind === "scrap-delete-person") {
     await executeScrapDeletePerson_(confirmation.payload.personId, confirmation.payload.originView);
     return;
@@ -3827,6 +5474,11 @@ async function confirmSystemAction_() {
 
   if (confirmation.kind === "delete-formation-offering") {
     await executeDeleteFormationOffering_(confirmation.payload.offeringId);
+    return;
+  }
+
+  if (confirmation.kind === "formation-admin-remove-enrollment") {
+    await executeFormationAdminRemoveEnrollment_(confirmation.payload.enrollmentId, confirmation.payload.personId);
   }
 }
 
@@ -4177,14 +5829,21 @@ function renderStudentPortalLoginView_() {
 
 function buildStudentPortalContext_(portal) {
   const person = portal?.person || {};
+  const profile = portal?.profile || {};
   const currentLevel = portal?.currentLevel || null;
   const nextLevel = portal?.nextLevel || null;
   const levels = Array.isArray(portal?.levels) ? portal.levels : [];
   const records = Array.isArray(portal?.records) ? portal.records : [];
   const currentRecord = getStudentPortalCurrentRecord_(portal, currentLevel);
   const supportUrl = getStudentPortalSupportUrl_(person, currentLevel, currentRecord);
-  const activeTab = state.ui.studentPortalTab || "home";
-  const profileTab = state.ui.studentPortalProfileTab || "summary";
+  const activeTab = state.ui.studentPortalTab || "profile";
+  const connectionSeasons = Array.isArray(portal?.connectionSeasons) ? portal.connectionSeasons : [];
+  const selectedConnectionSeasonId = String(
+    state.ui.studentPortalConnectionSeasonId
+    || connectionSeasons[0]?.seasonId
+    || ""
+  ).trim();
+  const selectedConnectionSeason = connectionSeasons.find((item) => String(item?.seasonId || "").trim() === selectedConnectionSeasonId) || connectionSeasons[0] || null;
   const attendance = currentLevel?.attendance || {
     attendedSessions: 0,
     capturedSessions: 0,
@@ -4196,8 +5855,7 @@ function buildStudentPortalContext_(portal) {
   const routePercent = totalLevels ? Math.round((approvedLevels / totalLevels) * 100) : 0;
   const attendancePercent = getStudentPortalAttendancePercent_(attendance);
   const progressPercent = getStudentPortalVisualProgress_(routePercent, attendancePercent, currentLevel);
-  const examApproved = Boolean(currentLevel?.enrollment?.examApproved);
-  const assistantName = person.nombreCompleto || state.user?.name || "Asistente";
+  const assistantName = profile.nombreCompleto || person.nombreCompleto || state.user?.name || "Asistente";
   const assistantFirstName = getStudentPortalShortName_(assistantName);
   const currentStageName = currentLevel?.levelName || portal?.summary?.currentLevelName || "Tu proceso";
   const nextStageName = nextLevel?.levelName || portal?.summary?.nextLevelName || "Por definir";
@@ -4205,16 +5863,32 @@ function buildStudentPortalContext_(portal) {
   const leaderName = currentLevel?.offering?.leaderName || currentRecord?.leaderName || "Lider pendiente";
   const leaderPhone = currentLevel?.offering?.leaderPhone || currentRecord?.leaderPhone || "";
   const levelDescription = getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, currentStageName);
-  const materials = buildStudentPortalMaterials_(portal, currentLevel, currentRecord);
   const sessionItems = buildStudentPortalSessionTimeline_(currentLevel, attendance);
-  const nextSession = getStudentPortalNextSession_(currentLevel, sessionItems, attendance);
-  const profileMessage = currentLevel?.status === "ACREDITADO"
-    ? `Bien hecho, ${assistantFirstName}`
-    : `Vamos bien, ${assistantFirstName}`;
+  const approvedLevelsList = levels.filter((item) => String(item?.status || "").trim().toUpperCase() === "ACREDITADO");
+  const currentLevelCard = currentLevel
+    ? levels.find((item) => String(item?.levelId || "") === String(currentLevel.levelId || "")) || currentLevel
+    : null;
+  const nextLevelCard = nextLevel
+    ? levels.find((item) => String(item?.levelId || "") === String(nextLevel.levelId || "")) || nextLevel
+    : null;
+  const formationVisibleLevels = [];
+
+  approvedLevelsList.forEach((item) => {
+    formationVisibleLevels.push(item);
+  });
+
+  if (currentLevelCard && !formationVisibleLevels.some((item) => String(item?.levelId || "") === String(currentLevelCard?.levelId || ""))) {
+    formationVisibleLevels.push(currentLevelCard);
+  }
+
+  if (nextLevelCard && !formationVisibleLevels.some((item) => String(item?.levelId || "") === String(nextLevelCard?.levelId || ""))) {
+    formationVisibleLevels.push(nextLevelCard);
+  }
 
   return {
     portal,
     person,
+    profile,
     currentLevel,
     nextLevel,
     levels,
@@ -4222,12 +5896,13 @@ function buildStudentPortalContext_(portal) {
     currentRecord,
     supportUrl,
     activeTab,
-    profileTab,
+    connectionSeasons,
+    selectedConnectionSeasonId,
+    selectedConnectionSeason,
     attendance,
     attendancePercent,
     routePercent,
     progressPercent,
-    examApproved,
     assistantName,
     assistantFirstName,
     currentStageName,
@@ -4236,16 +5911,17 @@ function buildStudentPortalContext_(portal) {
     leaderName,
     leaderPhone,
     levelDescription,
-    materials,
     sessionItems,
-    nextSession,
-    profileMessage
+    approvedLevelsList,
+    currentLevelCard,
+    nextLevelCard,
+    formationVisibleLevels
   };
 }
 
 function renderStudentPortalScreenContent_(portalContext) {
   const portal = portalContext?.portal || null;
-  const activeTab = portalContext?.activeTab || "home";
+  const activeTab = portalContext?.activeTab || "profile";
 
   if (!portal) {
     return `
@@ -4257,15 +5933,15 @@ function renderStudentPortalScreenContent_(portalContext) {
     `;
   }
 
-  if (activeTab === "path") {
-    return renderStudentPortalPathScreen_(portalContext);
+  if (activeTab === "connection") {
+    return renderStudentPortalConnectionScreen_(portalContext);
   }
 
-  if (activeTab === "profile") {
-    return renderStudentPortalProfileScreen_(portalContext);
+  if (activeTab === "formation") {
+    return renderStudentPortalFormationScreen_(portalContext);
   }
 
-  return renderStudentPortalHomeScreen_(portalContext);
+  return renderStudentPortalProfileHomeScreen_(portalContext);
 }
 
 function renderStudentPortalView_() {
@@ -4273,7 +5949,7 @@ function renderStudentPortalView_() {
   const portal = state.studentPortal;
   const portalContext = buildStudentPortalContext_(portal);
   const screenContent = renderStudentPortalScreenContent_(portalContext);
-  const activeTab = portalContext.activeTab || "home";
+  const activeTab = portalContext.activeTab || "profile";
 
   return `
     <div class="student-portal-shell student-portal-shell-app">
@@ -4307,7 +5983,6 @@ function renderStudentPortalView_() {
                 ${screenContent}
               </main>
 
-              ${renderStudentPortalBottomNav_(activeTab)}
             </div>
           </div>
         </div>
@@ -4319,7 +5994,7 @@ function renderStudentPortalView_() {
 function renderAdminFormationStudentPortalPreview_(portal) {
   const portalContext = buildStudentPortalContext_(portal);
   const screenContent = renderStudentPortalScreenContent_(portalContext);
-  const activeTab = portalContext.activeTab || "home";
+  const activeTab = portalContext.activeTab || "profile";
 
   return `
     <div style="margin-top: 18px; display: flex; justify-content: center;">
@@ -4353,7 +6028,6 @@ function renderAdminFormationStudentPortalPreview_(portal) {
               ${screenContent}
             </main>
 
-            ${renderStudentPortalBottomNav_(activeTab)}
           </div>
         </div>
       </div>
@@ -4362,22 +6036,14 @@ function renderAdminFormationStudentPortalPreview_(portal) {
 }
 
 function renderStudentPortalTopBar_(context) {
-  const activeTab = context?.activeTab || "home";
-  const showBack = activeTab !== "home";
-  const menuOpen = !showBack && Boolean(state.ui.studentPortalMenuOpen);
+  const menuOpen = Boolean(state.ui.studentPortalMenuOpen);
 
   return `
     <div class="student-portal-topbar-shell ${menuOpen ? "is-menu-open" : ""}">
       <header class="student-portal-topbar">
-        ${showBack ? `
-          <button class="student-portal-topbar-icon" type="button" data-action="set-student-portal-tab" data-tab="home" aria-label="Volver a inicio">
-            ${renderStudentPortalIcon_("back")}
-          </button>
-        ` : `
-          <button class="student-portal-topbar-icon ${menuOpen ? "is-active" : ""}" type="button" data-action="toggle-student-portal-menu" aria-label="${menuOpen ? "Cerrar menu" : "Abrir menu"}" aria-expanded="${menuOpen ? "true" : "false"}">
-            ${renderStudentPortalIcon_("menu")}
-          </button>
-        `}
+        <button class="student-portal-topbar-icon ${menuOpen ? "is-active" : ""}" type="button" data-action="toggle-student-portal-menu" aria-label="${menuOpen ? "Cerrar menu" : "Abrir menu"}" aria-expanded="${menuOpen ? "true" : "false"}">
+          ${renderStudentPortalIcon_("menu")}
+        </button>
 
         <img class="brand-logo student-portal-topbar-logo" src="assets/logo-fuertes.png" alt="Fuertes">
 
@@ -4406,7 +6072,7 @@ function getStudentPortalDeviceTimeLabel_() {
 }
 
 function renderStudentPortalQuickMenu_(context) {
-  const activeTab = context?.activeTab || "home";
+  const activeTab = context?.activeTab || "profile";
   const assistantFirstName = context?.assistantFirstName || "Asistente";
   const assistantName = context?.assistantName || assistantFirstName;
   const assistantInitials = getStudentPortalLeaderInitials_(assistantName);
@@ -4425,9 +6091,9 @@ function renderStudentPortalQuickMenu_(context) {
   const routePercent = Math.max(0, Math.min(100, Number(context?.routePercent || 0)));
   const attendancePercent = Math.max(0, Math.min(100, Number(context?.attendancePercent || 0)));
   const items = [
-    { id: "home", label: "Inicio", note: "Resumen general", icon: "home" },
-    { id: "path", label: "Mi camino", note: "Ruta de formación", icon: "path" },
-    { id: "profile", label: "Mi perfil", note: "Asistencia y evaluación", icon: "profile" }
+    { id: "profile", label: "Perfil", note: "Tus datos y ministerios", icon: "profile" },
+    { id: "connection", label: "Grupos de Conexión", note: "Temporadas, grupo y asistencias", icon: "team" },
+    { id: "formation", label: "Proceso de Formación", note: "Pasos aprobados, en curso y siguiente", icon: "growth" }
   ];
 
   return `
@@ -4446,7 +6112,7 @@ function renderStudentPortalQuickMenu_(context) {
         <div class="student-portal-quick-menu-profile">
           <div class="student-portal-quick-menu-avatar">${escapeHtml(assistantInitials)}</div>
           <div class="student-portal-quick-menu-profile-copy">
-            <small>Tu proceso de formación</small>
+            <small>Portal del participante</small>
             <strong>${escapeHtml(assistantName)}</strong>
             <span>${escapeHtml(portalUsername)}</span>
           </div>
@@ -4531,104 +6197,203 @@ function renderStudentPortalQuickMenu_(context) {
   `;
 }
 
-function renderStudentPortalBottomNav_(activeTab) {
-  const items = [
-    { id: "home", label: "Inicio", icon: "home" },
-    { id: "path", label: "Mi camino", icon: "path" },
-    { id: "profile", label: "Perfil", icon: "profile" }
-  ];
+function renderStudentPortalProfileHomeScreen_(context) {
+  const profile = context?.profile || {};
+  const supportUrl = context?.supportUrl || "";
+  const ministrySecondary = Array.isArray(profile?.ministeriosSecundarios) && profile.ministeriosSecundarios.length
+    ? profile.ministeriosSecundarios
+    : [];
+  const groupName = profile?.grupoActualNombre || "Sin grupo asignado";
 
   return `
-    <nav class="student-portal-bottom-nav" aria-label="Navegacion del portal del asistente">
-      ${items.map((item) => `
-        <button
-          class="student-portal-bottom-nav-item ${activeTab === item.id ? "is-active" : ""}"
-          type="button"
-          data-action="set-student-portal-tab"
-          data-tab="${escapeHtml(item.id)}"
-        >
-          <span class="student-portal-bottom-nav-icon">${renderStudentPortalIcon_(item.icon)}</span>
-          <span>${escapeHtml(item.label)}</span>
-        </button>
-      `).join("")}
-    </nav>
-  `;
-}
-
-function renderStudentPortalHomeScreen_(context) {
-  const {
-    assistantFirstName,
-    currentLevel,
-    currentStageName,
-    attendance,
-    attendancePercent,
-    leaderName,
-    levels,
-    supportUrl
-  } = context;
-  const currentStatus = String(currentLevel?.status || "BLOQUEADO").trim().toUpperCase();
-  const visibleLevels = getStudentPortalVisibleLevels_(
-    levels,
-    currentLevel?.levelId || "",
-    context.nextLevel?.levelId || ""
-  );
-
-  return `
-    <section class="student-portal-screen student-portal-screen-home">
-      <div class="student-portal-greeting">
-        <h2>Hola, ${escapeHtml(assistantFirstName)}!</h2>
-        <p>Vamos juntos en tu proceso de formacion.</p>
-      </div>
-
-      <article class="student-portal-home-card student-portal-stage-card">
-        <div class="student-portal-stage-card-head">
+    <section class="student-portal-screen student-portal-screen-profile-home">
+      <article class="student-portal-profile-summary-card">
+        <div class="student-portal-profile-summary-head">
           <div>
-            <span class="status-chip warning">Etapa actual</span>
-            <h3>${escapeHtml(currentStageName)}</h3>
+            <span class="pill neutral">Perfil</span>
+            <h2>${escapeHtml(profile?.nombreCompleto || context?.assistantName || "Participante")}</h2>
+            <p>Tu información base y el ministerio donde hoy formas parte.</p>
           </div>
-          ${renderStudentPortalCompactStatusBadge_(currentStatus)}
+          ${renderStudentPortalCompactStatusBadge_(context?.currentLevel?.status || context?.person?.tipoPersona || "EN_CURSO")}
         </div>
 
-        <div class="student-portal-stage-card-meta">
-          <span>${renderStudentPortalIcon_("calendar")} Inicio: ${escapeHtml(formatDate(currentLevel?.offering?.startDate || currentLevel?.enrollment?.startDate || "") || "Por confirmar")}</span>
-          <span>${renderStudentPortalIcon_("leader")} Lider: ${escapeHtml(leaderName)}</span>
+        <div class="student-portal-profile-grid">
+          ${renderStudentPortalMiniMetric_("Teléfono", String(profile?.telefono || "Sin teléfono"), profile?.email || "Sin correo", "neutral")}
+          ${renderStudentPortalMiniMetric_("Correo", String(profile?.email || "Sin correo"), profile?.numero ? `Folio ${String(profile.numero)}` : "Sin folio", "neutral")}
+          ${renderStudentPortalMiniMetric_("Ministerio principal", String(profile?.ministerioPrincipal || "Sin ministerio principal"), groupName, "neutral")}
+          ${renderStudentPortalMiniMetric_("Ministerios secundarios", ministrySecondary.length ? ministrySecondary.join(", ") : "Sin ministerios secundarios", profile?.tipoPersona || "Participante", "neutral")}
         </div>
-
-        <div class="student-portal-stage-progress">
-          <div class="student-portal-stage-progress-head">
-            <strong>Asistencia</strong>
-            <span>${escapeHtml(`${attendance.attendedSessions || 0} de ${attendance.totalSessions || 0} sesiones`)}</span>
-          </div>
-          ${renderStudentPortalProgressBar_(attendance)}
-          <div class="student-portal-stage-progress-foot">
-            <span>${escapeHtml(`${attendancePercent}%`)}</span>
-            <span>${escapeHtml(attendance.completed ? "Completado" : "En curso")}</span>
-          </div>
-        </div>
-
       </article>
 
-      <section class="student-portal-card-list">
-        <div class="student-portal-section-head">
+      <article class="student-portal-summary-band">
+        <div class="student-portal-summary-band-copy">
+          <span>Tu avance actual</span>
+          <strong>${escapeHtml(context?.currentStageName || "Sin paso activo")}</strong>
+          <p>${escapeHtml(context?.levelDescription || "Tu portal te mostrará siempre el paso actual y el siguiente desbloqueable.")}</p>
+        </div>
+        <div class="student-portal-summary-band-metrics">
           <div>
-            <h3>Tu camino de formacion</h3>
-            <p>Ve claramente lo que ya cursaste, lo que sigue y lo que aun esta bloqueado.</p>
+            <strong>${escapeHtml(`${context?.routePercent || 0}%`)}</strong>
+            <span>ruta aprobada</span>
+          </div>
+          <div>
+            <strong>${escapeHtml(`${context?.attendancePercent || 0}%`)}</strong>
+            <span>asistencia actual</span>
           </div>
         </div>
-
-        <div class="student-portal-level-preview-list">
-          ${visibleLevels.map((level) => renderStudentPortalCompactLevelRow_(level, {
-            currentLevelId: currentLevel?.levelId || "",
-            nextLevelId: context.nextLevel?.levelId || ""
-          })).join("")}
-        </div>
-      </section>
+      </article>
 
       ${supportUrl ? `
         <a class="student-portal-primary-action" href="${escapeHtml(supportUrl)}" target="_blank" rel="noreferrer">
           ${renderStudentPortalIcon_("whatsapp")}
-          <span>Soporte por WhatsApp</span>
+          <span>WhatsApp del líder</span>
         </a>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderStudentPortalConnectionScreen_(context) {
+  const connectionSeasons = Array.isArray(context?.connectionSeasons) ? context.connectionSeasons : [];
+  const selectedSeason = context?.selectedConnectionSeason || null;
+  const attendance = selectedSeason?.attendance || {
+    attendedSessions: 0,
+    capturedSessions: 0,
+    totalSessions: 0,
+    attendancePercent: 0
+  };
+
+  return `
+    <section class="student-portal-screen student-portal-screen-connection">
+      <article class="student-portal-section-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h2>Grupos de Conexión</h2>
+            <p>Elige la temporada y revisa tu grupo, líderes y asistencias registradas.</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Temporada</span>
+          <select id="student-portal-connection-season">
+            ${connectionSeasons.map((item) => `
+              <option value="${escapeHtml(item.seasonId || "")}" ${String(item?.seasonId || "") === String(context?.selectedConnectionSeasonId || "") ? "selected" : ""}>
+                ${escapeHtml(item?.seasonName || item?.seasonId || "Temporada")}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+      </article>
+
+      ${selectedSeason ? `
+        <article class="student-portal-profile-summary-card">
+          <div class="student-portal-profile-summary-head">
+            <div>
+              <span class="pill warning">Grupo actual</span>
+              <h2>${escapeHtml(selectedSeason.groupName || "Sin grupo")}</h2>
+              <p>${escapeHtml(selectedSeason.seasonName || "")}</p>
+            </div>
+            <span class="pill success">${escapeHtml(`${attendance.attendancePercent || 0}% asistencia`)}</span>
+          </div>
+
+          <div class="student-portal-profile-grid">
+            ${renderStudentPortalMiniMetric_("Asistencias", `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0}`, `${attendance.capturedSessions || 0} capturadas`, "neutral")}
+            ${renderStudentPortalMiniMetric_("Liderazgo", (selectedSeason.leaders || []).map((item) => item?.name).filter(Boolean).join(", ") || "Sin líderes", (selectedSeason.leaders || []).map((item) => item?.phone).filter(Boolean).join(" · ") || "Sin teléfonos", "neutral")}
+          </div>
+        </article>
+
+        <section class="student-portal-session-grid">
+          ${(selectedSeason.sessions || []).map((session) => `
+            <article class="student-portal-session-card status-${escapeHtml(String(session?.status || "PENDIENTE").toLowerCase())}">
+              <strong>${escapeHtml(session?.name || `Sesión ${session?.number || ""}`)}</strong>
+              <span>${escapeHtml(formatDate(session?.date || "") || session?.date || "Fecha por confirmar")}</span>
+              <small>${escapeHtml(
+                session?.status === "SI"
+                  ? "Asististe"
+                  : session?.status === "NO"
+                    ? "No asististe"
+                    : "Pendiente"
+              )}</small>
+            </article>
+          `).join("")}
+        </section>
+      ` : `
+        <section class="student-portal-loading-card">
+          <strong>Sin temporadas registradas</strong>
+          <span>Todavía no hay temporadas de Grupos de Conexión disponibles para tu cuenta.</span>
+        </section>
+      `}
+    </section>
+  `;
+}
+
+function renderStudentPortalFormationScreen_(context) {
+  const currentLevel = context?.currentLevelCard || null;
+  const nextLevel = context?.nextLevelCard || null;
+  const approvedLevels = Array.isArray(context?.approvedLevelsList) ? context.approvedLevelsList : [];
+  const sessionItems = Array.isArray(context?.sessionItems) ? context.sessionItems : [];
+
+  return `
+    <section class="student-portal-screen student-portal-screen-formation">
+      <article class="student-portal-section-card">
+        <div class="student-portal-section-head compact">
+          <div>
+            <h2>Proceso de Formación</h2>
+            <p>Aquí ves claramente lo aprobado, el paso en curso y solo el siguiente paso que sigue.</p>
+          </div>
+        </div>
+      </article>
+
+      ${approvedLevels.map((level) => `
+        <article class="student-portal-journey-card status-acreditado">
+          <div class="student-portal-journey-card-head">
+            <div>
+              <h3>${escapeHtml(`Paso ${level?.order || ""}: ${level?.levelName || "Paso aprobado"}`)}</h3>
+              <p>${escapeHtml(`${level?.attendance?.attendedSessions || 0}/${level?.attendance?.totalSessions || 0} asistencias registradas`)}</p>
+            </div>
+            <span class="pill success">APROBADO</span>
+          </div>
+        </article>
+      `).join("")}
+
+      ${currentLevel ? `
+        <article class="student-portal-journey-card status-en_curso">
+          <div class="student-portal-journey-card-head">
+            <div>
+              <h3>${escapeHtml(`Paso ${currentLevel?.order || ""}: ${currentLevel?.levelName || "Paso actual"}`)}</h3>
+              <p>En curso</p>
+            </div>
+            <span class="pill warning">EN CURSO</span>
+          </div>
+
+          <div class="student-portal-profile-grid">
+            ${renderStudentPortalMiniMetric_("Asistencia", `${currentLevel?.attendance?.attendedSessions || 0}/${currentLevel?.attendance?.totalSessions || 0}`, `${getStudentPortalAttendancePercent_(currentLevel?.attendance || {})}% del paso`, "neutral")}
+            ${renderStudentPortalMiniMetric_("Criterio", currentLevel?.offering?.approvalMode === "EXAM" ? "Asistencia + examen" : currentLevel?.offering?.approvalMode === "BAPTISM_CONFIRMATION" ? "Confirmación de bautismo" : "Asistencia completa", currentLevel?.offering?.maxAbsences > 0 ? `Máx. ${currentLevel.offering.maxAbsences} faltas` : "Sin faltas permitidas", "neutral")}
+          </div>
+
+          <section class="student-portal-session-grid">
+            ${sessionItems.map((session) => `
+              <article class="student-portal-session-card status-${escapeHtml(String(session?.status || "PENDIENTE").toLowerCase())}">
+                <strong>${escapeHtml(`Sesión ${session?.sessionNumber || ""}`)}</strong>
+                <span>${escapeHtml(session?.label || "Pendiente")}</span>
+                <small>${escapeHtml(session?.copy || "")}</small>
+              </article>
+            `).join("")}
+          </section>
+        </article>
+      ` : ""}
+
+      ${nextLevel ? `
+        <article class="student-portal-journey-card status-bloqueado">
+          <div class="student-portal-journey-card-head">
+            <div>
+              <h3>${escapeHtml(`Paso ${nextLevel?.order || ""}: ${nextLevel?.levelName || "Siguiente paso"}`)}</h3>
+              <p>Se habilita al aprobar el paso actual.</p>
+            </div>
+            <span class="pill dark">${renderStudentPortalIcon_("lock")} Bloqueado</span>
+          </div>
+          ${renderStudentPortalCriteriaPills_(nextLevel)}
+        </article>
       ` : ""}
     </section>
   `;
@@ -5115,6 +6880,60 @@ function getStudentPortalCurrentLevelDescription_(currentLevel, currentRecord, f
   }
 
   return `Sigue pendiente de ${fallbackName}. Tu lider ira compartiendo contigo las indicaciones conforme avances.`;
+}
+
+function getStudentPortalCriteriaItems_(level) {
+  const approvalMeta = getFormationApprovalModeMeta_(level || null);
+  const attendance = level?.attendance || {};
+  const totalSessions = Math.max(
+    Number(attendance.totalSessions || level?.offering?.totalSessions || 0),
+    0
+  );
+  const requiredSessions = Math.max(
+    Number(attendance.requiredSessions || totalSessions || 0),
+    totalSessions ? 1 : 0
+  );
+  const maxAbsences = Math.max(
+    Number(attendance.maxAbsences ?? level?.offering?.maxAbsences ?? 0),
+    0
+  );
+  const items = [];
+
+  if (totalSessions) {
+    items.push(`Asistencia requerida: ${requiredSessions}/${totalSessions}`);
+  } else {
+    items.push("Asistencia: por confirmar");
+  }
+
+  if (approvalMeta.mode === "BAPTISM_CONFIRMATION") {
+    items.push("Validacion del lider: Bautizado Si/No");
+    items.push("Examen: no aplica");
+    return items;
+  }
+
+  if (maxAbsences > 0) {
+    items.push(`Maximo de faltas: ${maxAbsences}`);
+  } else {
+    items.push("Sin faltas permitidas");
+  }
+
+  items.push(
+    approvalMeta.mode === "EXAM"
+      ? "Examen final: obligatorio"
+      : "Examen final: no requerido"
+  );
+
+  return items;
+}
+
+function renderStudentPortalCriteriaPills_(level) {
+  const items = getStudentPortalCriteriaItems_(level);
+
+  return `
+    <div class="student-portal-level-preview-list">
+      ${items.map((item) => `<span class="pill light">${escapeHtml(item)}</span>`).join("")}
+    </div>
+  `;
 }
 
 function buildStudentPortalMaterials_(portal, currentLevel, currentRecord) {
@@ -5783,6 +7602,8 @@ function renderCurrentView() {
       return renderConnectionSectionView_(renderSeasonsView());
     case "participants":
       return renderConnectionSectionView_(renderParticipantsView());
+    case "connection-reports":
+      return renderConnectionSectionView_(renderConnectionReportsView_());
     case "attendance":
       return renderAttendanceHubView_();
     case "qr":
@@ -5808,7 +7629,8 @@ function renderConnectionSectionView_(content) {
 }
 
 function renderAttendanceHubView_() {
-  const section = getActiveAttendanceCenterSection_();
+  const leaderScoped = isLeaderScopedUser_();
+  const section = leaderScoped ? "connection" : getActiveAttendanceCenterSection_();
   const isHome = section === "home";
   const isFormation = section === "formation";
   const isConnection = section === "connection";
@@ -5834,14 +7656,16 @@ function renderAttendanceHubView_() {
             <span>Usa captura manual, QR asistido y kiosko para sesiones de grupos.</span>
           </button>
 
-          <button
-            class="mode-card attendance-hub-card ${isFormation ? "active" : ""}"
-            data-action="set-attendance-center-section"
-            data-section-key="formation"
-          >
-            <strong>Asistencia Proceso de Formación</strong>
-            <span>Selecciona el proceso activo, detecta la sesión de hoy y escanea desde celular o tablet.</span>
-          </button>
+          ${leaderScoped ? "" : `
+            <button
+              class="mode-card attendance-hub-card ${isFormation ? "active" : ""}"
+              data-action="set-attendance-center-section"
+              data-section-key="formation"
+            >
+              <strong>Asistencia Proceso de Formación</strong>
+              <span>Selecciona el proceso activo, detecta la sesión de hoy y escanea desde celular o tablet.</span>
+            </button>
+          `}
         </div>
 
         ${isHome ? `
@@ -5859,7 +7683,10 @@ function renderAttendanceHubView_() {
 }
 
 function renderAttendanceFormationWorkspace_() {
+  const attendanceHydrating = Boolean(state.ui.attendanceFormationHydrating);
+  const attendanceHydratingMessage = state.ui.attendanceFormationHydratingMessage || "Preparando selectores de asistencia...";
   const selectedProcess = getSelectedFormationProcess_();
+  const availableLevels = getFormationOperationalLevelsForSelectedProcess_();
   const filteredOfferings = getFilteredFormationOfferings_();
   const selectedOffering = getSelectedFormationOffering_();
   const attendanceContext = selectedOffering && String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering.id || "")
@@ -5907,10 +7734,17 @@ function renderAttendanceFormationWorkspace_() {
         <span class="pill ${captureEnabled ? "success" : "warning"}">${escapeHtml(captureEnabled ? "Sesión lista" : "Revisa sesión")}</span>
       </div>
 
+      ${attendanceHydrating ? `
+        <div class="inline-banner neutral" style="margin-bottom: 18px;">
+          <strong>${escapeHtml(attendanceHydratingMessage)}</strong>
+          <span>La ficha ya abrió. Los procesos, pasos y sesiones terminarán de aparecer en segundo plano.</span>
+        </div>
+      ` : ""}
+
       <div class="field-grid two attendance-formation-fields">
         <div class="field">
           <label for="formation-ops-process">Proceso de Formación</label>
-          <select id="formation-ops-process">
+          <select id="formation-ops-process" ${attendanceHydrating && !state.formationProcesses.length ? "disabled" : ""}>
             ${renderOptions(
               state.formationProcesses.map((process) => ({
                 value: process.id,
@@ -5924,9 +7758,9 @@ function renderAttendanceFormationWorkspace_() {
 
         <div class="field">
           <label for="formation-ops-level">Paso del proceso</label>
-          <select id="formation-ops-level">
+          <select id="formation-ops-level" ${attendanceHydrating && !availableLevels.length ? "disabled" : ""}>
             ${renderOptions(
-              getFormationSortedLevels_().map((level) => ({
+              availableLevels.map((level) => ({
                 value: level.id,
                 label: `${level.name} (${level.order})`
               })),
@@ -5938,7 +7772,7 @@ function renderAttendanceFormationWorkspace_() {
 
         <div class="field">
           <label for="formation-ops-offering">Paso en operación</label>
-          <select id="formation-ops-offering">
+          <select id="formation-ops-offering" ${attendanceHydrating && !filteredOfferings.length ? "disabled" : ""}>
             ${renderOptions(
               filteredOfferings.map((offering) => ({
                 value: offering.id,
@@ -5952,7 +7786,7 @@ function renderAttendanceFormationWorkspace_() {
 
         <div class="field">
           <label for="formation-ops-session">Sesión del paso</label>
-          <select id="formation-ops-session" ${selectedOffering ? "" : "disabled"}>
+          <select id="formation-ops-session" ${(selectedOffering && !(attendanceHydrating && !sessionOptions.length)) ? "" : "disabled"}>
             ${renderOptions(sessionOptions, currentSessionNumber, "Selecciona sesión")}
           </select>
         </div>
@@ -6009,7 +7843,7 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
     attendanceContext?.captureEnabled
     || (activeSession && String(activeSession.number || "") === sessionNumber)
   );
-  const feedbackState = getDedicatedFormationAttendanceScannerState_({
+  const feedbackState = getDedicatedFormationAttendanceFeedbackState_({
     offering: selectedOffering,
     sessionNumber,
     captureEnabled
@@ -6059,6 +7893,12 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
 
       <div class="formation-scan-layout ${isKiosk ? "is-kiosk" : "is-assisted"}">
         <div class="kiosk-scanner-shell formation-scan-shell" data-qr-scanner-root="formation-attendance" data-feedback-tone="${escapeHtml(feedbackState.tone)}">
+          ${isKiosk ? `
+            <div class="formation-kiosk-landscape-title">
+              <span>Kiosko de asistencia</span>
+              <strong>Registro Kiosko</strong>
+            </div>
+          ` : ""}
           <div class="kiosk-head-actions formation-scan-actions">
             <button
               class="btn ${formationAttendanceScannerRuntime.enabled ? "btn-danger" : "btn-primary"}"
@@ -6100,10 +7940,186 @@ function renderAttendanceFormationDedicatedCapturePanel_(selectedOffering, curre
             <strong data-formation-attendance-feedback="name">${escapeHtml(feedbackState.name)}</strong>
             <span data-formation-attendance-feedback="message">${escapeHtml(feedbackState.message)}</span>
             <small data-formation-attendance-feedback="meta">${escapeHtml(feedbackState.meta)}</small>
+            <div class="formation-kiosk-result-grid">
+              <span>
+                <small>Nombre</small>
+                <strong data-formation-attendance-feedback="field-name">${escapeHtml(feedbackState.name)}</strong>
+              </span>
+              <span>
+                <small>Sesión activa</small>
+                <strong data-formation-attendance-feedback="field-session">${escapeHtml(feedbackState.sessionName)}</strong>
+              </span>
+              <span>
+                <small>Paso</small>
+                <strong data-formation-attendance-feedback="field-step">${escapeHtml(feedbackState.levelName)}</strong>
+              </span>
+              <span>
+                <small>QR</small>
+                <strong data-formation-attendance-feedback="field-qr">${escapeHtml(feedbackState.personId)}</strong>
+              </span>
+            </div>
           </div>
         </div>
       </div>
     </div>
+  `;
+}
+
+function renderConnectionReportsView_() {
+  syncConnectionReportsFilters_();
+
+  const filter = state.filters.connectionReports;
+  const scope = getConnectionReportScope_();
+  const report = buildConnectionReportModel_();
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+  const canChooseType = scope.canUseGroupReport && scope.canUseMinistryReport;
+  const typeLabel = filter.type === "ministry" ? "Ministerio" : "Grupo de Conexión";
+
+  return `
+    <section class="view-grid connection-reports-view">
+      ${renderModuleMobileHero_({
+        tone: "dashboard",
+        eyebrow: "Reportes",
+        title: "Reportes de Grupos Conexión",
+        copy: "Consulta asistencias por grupo o por ministerio y exporta el resultado a Excel o PDF.",
+        badge: {
+          label: typeLabel,
+          kind: "dark"
+        },
+        metrics: [
+          { label: "Temporada", value: resolveSeasonName_(filter.seasonId) || "Sin temporada" },
+          { label: "Registros", value: String(rows.length || 0) },
+          { label: "Sesiones", value: String(sessions.length || 0) }
+        ]
+      })}
+
+      <article class="panel-card connection-report-toolbar">
+        <div class="panel-head">
+          <div>
+            <h2>Consulta operativa</h2>
+            <p>El sistema valida tu usuario: líderes ven solo su grupo, líderes de ministerio solo su ministerio y Pastor/Admin puede consultar todo.</p>
+          </div>
+          <span class="pill ${isPastorOrAdminUser_() ? "success" : "dark"}">${escapeHtml(isPastorOrAdminUser_() ? "Vista global" : "Vista limitada")}</span>
+        </div>
+
+        <div class="field-grid three">
+          <div class="field">
+            <label for="connection-report-season">Temporada</label>
+            <select id="connection-report-season">
+              ${renderOptions(state.seasons.map((season) => ({
+                value: season.id,
+                label: season.name
+              })), filter.seasonId, "Selecciona temporada")}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="connection-report-type">Tipo de reporte</label>
+            <select id="connection-report-type" ${canChooseType ? "" : "disabled"}>
+              ${renderOptions([
+                ...(scope.canUseGroupReport ? [{ value: "group", label: "Asistencia por grupo" }] : []),
+                ...(scope.canUseMinistryReport ? [{ value: "ministry", label: "Asistencia por ministerio" }] : [])
+              ], filter.type, "Selecciona reporte")}
+            </select>
+          </div>
+
+          ${filter.type === "ministry" ? `
+            <div class="field">
+              <label for="connection-report-ministry">Ministerio</label>
+              <select id="connection-report-ministry" ${isPastorOrAdminUser_() ? "" : "disabled"}>
+                ${renderOptions(scope.ministries.map((ministry) => ({
+                  value: ministry.id,
+                  label: ministry.name
+                })), filter.ministryId, "Selecciona ministerio")}
+              </select>
+            </div>
+          ` : `
+            <div class="field">
+              <label for="connection-report-group">Grupo de Conexión</label>
+              <select id="connection-report-group" ${isPastorOrAdminUser_() ? "" : "disabled"}>
+                ${renderOptions(scope.groups.map((group) => ({
+                  value: group.id,
+                  label: group.name
+                })), filter.groupId, "Selecciona grupo")}
+              </select>
+            </div>
+          `}
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" data-action="refresh-connection-report">Generar reporte</button>
+          <button class="btn btn-ghost" data-action="export-connection-report-excel" ${rows.length ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-connection-report-pdf" ${rows.length ? "" : "disabled"}>PDF</button>
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Usuario:</strong> ${escapeHtml(state.user?.name || state.user?.email || "Sin usuario")}</span>
+          <span class="context-item"><strong>Permiso:</strong> ${escapeHtml(isPastorOrAdminUser_() ? "Puede consultar todos los grupos y ministerios." : "Consulta limitada a su liderazgo configurado.")}</span>
+          <span class="context-item"><strong>Fuente:</strong> Matriz de asistencia por temporada</span>
+        </div>
+      </article>
+
+      <article class="detail-card connection-report-result">
+        <div class="panel-head">
+          <div>
+            <h2>${escapeHtml(report?.title || "Resultado del reporte")}</h2>
+            <p>${escapeHtml(report ? `${report.seasonName} · ${filter.type === "ministry" ? (report.ministryName || "") : (report.groupName || "")}` : "Selecciona temporada y genera el reporte.")}</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(rows.length || 0))} personas</span>
+        </div>
+
+        ${report ? `
+          <div class="summary-strip">
+            <span class="context-item"><strong>${filter.type === "ministry" ? "Ministerio" : "Grupo"}:</strong> ${escapeHtml(filter.type === "ministry" ? report.ministryName : report.groupName)}</span>
+            <span class="context-item"><strong>Líderes:</strong> ${escapeHtml((report.leaders || []).join(" / ") || "Sin liderazgo registrado")}</span>
+            <span class="context-item"><strong>Sesiones:</strong> ${escapeHtml(String(sessions.length))}</span>
+          </div>
+
+          <div class="table-wrap dashboard-group-roster-wrap connection-report-table-wrap">
+            <table class="dashboard-group-roster-table connection-report-table">
+              <thead>
+                <tr>
+                  <th>${filter.type === "ministry" ? "Participante" : "Asistente"}</th>
+                  ${filter.type === "ministry" ? "<th>Grupo</th>" : ""}
+                  <th>Total</th>
+                  ${sessions.map((session) => `<th>${escapeHtml(session.shortLabel || session.name || session.id)}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.length ? rows.map((row) => `
+                  <tr>
+                    <td>
+                      <span class="row-title">${escapeHtml(row.name || row.personId || "")}</span>
+                      <span class="row-meta">QR ${escapeHtml(row.personId || "-")}</span>
+                    </td>
+                    ${filter.type === "ministry" ? `<td>${escapeHtml(row.groupName || row.groupId || "Sin grupo")}</td>` : ""}
+                    <td><strong>${escapeHtml(`${row.totalPresent || 0}/${row.totalSessions || sessions.length}`)}</strong></td>
+                    ${sessions.map((session) => `
+                      <td>
+                        <div class="dashboard-attendance-cell">
+                          ${renderDashboardAttendanceMark_(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "")}
+                        </div>
+                      </td>
+                    `).join("")}
+                  </tr>
+                `).join("") : `
+                  <tr>
+                    <td colspan="${escapeHtml(String(Math.max(sessions.length + (filter.type === "ministry" ? 3 : 2), 3)))}">
+                      <div class="empty-state">No hay personas para este alcance. Verifica temporada, grupo/ministerio y que existan asistencias capturadas.</div>
+                    </td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state">
+            No hay información lista para este reporte. Presiona Generar reporte o revisa que el usuario tenga un grupo/ministerio configurado.
+          </div>
+        `}
+      </article>
+    </section>
   `;
 }
 
@@ -6122,6 +8138,10 @@ function resolveConnectionAttendanceMode_() {
 function resolveFormationAttendanceMode_() {
   const mode = String(state.filters.formationOps.captureMode || "manual").trim().toLowerCase();
   return mode === "kiosk" ? "kiosk" : (mode === "qr" ? "qr" : "manual");
+}
+
+function shouldLoadFormationAttendanceParticipants_(mode = resolveFormationAttendanceMode_()) {
+  return String(mode || "manual").trim().toLowerCase() === "manual";
 }
 
 function isAttendanceConnectionSectionActive_() {
@@ -6157,7 +8177,7 @@ function renderConnectionAttendanceView_() {
     {
       mode: "kiosk",
       title: "Modo kiosko",
-      copy: "Pantalla tipo aeropuerto para auto registro con camara."
+      copy: "Registro Kiosko para auto registro con camara."
     }
   ];
   const content = mode === "manual" ? renderAttendanceView() : renderQrView();
@@ -7336,8 +9356,10 @@ function renderWelcomeProspectsView_() {
 
 function renderFormationView_() {
   const activeSection = getActiveFormationSection_();
+  const formationSectionLoading = state.ui.formationSectionLoading || null;
+  const isFormationSectionLoading = Boolean(formationSectionLoading?.active);
   const seasonId = state.filters.formation.seasonId || getLatestSeason()?.id || "";
-  const needsRouteData = activeSection === "route";
+  const needsRouteData = activeSection === "route" || activeSection === "report";
   const formationDraft = needsRouteData ? getFormationFilterDraft_() : {};
   const formationFilterDirty = needsRouteData ? isFormationFilterDirty_() : false;
   const candidates = needsRouteData ? getFilteredFormationCandidates_() : [];
@@ -7359,10 +9381,10 @@ function renderFormationView_() {
       seasonId: state.filters.formation.seasonId || "",
       formationStatus: profile.person.estatusFormacion || "",
       currentLevel: profile.person.nivelFormacionActual || ""
-    } : null));
+  } : null));
   const editingLevel = state.formationCatalog.find((item) => String(item.id) === String(state.ui.editingFormationLevelId || "")) || null;
-  const portalVisibleCount = Array.isArray(state.formationEnrollments) ? state.formationEnrollments.length : 0;
-  const operationsVisibleCount = Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster.length : 0;
+  const portalVisibleCount = getFormationPortalSourceRows_().length;
+  const operationsVisibleCount = getFormationJourneySourceRows_().length;
   const routeVisibleCount = Array.isArray(candidates) ? candidates.length : 0;
   const processCount = Array.isArray(state.formationProcesses) ? state.formationProcesses.length : 0;
   const levelsCount = Array.isArray(state.formationCatalog) ? state.formationCatalog.length : 0;
@@ -7397,6 +9419,8 @@ function renderFormationView_() {
         title: "Proceso de Formación",
         copy: activeSection === "route"
           ? "Aquí empieza la ruta pastoral: primero se detecta al congregante listo para invitación y desde aquí se mueve al proceso real."
+          : activeSection === "report"
+            ? "Aquí generas el reporte ejecutivo de Pre-Encuentro agrupado por grupos de conexión y lo exportas a PDF o Excel."
           : activeSection === "portal"
             ? "Aquí administras los inscritos del Paso 1, compartes cuenta, PIN y QR y confirmas que su acceso al portal ya quedó listo."
             : activeSection === "operations"
@@ -7432,7 +9456,9 @@ function renderFormationView_() {
         levelsCount
       })}
 
-      ${activeSection === "route" ? renderFormationRouteWorkspace_({
+      ${isFormationSectionLoading ? renderFormationSectionLoadingCard_() : ""}
+
+      ${!isFormationSectionLoading && activeSection === "route" ? renderFormationRouteWorkspace_({
         seasonId,
         formationDraft,
         formationFilterDirty,
@@ -7443,15 +9469,22 @@ function renderFormationView_() {
         activePersonId: selectedCandidate?.personId || profile?.person?.id || ""
       }) : ""}
 
-      ${activeSection === "portal" ? renderFormationPortalWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "report" ? renderFormationPreEncounterReportWorkspace_({
+        seasonId,
+        formationDraft,
+        formationFilterDirty,
+        candidates
+      }) : ""}
+
+      ${!isFormationSectionLoading && activeSection === "portal" ? renderFormationPortalWorkspace_({
         seasonId
       }) : ""}
 
-      ${activeSection === "operations" ? renderFormationOperationsWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "operations" ? renderFormationOperationsWorkspace_({
         seasonId
       }) : ""}
 
-      ${activeSection === "levels" ? renderFormationLevelsWorkspace_({
+      ${!isFormationSectionLoading && activeSection === "levels" ? renderFormationLevelsWorkspace_({
         editingLevel
       }) : ""}
     </section>
@@ -7464,6 +9497,11 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
       key: "route",
       label: "Ruta a Encuentro",
       description: `${counts.routeCount || 0} listos para invitar`
+    },
+    {
+      key: "report",
+      label: "Reporte Pre-Encuentro",
+      description: `${counts.routeCount || 0} en reporte`
     },
     {
       key: "portal",
@@ -7497,6 +9535,37 @@ function renderFormationWorkspaceTabs_(activeSection, counts) {
         </button>
       `).join("")}
     </div>
+  `;
+}
+
+function renderFormationSectionLoadingCard_() {
+  const loading = state.ui.formationSectionLoading || null;
+
+  if (!loading?.active) {
+    return "";
+  }
+
+  const percent = clampPercentage_(loading.percent, 0);
+  const sectionLabel = getFormationSectionLabel_(loading.section || state.ui.formationSection || "");
+
+  return `
+    <article class="panel-card formation-section-loading-card" aria-live="polite">
+      <div class="formation-section-loading-head">
+        <div>
+          <span class="status-chip neutral">${escapeHtml(sectionLabel)}</span>
+          <h2>${escapeHtml(loading.title || "Cargando información...")}</h2>
+          <p>${escapeHtml(loading.detail || "Espera un momento mientras dejamos lista la subficha.")}</p>
+        </div>
+        <strong>${escapeHtml(String(percent))}%</strong>
+      </div>
+      <div class="formation-section-loading-track" aria-hidden="true">
+        <span class="formation-section-loading-fill" style="width:${escapeHtml(String(percent))}%"></span>
+      </div>
+      <div class="formation-section-loading-meta">
+        <span class="context-item"><span class="inline-spinner" aria-hidden="true"></span> Cargando datos reales</span>
+        <span class="context-item">Subficha: ${escapeHtml(sectionLabel)}</span>
+      </div>
+    </article>
   `;
 }
 
@@ -7617,6 +9686,15 @@ function renderFormationRouteWorkspace_(context) {
   const appliedGroupId = String(state.filters.formation.groupId || "");
   const groupedCandidates = !appliedGroupId ? buildFormationRouteGroups_(candidates) : [];
   const showGroupedRoute = !appliedGroupId && groupedCandidates.length > 1;
+  const visibleCandidateIds = new Set((Array.isArray(candidates) ? candidates : []).map((candidate) => String(candidate?.personId || "").trim()));
+  const selectedRouteCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => visibleCandidateIds.has(String(candidate?.personId || "").trim()));
+  const selectedRouteCount = selectedRouteCandidates.length;
+  const selectedInvitableCount = selectedRouteCandidates.filter((candidate) => !candidate?.invitedAt && !candidate?.encounterRegisteredAt).length;
+  const selectedRegisterableCount = selectedRouteCandidates.filter((candidate) => candidate?.invitedAt && !candidate?.encounterRegisteredAt).length;
+  const routeBulkBusy = Boolean(state.ui.formationRouteBulkBusy);
+  const routeBulkProgressPercent = Math.max(0, Math.min(100, Number(state.ui.formationRouteBulkProgressPercent || 0)));
+  const routeBulkProgressMessage = state.ui.formationRouteBulkProgressMessage || (state.ui.formationRouteBulkAction === "invite" ? "Enviando invitaciones..." : "Inscribiendo lote...");
+  const routeBulkProgressDetail = state.ui.formationRouteBulkProgressDetail || "Espera un momento mientras se completa el proceso por lote.";
 
   return `
     <article class="panel-card module-section-anchor" id="formation-route-workspace">
@@ -7656,7 +9734,7 @@ function renderFormationRouteWorkspace_(context) {
           <select id="formation-status-filter">
             ${renderOptions([
               { value: "ALL", label: "Todos los estatus" },
-              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Encuentro" },
+              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Proceso de Formación" },
               { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
               { value: "PROSPECTO GF", label: "Prospecto GF" },
               { value: "ACEPTADO_FORMACION", label: "Aceptado" },
@@ -7695,6 +9773,32 @@ function renderFormationRouteWorkspace_(context) {
 
       ${formationRouteContext}
 
+      ${candidates.length ? `
+        <div class="summary-strip">
+          <span class="context-item"><strong>Lote actual:</strong> ${escapeHtml(String(selectedRouteCount))} seleccionado(s)</span>
+          <span class="context-item"><strong>Listos para invitar:</strong> ${escapeHtml(String(selectedInvitableCount))}</span>
+          <span class="context-item"><strong>Listos para inscribir:</strong> ${escapeHtml(String(selectedRegisterableCount))}</span>
+        </div>
+        <div class="actions-row" style="margin: 0 0 16px;">
+          <button class="btn btn-ghost" data-action="formation-route-select-visible" ${routeBulkBusy ? "disabled" : ""}>Seleccionar visibles</button>
+          <button class="btn btn-ghost" data-action="formation-route-clear-selection" ${selectedRouteCount ? "" : "disabled"}>Vaciar lote</button>
+          <button class="btn btn-secondary" data-action="formation-route-invite-bulk" ${(selectedInvitableCount && !routeBulkBusy) ? "" : "disabled"}>Invitar lote</button>
+          <button class="btn btn-primary" data-action="formation-route-register-bulk" ${(selectedRegisterableCount && !routeBulkBusy) ? "" : "disabled"}>Inscribir lote</button>
+        </div>
+        ${routeBulkBusy ? `
+          <div class="formation-route-progress" style="margin-bottom:16px;">
+            <div class="formation-route-progress-head">
+              <strong>${escapeHtml(routeBulkProgressMessage)}</strong>
+              <span>${escapeHtml(`${routeBulkProgressPercent}%`)}</span>
+            </div>
+            <div class="student-progress-bar">
+              <span class="student-progress-bar-fill" style="width:${escapeHtml(String(routeBulkProgressPercent))}%"></span>
+            </div>
+            <small>${escapeHtml(routeBulkProgressDetail)}</small>
+          </div>
+        ` : ``}
+      ` : ``}
+
       <div class="formation-ledger-card">
         <div class="panel-head formation-ledger-card-head">
           <div>
@@ -7732,11 +9836,23 @@ function renderFormationRouteWorkspace_(context) {
 
 function renderFormationRouteResultRow_(candidate, activePersonId) {
   const isActive = String(candidate?.personId || "") === String(activePersonId || "");
+  const isPendingEnrollment = String(state.ui.formationRouteEnrollmentBusyPersonId || "").trim() === String(candidate?.personId || "").trim();
+  const isFormationRegistered = Boolean(candidate?.encounterRegisteredAt);
+  const isSelectedRouteCandidate = isFormationRoutePersonSelected_(candidate?.personId || "");
+  const progressPercent = isPendingEnrollment ? Math.max(0, Math.min(100, Number(state.ui.formationRouteEnrollmentProgressPercent || 0))) : 0;
+  const progressMessage = isPendingEnrollment
+    ? (state.ui.formationRouteEnrollmentProgressMessage || "Inscribiendo...")
+    : "";
+  const progressDetail = isPendingEnrollment
+    ? (state.ui.formationRouteEnrollmentProgressDetail || "Preparando la inscripción...")
+    : "";
   const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
   const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
   const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
   const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
-  const levelName = getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
+  const levelName = isFormationRegistered
+    ? "Inscrito a Proceso de Formación"
+    : getFormationDisplayLevelName_(candidate, getFormationPreStageLabel_());
   const seasonName = resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId || "Sin temporada";
   const leaderNotice = sanitizeFormationDisplayText_(getFormationRouteLeaderNotice_(candidate), "Seguimiento listo.");
   const leaderSummary = sanitizeFormationDisplayText_(
@@ -7746,22 +9862,32 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
     "Liderazgo pendiente"
   );
   const inviteLabel = candidate?.invitedAt ? "Reenviar invitación" : "Enviar invitación";
-  const encounterLabel = candidate?.encounterRegisteredAt
-    ? "Encuentro registrado"
+  const encounterLabel = isPendingEnrollment
+    ? "Inscribiendo..."
+    : isFormationRegistered
+    ? "Inscrito a Proceso de Formación"
     : (candidate?.invitedAt ? "Continuar inscripción" : "Invita primero");
-  const inviteDisabled = candidate?.personPhone ? "" : "disabled";
-  const encounterDisabled = candidate?.invitedAt && !candidate?.encounterRegisteredAt ? "" : "disabled";
+  const inviteDisabled = isFormationRegistered ? "disabled" : "";
+  const encounterDisabled = isPendingEnrollment
+    ? "disabled"
+    : (candidate?.invitedAt && !isFormationRegistered ? "" : "disabled");
+  const routeSelectLabel = isSelectedRouteCandidate ? "Quitar del lote" : "Seleccionar";
+  const routeSelectDisabled = isFormationRegistered || state.ui.formationRouteBulkBusy ? "disabled" : "";
   const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
   const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
-  const followupTitle = candidate?.encounterRegisteredAt
-    ? `Encuentro registrado ${formatDate(candidate.encounterRegisteredAt)}`
+  const followupTitle = isPendingEnrollment
+    ? progressMessage
+    : isFormationRegistered
+    ? `Inscrito a Proceso de Formación ${formatDate(candidate.encounterRegisteredAt)}`
     : (candidate?.invitedAt
       ? `Invitación enviada ${formatDate(candidate.invitedAt)}`
       : (candidate?.leaderNotifiedAt
         ? `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`
         : "Pendiente de invitación"));
-  const followupMeta = candidate?.encounterRegisteredAt
-    ? "La persona ya quedó registrada para continuar su proceso."
+  const followupMeta = isPendingEnrollment
+    ? progressDetail
+    : isFormationRegistered
+    ? "La persona ya quedó inscrita. Ahora ya la verás en Inscritos y portal dentro del paso correspondiente."
     : (candidate?.invitedAt
       ? "Solo falta confirmar y registrar el Encuentro."
       : leaderNotice);
@@ -7779,6 +9905,7 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
         <div class="formation-ledger-route-context">
           <span class="formation-ledger-route-chip">${escapeHtml(groupName)}</span>
           <span class="formation-ledger-route-chip">${escapeHtml(seasonName)}</span>
+          <span class="formation-ledger-route-chip ${isSelectedRouteCandidate ? "is-selected" : ""}">${escapeHtml(isSelectedRouteCandidate ? "En lote" : "Individual")}</span>
         </div>
       </div>
       <div class="formation-ledger-cell formation-ledger-route-stage">
@@ -7815,6 +9942,14 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
         <div class="formation-action-stack formation-action-stack-route">
           <button
             class="btn btn-ghost"
+            data-action="formation-route-toggle-selection"
+            data-person-id="${escapeHtml(candidate?.personId || "")}"
+            ${routeSelectDisabled}
+          >
+            ${escapeHtml(routeSelectLabel)}
+          </button>
+          <button
+            class="btn btn-ghost"
             data-action="open-formation-profile"
             data-person-id="${escapeHtml(candidate?.personId || "")}"
           >
@@ -7838,9 +9973,203 @@ function renderFormationRouteResultRow_(candidate, activePersonId) {
             ${escapeHtml(encounterLabel)}
           </button>
         </div>
+        ${isPendingEnrollment ? `
+          <div class="formation-route-progress">
+            <div class="formation-route-progress-head">
+              <strong>${escapeHtml(progressMessage || "Inscribiendo...")}</strong>
+              <span>${escapeHtml(`${progressPercent}%`)}</span>
+            </div>
+            <div class="student-progress-bar">
+              <span class="student-progress-bar-fill" style="width:${escapeHtml(String(progressPercent))}%"></span>
+            </div>
+            <small>${escapeHtml(progressDetail || "Espera unos segundos mientras se completa la inscripción.")}</small>
+          </div>
+        ` : ""}
         <span class="formation-ledger-action-note">Orden sugerido: perfil, invitación y luego inscripción.</span>
       </div>
     </article>
+  `;
+}
+
+function renderFormationPreEncounterReportWorkspace_(context) {
+  const {
+    seasonId,
+    formationDraft,
+    formationFilterDirty,
+    candidates
+  } = context;
+  const report = buildFormationPreEncounterReportModel_(candidates);
+  const groups = report?.groups || [];
+
+  return `
+    <article class="panel-card module-section-anchor" id="formation-pre-encounter-report-filter">
+      <div class="panel-head">
+        <div>
+          <h2>Filtro del reporte</h2>
+          <p>Elige temporada y, si quieres, un grupo específico. El reporte siempre se organiza por grupos de conexión para que el Pastor lo consulte de forma ejecutiva.</p>
+        </div>
+        <div class="actions-row">
+          <span class="status-chip neutral formation-filter-status">
+            ${state.ui.formationFilterBusy ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}
+            ${escapeHtml(state.ui.formationFilterBusy ? (state.ui.formationFilterMessage || "Aplicando filtro...") : (formationFilterDirty ? "Cambios pendientes" : "Reporte listo"))}
+          </span>
+          <button class="btn btn-primary" data-action="apply-formation-filters" ${state.ui.formationFilterBusy ? "disabled" : ""}>
+            ${state.ui.formationFilterBusy ? "Actualizando..." : "Aplicar y actualizar"}
+          </button>
+        </div>
+      </div>
+
+      <div class="field-grid two">
+        ${renderSeasonSelect("formation-season", formationDraft.seasonId || seasonId)}
+        <div class="field">
+          <label for="formation-group">Grupo</label>
+          <select id="formation-group">
+            ${renderOptions(
+              state.catalogs.groups.map((group) => ({
+                value: String(group.id),
+                label: `${group.name} (${group.id})`
+              })),
+              formationDraft.groupId,
+              "Todos los grupos"
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formation-status-filter">Estatus</label>
+          <select id="formation-status-filter">
+            ${renderOptions([
+              { value: "ALL", label: "Todos los estatus" },
+              { value: "CANDIDATO_ENCUENTRO", label: "Candidato a Proceso de Formación" },
+              { value: "INVITACION_ENVIADA", label: "Invitación enviada" },
+              { value: "PROSPECTO GF", label: "Prospecto GF" }
+            ], formationDraft.status, "Todos los estatus")}
+          </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="formation-search">Buscar</label>
+          <input id="formation-search" value="${escapeHtml(formationDraft.search)}" placeholder="Nombre, QR ID, número, grupo o estatus">
+        </div>
+      </div>
+    </article>
+
+    <article class="detail-card formation-encounter-card module-section-anchor" id="formation-pre-encounter-report-workspace">
+      <div class="panel-head">
+        <div>
+          <h2>Reporte agrupado de Pre-Encuentro</h2>
+          <p>Aquí ves a todas las personas que ya cumplieron la regla de 3 asistencias consecutivas, agrupadas por su grupo de conexión y listas para consulta o exportación.</p>
+        </div>
+        <div class="actions-row">
+          <span class="pill dark">${escapeHtml(String(report?.total || 0))} personas</span>
+          <button class="btn btn-secondary" data-action="refresh-formation">Actualizar reporte</button>
+          <button class="btn btn-ghost" data-action="export-formation-pre-encounter-excel" ${(report?.total || 0) ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-formation-pre-encounter-pdf" ${(report?.total || 0) ? "" : "disabled"}>PDF</button>
+        </div>
+      </div>
+
+      <div class="stats-grid assistants-stats-grid">
+        <article class="stat-card">
+          <span class="status-chip neutral">Personas en Pre-Encuentro</span>
+          <strong>${escapeHtml(String(report?.total || 0))}</strong>
+          <span>Cumplieron la regla y están en seguimiento para su invitación.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip warning">Grupos involucrados</span>
+          <strong>${escapeHtml(String(report?.groupCount || 0))}</strong>
+          <span>Bloques agrupados por liderazgo para consulta rápida del Pastor.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip success">Telegram entregado</span>
+          <strong>${escapeHtml(String(report?.sentCount || 0))}</strong>
+          <span>Casos donde el liderazgo ya recibió el aviso automático.</span>
+        </article>
+        <article class="stat-card">
+          <span class="status-chip danger">Telegram pendiente</span>
+          <strong>${escapeHtml(String(report?.pendingCount || 0))}</strong>
+          <span>Casos que todavía requieren revisión o seguimiento manual.</span>
+        </article>
+      </div>
+
+      ${groups.length ? `
+        <div class="formation-route-groups">
+          ${groups.map((group) => renderFormationPreEncounterReportGroup_(group)).join("")}
+        </div>
+      ` : `
+        <div class="empty-state">Todavía no hay personas clasificadas para Pre-Encuentro dentro del filtro actual.</div>
+      `}
+    </article>
+  `;
+}
+
+function renderFormationPreEncounterReportGroup_(group) {
+  return `
+    <section class="formation-route-group-block">
+      <div class="formation-route-context">
+        <div class="formation-route-context-head">
+          <div>
+            <small>Grupo de conexión</small>
+            <strong>${escapeHtml(group.groupName || "Sin grupo")}</strong>
+            <span>Bloque ejecutivo del reporte de Pre-Encuentro para este liderazgo.</span>
+          </div>
+          <span class="pill neutral">${escapeHtml(`${group.total} persona${group.total === 1 ? "" : "s"}`)}</span>
+        </div>
+        <div class="formation-route-context-meta">
+          <span class="context-item"><strong>Telegram OK:</strong> ${escapeHtml(String(group.sentCount || 0))}</span>
+          <span class="context-item"><strong>Telegram pendiente:</strong> ${escapeHtml(String(group.pendingCount || 0))}</span>
+          ${group.contacts.length
+            ? group.contacts.map((contact) => `
+                <span class="context-item">
+                  <strong>${escapeHtml(contact.label)}:</strong> ${escapeHtml(contact.value)}
+                </span>
+              `).join("")
+            : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="dashboard-group-roster-table">
+          <thead>
+            <tr>
+              <th>Congregante</th>
+              <th>Contacto</th>
+              <th>Asistencia</th>
+              <th>Telegram</th>
+              <th>Estatus</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${group.candidates.map((candidate) => renderFormationPreEncounterReportRow_(candidate)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderFormationPreEncounterReportRow_(candidate) {
+  const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+  return `
+    <tr>
+      <td>
+        <strong>${escapeHtml(candidate?.personName || "Congregante")}</strong><br>
+        ${escapeHtml(candidate?.personNumber || "Sin número")} · QR ${escapeHtml(candidate?.personId || "-")}
+      </td>
+      <td>
+        ${escapeHtml(candidate?.personPhone || "Sin teléfono")}<br>
+        ${escapeHtml(candidate?.leaderName || "Sin líder registrado")}
+      </td>
+      <td>
+        ${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`)}<br>
+        ${escapeHtml(`${candidate?.consecutiveAttendances || 0} consecutivas`)}
+      </td>
+      <td>
+        <strong>${escapeHtml(telegramUi.label)}</strong><br>
+        ${escapeHtml(telegramUi.detail)}
+      </td>
+      <td>
+        ${escapeHtml(candidate?.formationStatus || "CANDIDATO_ENCUENTRO")}<br>
+        ${escapeHtml(getFormationPreEncounterFollowupLabel_(candidate))}
+      </td>
+    </tr>
   `;
 }
 
@@ -8583,6 +10912,12 @@ function renderFormationOperationsWorkspaceLegacy_(context) {
   const attendanceParticipants = getFormationAttendanceParticipants_(attendanceContext, filteredEnrollments);
   const selectedApprovalMeta = getFormationApprovalModeMeta_(selectedEnrollment || selectedOffering || null);
   const selectedApprovalMode = selectedApprovalMeta.mode;
+  const selectedEvaluationLevelCode = String(
+    selectedEnrollment?.offering?.levelCode
+    || selectedOffering?.levelCode
+    || ""
+  ).trim();
+  const selectedRequiresQuestionnaires = /^5\./.test(selectedEvaluationLevelCode);
   const evaluationIntroCopy = selectedApprovalMode === "ATTENDANCE_ONLY"
     ? "Este paso se acredita en automático cuando la persona completa la asistencia requerida. Aquí solo revisas el avance."
     : selectedApprovalMode === "BAPTISM_CONFIRMATION"
@@ -8912,6 +11247,17 @@ function renderFormationOperationsWorkspaceLegacy_(context) {
             ` : `
               <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
                 <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+                <div class="summary-box" style="margin-bottom: 18px;">
+                  <span class="status-chip warning">Evaluación del paso actual</span>
+                  <strong>${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Paso actual")}</strong>
+                  <span>${escapeHtml(
+                    selectedApprovalMode === "BAPTISM_CONFIRMATION"
+                      ? "Aquí indicas si la persona ya fue bautizada para abrir el siguiente paso."
+                      : selectedRequiresQuestionnaires
+                        ? "Aquí capturas examen, cuestionarios y observaciones para validar su avance."
+                        : "Aquí capturas examen y observaciones para validar su avance al siguiente paso."
+                  )}</span>
+                </div>
                 <div class="field-grid two">
                   ${selectedApprovalMode === "BAPTISM_CONFIRMATION" ? `
                     <div class="field">
@@ -8935,6 +11281,21 @@ function renderFormationOperationsWorkspaceLegacy_(context) {
                         <option value="NO" ${selectedEnrollment.examApproved === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO" ? "selected" : ""}>NO</option>
                       </select>
                     </div>
+                    ${selectedRequiresQuestionnaires ? `
+                      <div class="field">
+                        <label for="formation-evaluation-questionnaires">Cuestionarios entregados</label>
+                        <input
+                          id="formation-evaluation-questionnaires"
+                          name="questionnairesDelivered"
+                          type="number"
+                          min="0"
+                          max="${escapeHtml(String(selectedEnrollment.questionnairesRequired || selectedEnrollment.attendance?.totalSessions || 12))}"
+                          value="${escapeHtml(String(selectedEnrollment.questionnairesDelivered || ""))}"
+                          placeholder="Ej. 12"
+                        >
+                        <small class="field-help">Debe completar ${escapeHtml(String(selectedEnrollment.questionnairesRequired || selectedEnrollment.attendance?.totalSessions || 12))} de ${escapeHtml(String(selectedEnrollment.questionnairesRequired || selectedEnrollment.attendance?.totalSessions || 12))} cuestionarios para avanzar.</small>
+                      </div>
+                    ` : ""}
                   `}
                   <div class="field" style="grid-column: 1 / -1;">
                     <label for="formation-evaluation-comments">Comentarios</label>
@@ -9111,9 +11472,10 @@ function renderFormationPortalWorkspaceLegacy_(context) {
 }
 
 function buildFormationJourneyRows_(rows) {
+  const journeyFilters = getFormationJourneyFilters_();
   const grouped = new Map();
-  const search = normalizeText(state.filters.formationOps.search || "");
-  const status = String(state.filters.formationOps.enrollmentStatus || "ALL").toUpperCase();
+  const search = normalizeText(journeyFilters.search || "");
+  const status = String(journeyFilters.enrollmentStatus || "ALL").toUpperCase();
 
   (Array.isArray(rows) ? rows : []).forEach((row) => {
     const personId = String(row?.personId || "").trim();
@@ -9154,14 +11516,23 @@ function buildFormationJourneyRows_(rows) {
       seasonName: resolveSeasonName_(current?.seasonId) || current?.seasonId || "Sin temporada",
       currentStepName: current?.offeringName || current?.levelName || "Sin paso",
       currentStepStatus: current?.status || "EN_CURSO",
+      currentEnrollmentId: current?.id || "",
+      currentEnrollment: current,
       currentAttendance: current?.attendance || {
         attendedSessions: 0,
         totalSessions: 0,
         completed: false
       },
+      currentSessionProgress: Array.isArray(current?.attendance?.sessionProgress)
+        ? current.attendance.sessionProgress
+        : [],
+      currentFollowup: current ? getFormationEnrollmentFollowupSummary_(current) : null,
+      currentApprovalMeta: current ? getFormationApprovalModeMeta_(current) : getFormationApprovalModeMeta_(null),
       currentEvaluation: current?.examApproved
         ? "Examen acreditado"
         : (current?.baptismConfirmed ? "Bautismo confirmado" : (current?.evaluatedAt ? "Evaluación registrada" : "Evaluación pendiente")),
+      approvedStepName: approvedLabels.length ? approvedLabels[approvedLabels.length - 1] : "Todavía no acredita pasos",
+      nextStepName: resolveFormationSequentialNextLevelName_(current?.offeringName || current?.levelName || ""),
       approvedLabels,
       approvedCount: approvedLabels.length,
       enrollments: sorted
@@ -9186,9 +11557,56 @@ function buildFormationJourneyRows_(rows) {
   }).sort((left, right) => String(left.personName || "").localeCompare(String(right.personName || "")));
 }
 
+function getSelectedFormationJourneyEnrollment_(journeyRows) {
+  const rows = Array.isArray(journeyRows) ? journeyRows : [];
+  const requestedId = String(state.ui.selectedFormationEnrollmentId || "").trim();
+  const requestedPersonId = String(state.ui.selectedFormationPersonId || "").trim();
+  const activeRows = rows.filter((journey) => journey?.currentEnrollment);
+
+  if (requestedId) {
+    const match = activeRows.find((journey) => String(journey?.currentEnrollmentId || "").trim() === requestedId);
+    if (match?.currentEnrollment) {
+      return match.currentEnrollment;
+    }
+  }
+
+  if (requestedPersonId) {
+    const personMatch = activeRows.find((journey) => String(journey?.personId || "").trim() === requestedPersonId);
+    if (personMatch?.currentEnrollment) {
+      return personMatch.currentEnrollment;
+    }
+  }
+
+  return activeRows[0]?.currentEnrollment || null;
+}
+
+function renderFormationSessionProgressSummary_(sessionProgress) {
+  const rows = Array.isArray(sessionProgress) ? sessionProgress : [];
+
+  if (!rows.length) {
+    return `<span class="formation-journey-chip is-empty">Sin sesiones registradas todavía</span>`;
+  }
+
+  return rows.map((session) => {
+    const status = String(session?.status || "").trim().toUpperCase();
+    const toneClass = status === "SI"
+      ? "success"
+      : (status === "NO" ? "danger" : "is-empty");
+    const label = status === "SI"
+      ? "Asistió"
+      : (status === "NO" ? "Faltó" : "Pendiente");
+
+    return `
+      <span class="formation-journey-chip ${toneClass}">
+        ${escapeHtml(session?.label || `Sesión ${session?.number || ""}`)} · ${escapeHtml(label)}
+      </span>
+    `;
+  }).join("");
+}
+
 function renderFormationJourneyRow_(journey) {
   const approvedPreview = journey.approvedLabels.length
-    ? journey.approvedLabels.slice(0, 4).map((label) => `<span class="formation-journey-chip">${escapeHtml(label)}</span>`).join("")
+    ? journey.approvedLabels.slice(0, 3).map((label) => `<span class="formation-journey-chip">${escapeHtml(label)}</span>`).join("")
     : `<span class="formation-journey-chip is-empty">Todavía no acredita pasos</span>`;
   const attendance = journey.currentAttendance || {
     attendedSessions: 0,
@@ -9196,6 +11614,8 @@ function renderFormationJourneyRow_(journey) {
     completed: false
   };
   const attendanceSummary = `${attendance.attendedSessions || 0}/${attendance.totalSessions || 0} asistencias`;
+  const followup = journey.currentFollowup || null;
+  const sessionProgress = renderFormationSessionProgressSummary_(journey.currentSessionProgress);
 
   return `
     <article class="formation-journey-row">
@@ -9206,36 +11626,73 @@ function renderFormationJourneyRow_(journey) {
           ${journey.personNumber ? `<span class="formation-journey-chip">${escapeHtml(journey.personNumber)}</span>` : ""}
           <span class="formation-journey-chip">QR ${escapeHtml(journey.personId || "-")}</span>
           ${journey.personPhone ? `<span class="formation-journey-chip">${escapeHtml(journey.personPhone)}</span>` : ""}
-          <span class="formation-journey-chip">${escapeHtml(journey.seasonName || "Sin temporada")}</span>
         </div>
       </div>
       <div class="formation-journey-stage">
-        <small>Paso que cursa</small>
+        <small>Camino actual</small>
         <div class="formation-journey-stage-head">
           <strong>${escapeHtml(journey.currentStepName || "Sin paso")}</strong>
           <div>${renderWorkflowStatusPill_(journey.currentStepStatus || "EN_CURSO")}</div>
         </div>
+        <span><strong>Paso actual:</strong> ${escapeHtml(journey.currentStepName || "Sin paso")}</span>
+        <span><strong>Paso aprobado:</strong> ${escapeHtml(journey.approvedStepName || "Todavía no acredita pasos")}</span>
+        <span><strong>Siguiente paso:</strong> ${escapeHtml(journey.nextStepName || "Sin siguiente paso")}</span>
         <span>${escapeHtml(attendanceSummary)}</span>
-        <span>${escapeHtml(journey.currentEvaluation || "Seguimiento pendiente")}</span>
+        <span>${escapeHtml(followup?.title || journey.currentEvaluation || "Seguimiento pendiente")}</span>
       </div>
       <div class="formation-journey-approved">
+        <small>Progreso del paso</small>
+        <div class="formation-journey-approved-list">${sessionProgress}</div>
+        <span>${escapeHtml(followup?.detail || "Aquí verás el resultado de asistencia, examen o criterio pastoral del paso actual.")}</span>
         <small>Pasos ya aprobados</small>
         <div class="formation-journey-approved-list">${approvedPreview}</div>
         <span>${escapeHtml(`${journey.approvedCount || 0} paso(s) acreditado(s) hasta ahora`)}</span>
       </div>
       <div class="formation-journey-actions">
         <small>Acciones</small>
+        <button class="btn btn-primary" data-action="select-formation-enrollment" data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}" data-person-id="${escapeHtml(journey.personId || "")}">Ver detalle</button>
         <button class="btn btn-secondary" data-action="open-formation-enrollment-modal" data-person-id="${escapeHtml(journey.personId || "")}">Gestionar portal</button>
         <button class="btn btn-ghost" data-action="open-formation-profile" data-person-id="${escapeHtml(journey.personId || "")}">Ver perfil</button>
+        ${canAdminCorrectFormationEnrollment_() ? `
+          <button
+            class="btn btn-danger"
+            data-action="prompt-formation-admin-remove-enrollment"
+            data-enrollment-id="${escapeHtml(journey.currentEnrollmentId || "")}"
+            data-person-id="${escapeHtml(journey.personId || "")}"
+            data-person-name="${escapeHtml(journey.personName || "")}"
+            data-step-name="${escapeHtml(journey.currentStepName || "")}"
+          >
+            Corregir paso
+          </button>
+        ` : ""}
       </div>
     </article>
   `;
 }
 
 function renderFormationOperationsWorkspace_(context) {
+  const journeyFilters = getFormationJourneyFilters_();
   const selectedProcess = getSelectedFormationProcess_();
   const summary = buildFormationOperationsSummary_();
-  const journeyRows = buildFormationJourneyRows_(state.formationProcessRoster);
+  const selectedLevelId = String(journeyFilters.levelId || "").trim();
+  const journeySourceRows = getFormationJourneySourceRows_().filter((row) => {
+    return !selectedLevelId || String(row?.levelId || "").trim() === selectedLevelId;
+  });
+  const journeyRows = buildFormationJourneyRows_(journeySourceRows);
+  const selectedEnrollment = getSelectedFormationJourneyEnrollment_(journeyRows);
+  const selectedJourney = selectedEnrollment
+    ? journeyRows.find((journey) => String(journey?.currentEnrollmentId || "") === String(selectedEnrollment?.id || "")) || null
+    : null;
+  const selectedApprovalMeta = getFormationApprovalModeMeta_(selectedEnrollment || null);
+  const selectedApprovalMode = selectedApprovalMeta.mode;
+  const selectedRequiresQuestionnaires = Number(selectedEnrollment?.questionnairesRequired || 0) > 0;
+  const selectedSessionProgress = renderFormationSessionProgressSummary_(selectedEnrollment?.attendance?.sessionProgress || []);
+  const selectedFollowup = selectedEnrollment ? getFormationEnrollmentFollowupSummary_(selectedEnrollment) : null;
+  const selectedQuestionnairesTarget = Math.max(
+    Number(selectedEnrollment?.questionnairesRequired || 0),
+    Number(selectedEnrollment?.attendance?.totalSessions || 0),
+    0
+  );
 
   return `
     <article class="panel-card module-section-anchor" id="formation-operations-workspace">
@@ -9288,7 +11745,7 @@ function renderFormationOperationsWorkspace_(context) {
                 value: process.id,
                 label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
               })),
-              selectedProcess?.id || state.filters.formationOps.processId,
+              selectedProcess?.id || journeyFilters.processId,
               "Selecciona proceso"
             )}
           </select>
@@ -9301,7 +11758,7 @@ function renderFormationOperationsWorkspace_(context) {
                 value: level.id,
                 label: `${level.name} (${level.order})`
               })),
-              state.filters.formationOps.levelId,
+              journeyFilters.levelId,
               "Todos los pasos"
             )}
           </select>
@@ -9314,12 +11771,12 @@ function renderFormationOperationsWorkspace_(context) {
               { value: "EN_CURSO", label: "En curso" },
               { value: "ACREDITADO", label: "Acreditado" },
               { value: "NO_ACREDITADO", label: "No acreditado" }
-            ], state.filters.formationOps.enrollmentStatus, "Todos los estatus")}
+            ], journeyFilters.enrollmentStatus, "Todos los estatus")}
           </select>
         </div>
         <div class="field">
           <label for="formation-ops-search">Buscar inscrito</label>
-          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, teléfono o paso actual">
+          <input id="formation-ops-search" value="${escapeHtml(journeyFilters.search || "")}" placeholder="Nombre, QR ID, teléfono o paso actual">
         </div>
       </div>
     </article>
@@ -9341,14 +11798,147 @@ function renderFormationOperationsWorkspace_(context) {
         <div class="empty-state">Todavía no hay inscritos visibles para el proceso y filtros actuales.</div>
       `}
     </article>
+
+    ${selectedEnrollment ? `
+      <article class="detail-card module-section-anchor" id="formation-operation-evaluation">
+        <div class="panel-head">
+          <div>
+            <h2>Detalle y validación del participante</h2>
+            <p>${escapeHtml(selectedApprovalMeta.description || "Aquí validas el criterio pastoral del paso actual y el sistema moverá automáticamente a la persona cuando cumpla la regla.")}</p>
+          </div>
+          ${renderWorkflowStatusPill_(selectedEnrollment.status || "EN_CURSO")}
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Participante:</strong> ${escapeHtml(selectedEnrollment.personName || "Congregante")}</span>
+          <span class="context-item"><strong>Paso actual:</strong> ${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Sin paso")}</span>
+          <span class="context-item"><strong>Paso aprobado:</strong> ${escapeHtml(selectedJourney?.approvedStepName || "Todavía no acredita pasos")}</span>
+          <span class="context-item"><strong>Siguiente paso:</strong> ${escapeHtml(selectedJourney?.nextStepName || "Sin siguiente paso")}</span>
+          <span class="context-item"><strong>Asistencia:</strong> ${escapeHtml(`${selectedEnrollment.attendance?.attendedSessions || 0}/${selectedEnrollment.attendance?.totalSessions || 0}`)}</span>
+          <span class="context-item"><strong>Regla:</strong> ${escapeHtml(selectedApprovalMeta.title || "Seguimiento")}</span>
+        </div>
+
+        <div class="summary-stack" style="margin-top: 18px;">
+          <div class="summary-box">
+            <span class="status-chip neutral">Congregante</span>
+            <strong>${escapeHtml(selectedEnrollment.personName || "Congregante")}</strong>
+            <span>${escapeHtml(selectedEnrollment.personNumber || "-")} | QR ${escapeHtml(selectedEnrollment.personId || "-")} | ${escapeHtml(selectedEnrollment.personPhone || "Sin teléfono")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Seguimiento del paso</span>
+            <strong>${escapeHtml(selectedFollowup?.title || "Pendiente")}</strong>
+            <span>${escapeHtml(selectedFollowup?.detail || "Revisa asistencia, examen o bautismo según la regla de este paso.")}</span>
+          </div>
+          <div class="summary-box">
+            <span class="status-chip neutral">Sesiones del paso</span>
+            <strong>${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Sin paso")}</strong>
+            <div class="formation-journey-approved-list">${selectedSessionProgress}</div>
+          </div>
+        </div>
+
+        <form id="formation-enrollment-evaluation-form" style="margin-top: 18px;">
+          <input type="hidden" name="enrollmentId" value="${escapeHtml(selectedEnrollment.id || "")}">
+          <div class="summary-box" style="margin-bottom: 18px;">
+            <span class="status-chip warning">Evaluación del paso actual</span>
+            <strong>${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "Paso actual")}</strong>
+            <span>${escapeHtml(
+              selectedApprovalMode === "BAPTISM_CONFIRMATION"
+                ? "Aquí indicas si la persona ya fue bautizada para abrir el siguiente paso."
+                : selectedRequiresQuestionnaires
+                  ? "Aquí capturas examen, cuestionarios y observaciones para validar su avance."
+                  : selectedApprovalMode === "ATTENDANCE_ONLY"
+                    ? "Este paso se acredita por asistencia, pero puedes dejar observaciones administrativas."
+                    : "Aquí capturas examen y observaciones para validar su avance al siguiente paso."
+            )}</span>
+          </div>
+          <div class="field-grid two">
+            ${selectedApprovalMode === "BAPTISM_CONFIRMATION" ? `
+              <div class="field">
+                <label for="formation-evaluation-approved">Bautizado</label>
+                <select id="formation-evaluation-approved" name="examApproved">
+                  <option value="">Selecciona</option>
+                  <option value="SI" ${selectedEnrollment.baptismConfirmed ? "selected" : ""}>SI</option>
+                  <option value="NO" ${(selectedEnrollment.baptismConfirmed === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO") ? "selected" : ""}>NO</option>
+                </select>
+              </div>
+            ` : selectedApprovalMode === "ATTENDANCE_ONLY" ? `
+              <div class="field">
+                <label for="formation-evaluation-comments">Observaciones</label>
+                <textarea id="formation-evaluation-comments" name="comments" rows="3" placeholder="Anota observaciones pastorales si hace falta dejar evidencia del paso.">${escapeHtml(selectedEnrollment.comments || "")}</textarea>
+              </div>
+            ` : `
+              <div class="field">
+                <label for="formation-evaluation-score">Calificación del examen</label>
+                <input id="formation-evaluation-score" name="examScore" value="${escapeHtml(selectedEnrollment.examScore || "")}" placeholder="Ej. 95">
+              </div>
+              <div class="field">
+                <label for="formation-evaluation-approved">Examen aprobado</label>
+                <select id="formation-evaluation-approved" name="examApproved">
+                  <option value="">Selecciona</option>
+                  <option value="SI" ${selectedEnrollment.examApproved ? "selected" : ""}>SI</option>
+                  <option value="NO" ${selectedEnrollment.examApproved === false || String(selectedEnrollment.status || "").toUpperCase() === "NO_ACREDITADO" ? "selected" : ""}>NO</option>
+                </select>
+              </div>
+              ${selectedRequiresQuestionnaires ? `
+                <div class="field">
+                  <label for="formation-evaluation-questionnaires">Cuestionarios entregados</label>
+                  <input
+                    id="formation-evaluation-questionnaires"
+                    name="questionnairesDelivered"
+                    type="number"
+                    min="0"
+                    max="${escapeHtml(String(selectedQuestionnairesTarget || 12))}"
+                    value="${escapeHtml(String(selectedEnrollment.questionnairesDelivered || ""))}"
+                    placeholder="Ej. ${escapeHtml(String(selectedQuestionnairesTarget || 12))}"
+                  >
+                  <small class="field-help">Debe completar ${escapeHtml(String(selectedQuestionnairesTarget || 12))} cuestionarios para continuar.</small>
+                </div>
+              ` : ""}
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="formation-evaluation-comments">Observaciones</label>
+                <textarea id="formation-evaluation-comments" name="comments" rows="3" placeholder="Anota resultado del examen, observaciones del líder o si repetirá el paso.">${escapeHtml(selectedEnrollment.comments || "")}</textarea>
+              </div>
+            `}
+          </div>
+
+          <div class="actions-row" style="margin-top: 18px;">
+            <button class="btn btn-primary" type="submit">
+              ${escapeHtml(selectedApprovalMode === "ATTENDANCE_ONLY" ? "Validar participante" : "Guardar evaluación")}
+            </button>
+            ${canAdminCorrectFormationEnrollment_() ? `
+              <button
+                class="btn btn-danger"
+                type="button"
+                data-action="prompt-formation-admin-remove-enrollment"
+                data-enrollment-id="${escapeHtml(selectedEnrollment.id || "")}"
+                data-person-id="${escapeHtml(selectedEnrollment.personId || "")}"
+                data-person-name="${escapeHtml(selectedEnrollment.personName || "")}"
+                data-step-name="${escapeHtml(selectedEnrollment.offeringName || selectedEnrollment.levelName || "")}"
+              >
+                Quitar del paso actual
+              </button>
+            ` : ""}
+          </div>
+        </form>
+      </article>
+    ` : ""}
   `;
 }
 
 function renderFormationPortalWorkspace_(context) {
+  const portalFilters = getFormationPortalFilters_();
   const selectedProcess = getSelectedFormationProcess_();
-  const selectedOffering = getSelectedFormationOffering_();
-  const filteredOfferings = getFilteredFormationOfferings_();
-  const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
+  const selectedOffering = getSelectedFormationPortalOffering_();
+  const filteredOfferings = getFilteredFormationPortalOfferings_();
+  const roster = getFilteredFormationPortalRoster_(selectedOffering?.id || "");
+  const showManualEnrollment = Boolean(selectedOffering && Number(selectedOffering.levelOrder || 0) <= 1);
+  const manualCandidates = showManualEnrollment ? getFormationManualEnrollmentCandidates_(selectedOffering) : [];
+  const selectedBulkSet = new Set((Array.isArray(state.selectedBulkPeople) ? state.selectedBulkPeople : []).map((personId) => String(personId || "")));
+  const selectedPeople = getSelectedBulkPeople_().filter((person) => {
+    return showManualEnrollment
+      && canAssignPersonToFormationOffering_(person?.id || "", selectedOffering)
+      && !roster.some((enrollment) => String(enrollment?.personId || "").trim() === String(person?.id || "").trim());
+  });
 
   return `
     <article class="panel-card module-section-anchor" id="formation-portal-workspace">
@@ -9379,7 +11969,7 @@ function renderFormationPortalWorkspace_(context) {
                 value: process.id,
                 label: `${process.name} | ${formatDate(process.startDate) || process.startDate || "Sin fecha"}`
               })),
-              selectedProcess?.id || state.filters.formationOps.processId,
+              selectedProcess?.id || portalFilters.processId,
               "Selecciona proceso"
             )}
           </select>
@@ -9392,7 +11982,7 @@ function renderFormationPortalWorkspace_(context) {
                 value: level.id,
                 label: `${level.name} (${level.order})`
               })),
-              state.filters.formationOps.levelId,
+              portalFilters.levelId,
               "Todos los pasos"
             )}
           </select>
@@ -9405,7 +11995,7 @@ function renderFormationPortalWorkspace_(context) {
                 value: offering.id,
                 label: `${offering.levelName} | ${offering.name}`
               })),
-              selectedOffering?.id || state.filters.formationOps.offeringId,
+              selectedOffering?.id || portalFilters.offeringId,
               "Selecciona paso"
             )}
           </select>
@@ -9418,12 +12008,12 @@ function renderFormationPortalWorkspace_(context) {
               { value: "EN_CURSO", label: "En curso" },
               { value: "ACREDITADO", label: "Acreditado" },
               { value: "NO_ACREDITADO", label: "No acreditado" }
-            ], state.filters.formationOps.enrollmentStatus, "Todos los estatus")}
+            ], portalFilters.enrollmentStatus, "Todos los estatus")}
           </select>
         </div>
         <div class="field" style="grid-column: 1 / -1;">
           <label for="formation-ops-search">Buscar inscrito</label>
-          <input id="formation-ops-search" value="${escapeHtml(state.filters.formationOps.search || "")}" placeholder="Nombre, QR ID, paso o teléfono">
+          <input id="formation-ops-search" value="${escapeHtml(portalFilters.search || "")}" placeholder="Nombre, QR ID, paso o teléfono">
         </div>
       </div>
     </article>
@@ -9449,6 +12039,94 @@ function renderFormationPortalWorkspace_(context) {
           <button class="btn btn-secondary" data-action="download-formation-portal-qr-batch" ${roster.length ? "" : "disabled"}>Preparar QR masivos</button>
           <span class="footer-note">Salida rápida para compartir: primero abre el chat correcto y luego descarga o comparte el QR correspondiente.</span>
         </div>
+
+        ${showManualEnrollment ? `
+          <article class="detail-card" style="margin-top: 18px;">
+            <div class="panel-head">
+              <div>
+                <h2>Inscripción manual excepcional al Paso 1</h2>
+                <p>Por esta ocasión puedes construir un lote y registrar manualmente a las personas en ${escapeHtml(selectedOffering?.offeringName || selectedOffering?.name || selectedOffering?.levelName || "Ahora Qué 1 y Ahora Qué 2")}.</p>
+              </div>
+              <div class="actions-row">
+                <span class="pill warning">${escapeHtml(String(manualCandidates.length))} disponibles</span>
+                <span class="pill dark">${escapeHtml(String(selectedPeople.length))} en lote</span>
+              </div>
+            </div>
+
+            <div class="summary-strip">
+              <span class="context-item"><strong>Uso:</strong> solo para el arranque real cuando necesitas inscribir manualmente a los 80 participantes.</span>
+              <span class="context-item"><strong>Protección:</strong> si ya están dentro del proceso, aquí ya no volverán a aparecer.</span>
+              <span class="context-item"><strong>Portal:</strong> al guardar, se genera o conserva su cuenta automáticamente.</span>
+            </div>
+
+            <div class="field-grid two formation-ops-toolbar" style="margin-top: 18px;">
+              <div class="field">
+                <label for="formation-ops-person-search">Buscar persona a inscribir</label>
+                <input id="formation-ops-person-search" value="${escapeHtml(portalFilters.personSearch || "")}" placeholder="Nombre, QR ID, número o teléfono">
+              </div>
+              <div class="field">
+                <label>Lote listo</label>
+                <div class="actions-row">
+                  <button class="btn btn-secondary" type="button" data-action="formation-select-visible-bulk" ${manualCandidates.length ? "" : "disabled"}>Seleccionar visibles</button>
+                  <button class="btn btn-ghost" type="button" data-action="formation-clear-bulk-selection" ${selectedPeople.length ? "" : "disabled"}>Vaciar lote</button>
+                  <button class="btn btn-primary" type="button" data-action="formation-assign-selected-bulk" ${selectedPeople.length ? "" : "disabled"}>Inscribir lote</button>
+                </div>
+              </div>
+            </div>
+
+            ${selectedPeople.length ? `
+              <div class="results-list participants-picker-results" style="margin-top: 16px;">
+                ${selectedPeople.map((person) => `
+                  <article class="result-card participant-picker-card">
+                    <div class="result-row">
+                      <div class="result-copy-stack">
+                        <div class="result-title-row">
+                          <span class="row-title">${escapeHtml(person?.nombreCompleto || person?.name || person?.nombre || "Congregante")}</span>
+                          <span class="pill success">En lote</span>
+                        </div>
+                        <span class="row-meta">${escapeHtml(person?.numero || "-")} | QR ${escapeHtml(person?.id || "-")} | ${escapeHtml(person?.telefono || person?.phone || "Sin teléfono")}</span>
+                      </div>
+                      <div class="participant-action-stack">
+                        <button class="btn btn-ghost" type="button" data-action="formation-remove-bulk-person" data-person-id="${escapeHtml(String(person?.id || ""))}">Quitar</button>
+                      </div>
+                    </div>
+                  </article>
+                `).join("")}
+              </div>
+            ` : `
+              <div class="empty-state" style="margin-top: 16px;">Arma el lote buscando y agregando personas. Cuando confirmes, todas quedarán inscritas a este Paso 1.</div>
+            `}
+
+            <div class="results-list participants-picker-results" style="margin-top: 16px;">
+              ${manualCandidates.length ? manualCandidates.slice(0, 60).map((person) => `
+                <article class="result-card participant-picker-card ${selectedBulkSet.has(String(person?.id || "")) ? "result-card-muted" : ""}">
+                  <div class="result-row">
+                    <div class="result-copy-stack">
+                      <div class="result-title-row">
+                        <span class="row-title">${escapeHtml(person?.nombreCompleto || person?.name || person?.nombre || "Congregante")}</span>
+                        ${selectedBulkSet.has(String(person?.id || "")) ? `<span class="pill dark">Seleccionado</span>` : ""}
+                      </div>
+                      <span class="row-meta">${escapeHtml(person?.numero || "-")} | QR ${escapeHtml(person?.id || "-")} | ${escapeHtml(person?.telefono || person?.phone || "Sin teléfono")}</span>
+                      <span class="row-meta">${escapeHtml(getPersonTypeDisplayLabel_(person?.tipoPersona || person?.type || "CONGREGANTE"))}</span>
+                    </div>
+                    <div class="participant-action-stack">
+                      <button
+                        class="btn ${selectedBulkSet.has(String(person?.id || "")) ? "btn-secondary" : "btn-primary"}"
+                        type="button"
+                        data-action="${selectedBulkSet.has(String(person?.id || "")) ? "formation-remove-bulk-person" : "formation-add-bulk-person"}"
+                        data-person-id="${escapeHtml(String(person?.id || ""))}"
+                      >
+                        ${selectedBulkSet.has(String(person?.id || "")) ? "Quitar" : "Agregar al lote"}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              `).join("") : `
+                <div class="empty-state">${portalFilters.personSearch ? "No encontramos personas disponibles con esa búsqueda o ya quedaron inscritas en este proceso." : "Escribe un nombre, QR ID, número o teléfono para empezar a formar el lote del Paso 1."}</div>
+              `}
+            </div>
+          </article>
+        ` : ""}
 
         ${roster.length ? `
           <div class="formation-portal-roster">
@@ -9544,17 +12222,14 @@ function renderFormationPortalAdminModal_() {
   }
 
   const personId = String(modal.personId || "").trim();
-  const previewPortal = personId && String(state.studentPortal?.person?.id || "") === personId
-    ? state.studentPortal
-    : null;
   const previewProfile = personId && String(state.formationProfile?.person?.id || "") === personId
     ? state.formationProfile
     : null;
-  const previewAccount = previewPortal?.account || previewProfile?.portalAccount || null;
-  const person = previewProfile?.person || previewPortal?.person || getFormationPortalEnrollmentPerson_({
+  const previewAccount = previewProfile?.portalAccount || null;
+  const person = previewProfile?.person || getFormationPortalEnrollmentPerson_({
     personId
   });
-  const currentStageName = previewPortal?.currentLevel?.levelName || previewPortal?.summary?.currentLevelName || previewProfile?.person?.nivelFormacionActual || "Sin etapa";
+  const currentStageName = previewProfile?.person?.nivelFormacionActual || "Sin etapa";
   const hasPreviewPhone = Boolean(String(person?.telefono || "").trim());
   const hasPreviewPin = Boolean(String(previewAccount?.temporaryPin || "").trim());
 
@@ -9563,8 +12238,8 @@ function renderFormationPortalAdminModal_() {
       <section class="system-modal-card formation-portal-modal" role="dialog" aria-modal="true" aria-labelledby="formation-portal-modal-title">
         <div class="panel-head">
           <div>
-            <h2 id="formation-portal-modal-title">Cuenta y portal del asistente</h2>
-            <p>Consulta el acceso del inscrito, comparte su cuenta o su QR y revisa cómo se ve su portal personal sin salir del módulo.</p>
+            <h2 id="formation-portal-modal-title">Acceso del asistente</h2>
+            <p>Consulta usuario, PIN temporal y acciones rápidas para compartir su acceso o su QR sin recargar la pantalla.</p>
           </div>
           <div class="actions-row">
             <span class="pill dark">${escapeHtml(currentStageName)}</span>
@@ -9572,11 +12247,11 @@ function renderFormationPortalAdminModal_() {
           </div>
         </div>
 
-        ${modal.loading && !previewPortal && !previewProfile ? `
+        ${modal.loading && !previewProfile ? `
           <div class="formation-profile-loading">
             <span class="loading-spinner" aria-hidden="true"></span>
-            <strong>Cargando cuenta y portal...</strong>
-            <span>En un momento verás el usuario, el PIN, el QR y la vista espejo del asistente.</span>
+            <strong>Cargando acceso del asistente...</strong>
+            <span>En un momento verás usuario, PIN temporal, teléfono y atajos para compartir acceso o QR.</span>
           </div>
         ` : `
           <div class="formation-portal-modal-grid">
@@ -9602,6 +12277,11 @@ function renderFormationPortalAdminModal_() {
                   <strong>${escapeHtml(person?.telefono || "Sin teléfono")}</strong>
                   <span>${escapeHtml(hasPreviewPhone ? "Disponible para compartir acceso y QR." : "No se puede preparar WhatsApp hasta capturar teléfono.")}</span>
                 </div>
+                <div class="summary-box">
+                  <span class="status-chip neutral">Uso recomendado</span>
+                  <strong>Compartir acceso o credencial</strong>
+                  <span>${escapeHtml("Primero comparte el acceso del portal. Después abre el chat correcto o descarga el QR si hoy lo necesita para asistencia.")}</span>
+                </div>
               </div>
 
               <div class="actions-row formation-portal-modal-actions">
@@ -9610,18 +12290,12 @@ function renderFormationPortalAdminModal_() {
                 <button class="btn btn-primary" data-action="reset-student-portal-pin-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>${hasPreviewPin ? "Nuevo PIN y WhatsApp" : "Generar PIN y WhatsApp"}</button>
                 <button class="btn btn-ghost" data-action="send-formation-portal-qr-whatsapp" data-person-id="${escapeHtml(person?.id || "")}" ${hasPreviewPhone ? "" : "disabled"}>Abrir chat correcto</button>
                 <button class="btn btn-ghost" data-action="share-formation-portal-qr" data-person-id="${escapeHtml(person?.id || "")}">Descargar QR</button>
-                <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar vista</button>
+                <button class="btn btn-secondary" data-action="refresh-formation-enrollment-modal" data-person-id="${escapeHtml(person?.id || "")}">Actualizar acceso</button>
               </div>
 
               <div class="footer-note">
-                ${escapeHtml("Flujo sugerido para hoy: 1) Abrir chat correcto. 2) Descargar QR. En celular o iPad quedará listo para adjuntarlo desde el WhatsApp correcto.")}
+                ${escapeHtml("Vista compacta: aquí solo administras el acceso al portal y la credencial QR. Ya no se muestra la vista espejo del portal para que el modal cargue más rápido y se vea limpio.")}
               </div>
-            </div>
-
-            <div class="formation-portal-modal-preview">
-              ${previewPortal?.person
-                ? renderAdminFormationStudentPortalPreview_(previewPortal)
-                : `<div class="empty-state">No encontramos la vista del portal todavía. Pulsa Actualizar vista para volver a cargarla.</div>`}
             </div>
           </div>
         `}
@@ -9634,6 +12308,7 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const attendanceContext = String(state.formationAttendanceContext?.offering?.id || "") === String(selectedOffering?.id || "")
     ? state.formationAttendanceContext
     : null;
+  const isManualContextHydrating = !attendanceContext && Boolean(state.ui.attendanceFormationHydrating);
   const compact = Boolean(options.compact);
   const mode = resolveFormationAttendanceMode_();
   const isScanMode = mode !== "manual";
@@ -9641,9 +12316,14 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
   const scanResult = getQrScannerFeedbackResult_();
   const scannerTone = scanResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
   const activity = Array.isArray(state.formationQrActivity) ? state.formationQrActivity : [];
-  const attendanceYesCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "SI").length;
-  const attendanceNoCount = attendanceParticipants.filter((participant) => participant.selectedSessionAttendance === "NO").length;
+  const attendanceYesCount = attendanceParticipants.filter((participant) => {
+    return getFormationManualAttendanceDraftValue_(participant.personId || "", participant.selectedSessionAttendance || "") === "SI";
+  }).length;
+  const attendanceNoCount = attendanceParticipants.filter((participant) => {
+    return getFormationManualAttendanceDraftValue_(participant.personId || "", participant.selectedSessionAttendance || "") === "NO";
+  }).length;
   const attendancePendingCount = Math.max(attendanceParticipants.length - attendanceYesCount - attendanceNoCount, 0);
+  const manualDraftCount = getFormationManualAttendanceDraftCount_();
   const selectedSession = attendanceContext?.selectedSession
     || (selectedOffering?.sessionSchedule || []).find((session) => String(session.number || "") === String(currentSessionNumber || ""))
     || null;
@@ -9800,11 +12480,30 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
 
         ${!captureEnabled ? `
           <div class="empty-state">Activa primero la sesión ${escapeHtml(selectedSession?.label || currentSessionNumber)} para habilitar el guardado manual.</div>
+        ` : isManualContextHydrating ? `
+          <div class="empty-state">Cargando inscritos del paso para captura manual...</div>
+        ` : !attendanceContext ? `
+          <div class="empty-state">
+            El listado manual todavía no se ha cargado para este paso.
+            <div class="actions-row" style="margin-top: 14px;">
+              <button class="btn btn-primary" type="button" data-action="load-formation-manual-context" data-offering-id="${escapeHtml(selectedOffering.id || "")}">
+                Cargar inscritos del paso
+              </button>
+            </div>
+          </div>
         ` : attendanceParticipants.length ? `
           <div class="formation-attendance-manual-summary">
             <span><strong>Sesión elegida:</strong> ${escapeHtml(selectedSessionLabel)}</span>
             <span><strong>Sesión activa:</strong> ${escapeHtml(activeSessionLabel)}</span>
             <span><strong>Avance visible:</strong> ${escapeHtml(`${attendanceYesCount} SI · ${attendanceNoCount} NO · ${attendancePendingCount} pendientes`)}</span>
+            <span><strong>Cambios pendientes:</strong> ${escapeHtml(String(manualDraftCount))}</span>
+          </div>
+          <div class="formation-attendance-manual-toolbar">
+            <button class="btn btn-primary" type="submit" ${manualDraftCount ? "" : "disabled"}>Guardar asistencia del nivel</button>
+            <button class="btn btn-ghost" type="button" data-action="formation-manual-mark-visible" data-value="SI">Marcar visibles SI</button>
+            <button class="btn btn-ghost" type="button" data-action="formation-manual-mark-visible" data-value="NO">Marcar visibles NO</button>
+            <button class="btn btn-ghost" type="button" data-action="formation-manual-clear-draft" ${manualDraftCount ? "" : "disabled"}>Limpiar cambios</button>
+            <button class="btn btn-ghost" type="button" data-action="refresh-formation-operations">Actualizar contexto</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -9817,8 +12516,13 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
                 </tr>
               </thead>
               <tbody>
-                ${attendanceParticipants.map((participant) => `
-                  <tr>
+                ${attendanceParticipants.map((participant) => {
+                  const currentAttendance = String(participant.selectedSessionAttendance || "").trim().toUpperCase();
+                  const draftAttendance = getFormationManualAttendanceDraftValue_(participant.personId || "", currentAttendance);
+                  const isDirty = draftAttendance !== currentAttendance;
+
+                  return `
+                  <tr class="formation-attendance-manual-row ${isDirty ? "is-dirty" : ""}">
                     <td>
                       <span class="row-title">${escapeHtml(participant.personName || "Congregante")}</span>
                       <span class="row-meta">${escapeHtml(participant.personNumber || "-")} | QR ${escapeHtml(participant.personId || "-")}</span>
@@ -9826,20 +12530,21 @@ function renderFormationAttendanceCapturePanel_(selectedOffering, currentSession
                     <td>${renderWorkflowStatusPill_(participant.status || "EN_CURSO")}</td>
                     <td>${escapeHtml(`${participant.attendance?.attendedSessions || 0}/${participant.attendance?.totalSessions || 0}`)}</td>
                     <td>
-                      <select name="attendance_${escapeHtml(participant.personId || "")}" data-formation-attendance-person="${escapeHtml(participant.personId || "")}">
-                        <option value="" ${!participant.selectedSessionAttendance ? "selected" : ""}>Sin definir</option>
-                        <option value="SI" ${participant.selectedSessionAttendance === "SI" ? "selected" : ""}>SI</option>
-                        <option value="NO" ${participant.selectedSessionAttendance === "NO" ? "selected" : ""}>NO</option>
+                      <select
+                        name="attendance_${escapeHtml(participant.personId || "")}"
+                        data-formation-attendance-person="${escapeHtml(participant.personId || "")}"
+                        data-current-attendance="${escapeHtml(currentAttendance)}"
+                      >
+                        <option value="" ${!draftAttendance ? "selected" : ""}>Sin definir</option>
+                        <option value="SI" ${draftAttendance === "SI" ? "selected" : ""}>SI</option>
+                        <option value="NO" ${draftAttendance === "NO" ? "selected" : ""}>NO</option>
                       </select>
                     </td>
                   </tr>
-                `).join("")}
+                `;
+                }).join("")}
               </tbody>
             </table>
-          </div>
-          <div class="actions-row" style="margin-top: 18px;">
-            <button class="btn btn-primary" type="submit">Guardar asistencia del nivel</button>
-            <button class="btn btn-ghost" type="button" data-action="refresh-formation-operations">Actualizar contexto</button>
           </div>
         ` : `
           <div class="empty-state">No hay inscritos visibles para este nivel con los filtros actuales.</div>
@@ -10063,7 +12768,7 @@ function renderCatalogsView_() {
     return !groupSearch || haystack.includes(groupSearch);
   });
   const ministries = state.catalogs.ministries.filter((ministry) => {
-    const haystack = `${ministry.id} ${ministry.name}`.toLowerCase();
+    const haystack = `${ministry.id} ${ministry.name} ${ministry.leader1Name || ""} ${ministry.leader2Name || ""}`.toLowerCase();
     return !ministrySearch || haystack.includes(ministrySearch);
   });
   const editingGroup = state.catalogs.groups.find((group) => String(group.id) === String(state.ui.editingGroupId || "")) || null;
@@ -10258,6 +12963,30 @@ function renderCatalogsView_() {
                 <label for="catalog-ministry-name">Nombre del ministerio</label>
                 <input id="catalog-ministry-name" name="name" value="${escapeHtml(editingMinistry?.name || "")}" placeholder="Nuevo ministerio" required>
               </div>
+              <div class="field">
+                <label for="catalog-ministry-leader1-name">Líder 1</label>
+                <input id="catalog-ministry-leader1-name" name="leader1Name" value="${escapeHtml(editingMinistry?.leader1Name || "")}" placeholder="Nombre del líder principal">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader1-phone">WhatsApp líder 1</label>
+                <input id="catalog-ministry-leader1-phone" name="leader1Phone" value="${escapeHtml(editingMinistry?.leader1Phone || "")}" placeholder="5215551234567">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader1-email">Correo líder 1</label>
+                <input id="catalog-ministry-leader1-email" name="leader1Email" type="email" value="${escapeHtml(editingMinistry?.leader1Email || "")}" placeholder="lider@iglesia.com">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader2-name">Líder 2</label>
+                <input id="catalog-ministry-leader2-name" name="leader2Name" value="${escapeHtml(editingMinistry?.leader2Name || "")}" placeholder="Nombre del segundo líder">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader2-phone">WhatsApp líder 2</label>
+                <input id="catalog-ministry-leader2-phone" name="leader2Phone" value="${escapeHtml(editingMinistry?.leader2Phone || "")}" placeholder="5215559876543">
+              </div>
+              <div class="field">
+                <label for="catalog-ministry-leader2-email">Correo líder 2</label>
+                <input id="catalog-ministry-leader2-email" name="leader2Email" type="email" value="${escapeHtml(editingMinistry?.leader2Email || "")}" placeholder="lider2@iglesia.com">
+              </div>
             </div>
 
             <div class="actions-row">
@@ -10277,6 +13006,7 @@ function renderCatalogsView_() {
                 <tr>
                   <th>ID</th>
                   <th>Ministerio</th>
+                  <th>Liderazgo</th>
                   <th>Accion</th>
                 </tr>
               </thead>
@@ -10285,11 +13015,16 @@ function renderCatalogsView_() {
                   <tr>
                     <td>${escapeHtml(String(ministry.id))}</td>
                     <td>${escapeHtml(ministry.name)}</td>
+                    <td>
+                      <span class="row-title">${escapeHtml([ministry.leader1Name, ministry.leader2Name].filter(Boolean).join(" / ") || "Sin líderes")}</span>
+                      <span class="row-meta">${escapeHtml([ministry.leader1Phone, ministry.leader2Phone].filter(Boolean).join(" / ") || "Sin teléfonos")}</span>
+                      <span class="row-meta">${escapeHtml([ministry.leader1Email, ministry.leader2Email].filter(Boolean).join(" / ") || "Sin correos")}</span>
+                    </td>
                     <td><button class="btn btn-secondary" data-action="edit-ministry-catalog" data-ministry-id="${escapeHtml(String(ministry.id))}">Editar</button></td>
                   </tr>
                 `).join("") : `
                   <tr>
-                    <td colspan="3"><div class="empty-state">No hay ministerios que coincidan con la busqueda.</div></td>
+                    <td colspan="4"><div class="empty-state">No hay ministerios que coincidan con la busqueda.</div></td>
                   </tr>
                 `}
               </tbody>
@@ -10650,6 +13385,7 @@ function renderAdminScrapCenter_() {
 
               ${seasonPreview.deletable ? `
                 <div class="actions-row scrap-preview-actions">
+                  <button class="btn btn-secondary" type="button" data-action="prompt-scrap-delete-encounter-route" data-season-id="${escapeHtml(selectedSeason.id || "")}">Limpiar Ruta a Encuentro</button>
                   <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-season" data-season-id="${escapeHtml(selectedSeason.id || "")}">Eliminar temporada demo</button>
                   <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Limpiar selección</button>
                 </div>
@@ -10660,6 +13396,7 @@ function renderAdminScrapCenter_() {
                 </div>
 
                 <div class="actions-row scrap-preview-actions">
+                  <button class="btn btn-secondary" type="button" data-action="prompt-scrap-delete-encounter-route" data-season-id="${escapeHtml(selectedSeason.id || "")}">Limpiar Ruta a Encuentro</button>
                   <button class="btn btn-ghost" type="button" data-action="clear-scrap-season-preview">Entendido</button>
                 </div>
               `}
@@ -10684,7 +13421,7 @@ function renderAdminScrapCenter_() {
         <div class="summary-box">
           <span class="status-chip neutral">Proceso de Formación demo</span>
           <strong>${escapeHtml(selectedFormationProcess?.name || "Selecciona el proceso demo")}</strong>
-          <span>Este flujo borra integralmente el Proceso de Formación seleccionado, junto con sus niveles operativos, sesiones programadas, inscripciones y asistencias por nivel. No toca el padrón base ni las cuentas portal.</span>
+          <span>Desde aquí puedes hacer dos limpiezas: borrar el proceso completo de demo o reiniciar solo la huella de Formación de sus inscritos, conservando la estructura del proceso para volver a empezar.</span>
 
           <div class="field" style="margin-top: 16px;">
             <label for="admin-scrap-formation-process">Proceso a limpiar</label>
@@ -10757,6 +13494,7 @@ function renderAdminScrapCenter_() {
               </div>
 
               <div class="actions-row scrap-preview-actions">
+                <button class="btn btn-secondary" type="button" data-action="prompt-scrap-reset-formation-process" data-process-id="${escapeHtml(selectedFormationProcess.id || "")}">Reiniciar solo inscritos del proceso</button>
                 <button class="btn btn-danger" type="button" data-action="prompt-scrap-delete-formation-process" data-process-id="${escapeHtml(selectedFormationProcess.id || "")}">Eliminar proceso demo</button>
                 <button class="btn btn-ghost" type="button" data-action="clear-scrap-formation-process-preview">Limpiar selección</button>
               </div>
@@ -10848,7 +13586,11 @@ function renderAdminSettingsView_() {
           <div class="field" style="margin-top: 18px;">
             <label for="system-web-url-input">Link global del sistema</label>
             <input id="system-web-url-input" value="${escapeHtml(state.globalWebUrl || "")}" placeholder="https://tusitio.com/iglesia-fuertes-v2/">
-            <span class="field-help">Este enlace es el que viajará en Telegram cuando el sistema envíe usuario y contraseña a cada líder.</span>
+            <span class="field-help">Este enlace es el que viajará en Telegram y WhatsApp cuando el sistema envíe usuario y contraseña a cada líder.</span>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" data-action="save-global-api-url">Guardar link global del sistema</button>
           </div>
 
           ${!usersSupport.available ? `
@@ -11072,6 +13814,48 @@ function getSelectedAdminLeaderAccount_() {
   return buildLeaderAutoAccountRows_().find((leader) => String(leader.email || "").toLowerCase() === email) || null;
 }
 
+function getAdminLeaderAccessPreview_(email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  const preview = state.ui.adminLeaderAccessPreview || null;
+
+  if (!cleanEmail || String(preview?.email || "").trim().toLowerCase() !== cleanEmail) {
+    return null;
+  }
+
+  return preview;
+}
+function getLeaderAccessExportWebUrl_() {
+  return String(state.globalWebUrl || "https://globalsolutionsti.github.io/Iglesia-Fuertes/").trim();
+}
+
+function buildLeaderAccessWhatsappExportText_(payload) {
+  const leaders = Array.isArray(payload?.leaders) ? payload.leaders : [];
+  const webUrl = String(payload?.webUrl || getLeaderAccessExportWebUrl_()).trim();
+  const lines = [
+    "IGLESIA FUERTES V2",
+    "CUENTAS DE LÍDERES / COORDINADORES PARA WHATSAPP",
+    `Link global del sistema: ${webUrl}`,
+    `Generado: ${formatDateTime_(payload?.generatedAt || new Date())}`,
+    `Total cuentas: ${leaders.length}`,
+    "",
+    "INSTRUCCIÓN: copia el bloque de cada líder y envíalo por WhatsApp al teléfono indicado.",
+    ""
+  ];
+
+  leaders.forEach((leader, index) => {
+    lines.push("========================================");
+    lines.push(`${index + 1}. ${leader?.name || "Líder"}`);
+    lines.push(`Teléfono WhatsApp: ${(leader?.phones || []).join(" / ") || "Sin teléfono"}`);
+    lines.push(`Grupo(s): ${(leader?.groups || []).map((group) => group.name).join(" / ") || "Sin grupo"}`);
+    lines.push("");
+    lines.push("MENSAJE PARA ENVIAR:");
+    lines.push(leader?.whatsappText || "Sin mensaje generado");
+    lines.push("");
+  });
+
+  return lines.join("\n");
+}
+
 function renderAdminUsersView_() {
   const editingUser = state.adminUsers.find((user) => String(user.email) === String(state.ui.editingUserEmail || "")) || null;
   const users = getFilteredAdminUsers_();
@@ -11107,7 +13891,10 @@ function renderAdminUsersView_() {
             <h2>Cuentas automáticas de líderes</h2>
             <p>Estas cuentas nacen al guardar líderes en el catálogo de grupos. Aquí puedes validarlas y enviar su acceso sin buscarlas dentro del listado general.</p>
           </div>
-          <span class="pill dark">${escapeHtml(String(leaderAccounts.length))} líderes</span>
+          <div class="actions-row">
+            <button class="btn btn-primary" data-action="export-leader-whatsapp-access" ${leaderAccounts.length ? "" : "disabled"}>Exportar WhatsApp</button>
+            <span class="pill dark">${escapeHtml(String(leaderAccounts.length))} líderes</span>
+          </div>
         </div>
 
         ${leaderAccounts.length ? `
@@ -11123,12 +13910,15 @@ function renderAdminUsersView_() {
                   <span class="pill ${escapeHtml(leader.operationalStatus?.tone || "dark")}">${escapeHtml(leader.operationalStatus?.label || "Pendiente")}</span>
                 </div>
                 <div class="leader-auto-meta">
+                  <span><strong>Usuario:</strong> ${escapeHtml(leader.email || "Sin usuario")}</span>
+                  <span><strong>Contraseña soporte:</strong> ${escapeHtml(getAdminLeaderAccessPreview_(leader.email)?.temporaryPassword || "Generar para verla")}</span>
                   <span><strong>Grupo(s):</strong> ${escapeHtml(leader.groups.map((group) => group.name).join(" / ") || "Sin grupo")}</span>
                   <span><strong>Teléfono(s):</strong> ${escapeHtml(leader.phones.join(" / ") || "Sin teléfono")}</span>
                 </div>
                 <div class="inline-actions leader-auto-actions">
                   <button class="btn btn-primary" data-action="send-leader-access-telegram" data-user-email="${escapeHtml(leader.email)}" ${leader.telegramReady ? "" : "disabled"}>Enviar acceso</button>
                   <button class="btn btn-secondary" data-action="send-leader-access-whatsapp" data-user-email="${escapeHtml(leader.email)}" ${leader.phones.length ? "" : "disabled"}>WhatsApp</button>
+                  <button class="btn btn-ghost" data-action="generate-leader-support-password" data-user-email="${escapeHtml(leader.email)}">Generar contraseña</button>
                   <button class="btn btn-ghost" data-action="open-admin-leader-account-modal" data-user-email="${escapeHtml(leader.email)}">Detalle</button>
                 </div>
               </article>
@@ -12458,6 +15248,12 @@ function buildDashboardSeasonMatrix_({ seasonId, seasonName, sessions, sessionGr
 
     cell.recorded += 1;
     cell.captured = true;
+    if (!person.assignedSessions[sessionId]) {
+      cell.total += 1;
+      sessionTotal.assignedTotal += 1;
+      sessionTotal.assignedCongregants += 1;
+      person.assignedSessions[sessionId] = true;
+    }
     person.attendances[sessionId] = attended === "SI" ? "SI" : "NO";
     sessionTotal.groupsCapturedSet.add(groupId);
 
@@ -12870,6 +15666,12 @@ function buildCsvText_(rows) {
 function downloadCsvTextFile_(csvText, fileName) {
   const blob = new Blob(["\ufeff", csvText], {
     type: "text/csv;charset=utf-8"
+  });
+  downloadBlob_(blob, fileName);
+}
+function downloadPlainTextFile_(text, fileName) {
+  const blob = new Blob([text], {
+    type: "text/plain;charset=utf-8"
   });
   downloadBlob_(blob, fileName);
 }
@@ -13476,6 +16278,325 @@ function downloadExcelHtmlFile_(htmlText, fileName) {
     type: "application/vnd.ms-excel;charset=utf-8"
   });
   downloadBlob_(blob, fileName);
+}
+
+function isPastorOrAdminUser_() {
+  const roleKey = getNormalizedUserRole_();
+  return ["admin", "administrador", "pastor"].includes(roleKey);
+}
+
+function getUserScopedConnectionMinistries_() {
+  if (isPastorOrAdminUser_()) {
+    return Array.isArray(state.catalogs.ministries) ? state.catalogs.ministries : [];
+  }
+
+  const userName = normalizeText(state.user?.name || "");
+  const userEmail = normalizeText(state.user?.email || "");
+
+  if (!userName && !userEmail) {
+    return [];
+  }
+
+  return (Array.isArray(state.catalogs.ministries) ? state.catalogs.ministries : []).filter((ministry) => {
+    return [
+      ministry?.leader1Name,
+      ministry?.leader2Name,
+      ministry?.leader1Email,
+      ministry?.leader2Email
+    ].some((value) => {
+      const normalized = normalizeText(value || "");
+      return normalized && (normalized === userName || normalized === userEmail);
+    });
+  });
+}
+
+function getConnectionReportScope_() {
+  const allGroups = Array.isArray(state.catalogs.groups) ? state.catalogs.groups : [];
+  const allMinistries = Array.isArray(state.catalogs.ministries) ? state.catalogs.ministries : [];
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const scopedMinistries = getUserScopedConnectionMinistries_();
+  const canSeeAll = isPastorOrAdminUser_();
+
+  return {
+    canSeeAll,
+    groups: canSeeAll ? allGroups : scopedGroups,
+    ministries: canSeeAll ? allMinistries : scopedMinistries,
+    canUseGroupReport: canSeeAll || scopedGroups.length > 0,
+    canUseMinistryReport: canSeeAll || scopedMinistries.length > 0
+  };
+}
+
+function syncConnectionReportsFilters_() {
+  const filter = state.filters.connectionReports;
+  const scope = getConnectionReportScope_();
+  const seasonId = ensureValidSeasonIdFromList_(filter.seasonId, state.seasons) || getLatestSeason()?.id || "";
+
+  filter.seasonId = seasonId;
+
+  if (!scope.canUseMinistryReport && filter.type === "ministry") {
+    filter.type = "group";
+  }
+
+  if (!scope.canUseGroupReport && filter.type === "group") {
+    filter.type = "ministry";
+  }
+
+  if (!["group", "ministry"].includes(filter.type)) {
+    filter.type = scope.canUseGroupReport ? "group" : "ministry";
+  }
+
+  if (!scope.groups.some((group) => String(group.id || "") === String(filter.groupId || ""))) {
+    filter.groupId = scope.groups[0]?.id || "";
+  }
+
+  if (!scope.ministries.some((ministry) => String(ministry.id || "") === String(filter.ministryId || ""))) {
+    filter.ministryId = scope.ministries[0]?.id || "";
+  }
+}
+
+function getPersonMinistryIds_(person) {
+  return [
+    person?.ministerio1,
+    person?.ministerio2,
+    person?.ministerio3,
+    person?.ministerio4,
+    person?.ministerioPrincipal,
+    person?.ministerioSec1,
+    person?.ministerioSec2,
+    person?.ministerioSec3
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function getPersonPrimaryMinistryId_(person) {
+  return String(person?.ministerio1 || person?.ministerioPrincipal || "").trim();
+}
+
+function buildConnectionReportModel_() {
+  syncConnectionReportsFilters_();
+
+  const filter = state.filters.connectionReports;
+  const seasonMatrix = state.dashboardSeasonMatrix && String(state.dashboardSeasonMatrix.seasonId || "") === String(filter.seasonId || "")
+    ? state.dashboardSeasonMatrix
+    : null;
+  const sessions = Array.isArray(seasonMatrix?.sessions) ? seasonMatrix.sessions : [];
+  const seasonName = seasonMatrix?.seasonName || resolveSeasonName_(filter.seasonId) || "Temporada";
+  const scope = getConnectionReportScope_();
+  const reportType = filter.type === "ministry" ? "ministry" : "group";
+
+  if (!seasonMatrix || !sessions.length) {
+    return null;
+  }
+
+  if (reportType === "group") {
+    const allowedGroupIds = new Set(scope.groups.map((group) => String(group.id || "")));
+    const groupId = String(filter.groupId || "");
+    const group = seasonMatrix.groups.find((item) => String(item.groupId || "") === groupId) || null;
+
+    if (!group || !allowedGroupIds.has(groupId)) {
+      return null;
+    }
+
+    const catalogGroup = state.catalogs.groups.find((item) => String(item.id || "") === groupId) || {};
+    const leaders = [
+      [catalogGroup.leader1Name, catalogGroup.leader1Phone].filter(Boolean).join(" | "),
+      [catalogGroup.leader2Name, catalogGroup.leader2Phone].filter(Boolean).join(" | ")
+    ].filter(Boolean);
+
+    return {
+      type: "group",
+      title: "Reporte de Asistencias por Grupo de Conexión",
+      seasonId: filter.seasonId,
+      seasonName,
+      groupId,
+      groupName: group.groupName || resolveGroupName_(groupId) || groupId,
+      leaders,
+      sessions,
+      rows: (group.people || []).map((person) => ({
+        personId: person.personId,
+        name: person.name,
+        groupId,
+        groupName: group.groupName,
+        totalPresent: person.totalPresent || 0,
+        totalSessions: person.totalAssignedSessions || sessions.length,
+        attendances: person.attendances || {}
+      }))
+    };
+  }
+
+  const ministryId = String(filter.ministryId || "");
+  const allowedMinistryIds = new Set(scope.ministries.map((ministry) => String(ministry.id || "")));
+  const ministry = state.catalogs.ministries.find((item) => String(item.id || "") === ministryId) || null;
+
+  if (!ministry || !allowedMinistryIds.has(ministryId)) {
+    return null;
+  }
+
+  const personDirectoryById = new Map(
+    (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).map((person) => [String(person.id || person.personId || ""), person])
+  );
+  const ministryPeopleIds = new Set();
+
+  personDirectoryById.forEach((person, personId) => {
+    const primaryMinistryId = getPersonPrimaryMinistryId_(person);
+    if (primaryMinistryId === ministryId || normalizeText(primaryMinistryId) === normalizeText(ministry.name || "")) {
+      ministryPeopleIds.add(personId);
+    }
+  });
+
+  const rows = [];
+
+  (seasonMatrix.groups || []).forEach((group) => {
+    (group.people || []).forEach((person) => {
+      const personId = String(person.personId || "");
+      if (!ministryPeopleIds.has(personId)) {
+        return;
+      }
+
+      rows.push({
+        personId,
+        name: person.name,
+        groupId: group.groupId,
+        groupName: group.groupName,
+        totalPresent: person.totalPresent || 0,
+        totalSessions: person.totalAssignedSessions || sessions.length,
+        attendances: person.attendances || {}
+      });
+    });
+  });
+
+  rows.sort((left, right) => {
+    const groupCompare = normalizeText(left.groupName).localeCompare(normalizeText(right.groupName), "es");
+    return groupCompare || normalizeText(left.name).localeCompare(normalizeText(right.name), "es");
+  });
+
+  return {
+    type: "ministry",
+    title: "Reporte de Asistencias por Ministerio",
+    seasonId: filter.seasonId,
+    seasonName,
+    ministryId,
+    ministryName: ministry.name || ministryId,
+    leaders: [
+      [ministry.leader1Name, ministry.leader1Phone].filter(Boolean).join(" | "),
+      [ministry.leader2Name, ministry.leader2Phone].filter(Boolean).join(" | ")
+    ].filter(Boolean),
+    sessions,
+    rows
+  };
+}
+
+function buildConnectionReportExcelHtml_(report) {
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+  const reportName = report?.type === "ministry" ? (report.ministryName || "Ministerio") : (report.groupName || "Grupo");
+
+  return `
+    <html>
+      <head><meta charset="utf-8"></head>
+      <body>
+        <h1>${escapeHtml(report?.title || "Reporte")}</h1>
+        <p><strong>Temporada:</strong> ${escapeHtml(report?.seasonName || "")}</p>
+        <p><strong>${report?.type === "ministry" ? "Ministerio" : "Grupo"}:</strong> ${escapeHtml(reportName)}</p>
+        <p><strong>Liderazgo:</strong> ${escapeHtml((report?.leaders || []).join(" / ") || "Sin liderazgo registrado")}</p>
+        <table border="1">
+          <thead>
+            <tr>
+              <th>${report?.type === "ministry" ? "Participante" : "Asistente"}</th>
+              ${report?.type === "ministry" ? "<th>Grupo de Conexion</th>" : ""}
+              <th>Total</th>
+              ${sessions.map((session) => `<th>${escapeHtml(session.shortLabel || session.name || session.id)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.name || row.personId || "")}</td>
+                ${report?.type === "ministry" ? `<td>${escapeHtml(row.groupName || row.groupId || "")}</td>` : ""}
+                <td>${escapeHtml(`${row.totalPresent || 0}/${row.totalSessions || sessions.length}`)}</td>
+                ${sessions.map((session) => {
+                  const status = String(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "").toUpperCase();
+                  return `<td>${status === "SI" ? "✓" : (status === "NO" ? "✕" : "-")}</td>`;
+                }).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+async function downloadConnectionReportPdf_(report) {
+  const JsPdfClass = getJsPdfClass_();
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+
+  if (!JsPdfClass) {
+    throw new Error("JSPDF_UNAVAILABLE");
+  }
+
+  const doc = new JsPdfClass({
+    orientation: "landscape",
+    unit: "pt",
+    format: "letter"
+  });
+
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+  }
+
+  const reportName = report?.type === "ministry" ? (report.ministryName || "Ministerio") : (report.groupName || "Grupo");
+  const head = [[
+    report?.type === "ministry" ? "Participante" : "Asistente",
+    ...(report?.type === "ministry" ? ["Grupo"] : []),
+    "Total",
+    ...sessions.map((session) => session.shortLabel || session.name || session.id)
+  ]];
+  const body = rows.map((row) => [
+    row.name || row.personId || "",
+    ...(report?.type === "ministry" ? [row.groupName || row.groupId || ""] : []),
+    `${row.totalPresent || 0}/${row.totalSessions || sessions.length}`,
+    ...sessions.map((session) => {
+      const status = String(row.attendances?.[session.id] || row.attendances?.[session.sessionId] || "").toUpperCase();
+      return status === "SI" ? "SI" : (status === "NO" ? "NO" : "-");
+    })
+  ]);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(report?.title || "Reporte", 36, 42);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Temporada: ${report?.seasonName || ""}`, 36, 62);
+  doc.text(`${report?.type === "ministry" ? "Ministerio" : "Grupo"}: ${reportName}`, 36, 78);
+  doc.text(`Liderazgo: ${(report?.leaders || []).join(" / ") || "Sin liderazgo registrado"}`, 36, 94);
+
+  doc.autoTable({
+    head,
+    body,
+    startY: 112,
+    styles: {
+      fontSize: 8,
+      cellPadding: 4,
+      overflow: "linebreak"
+    },
+    headStyles: {
+      fillColor: [17, 17, 17],
+      textColor: [255, 255, 255]
+    },
+    columnStyles: {
+      0: { cellWidth: report?.type === "ministry" ? 150 : 190 },
+      1: { cellWidth: report?.type === "ministry" ? 110 : 48 }
+    }
+  });
+
+  doc.save(buildDashboardBinaryExportFileName_(
+    report?.type === "ministry" ? "REPORTE_MINISTERIO" : "REPORTE_GRUPO_CONEXION",
+    reportName,
+    "pdf"
+  ));
 }
 
 function buildWhatsappTextShareUrl_(message, phone = "") {
@@ -14351,6 +17472,10 @@ function buildDashboardReportDocumentHtml_(report, options = {}) {
 
 function getDashboardPdfConstructor_() {
   return window.jspdf?.jsPDF || null;
+}
+
+function getJsPdfClass_() {
+  return getDashboardPdfConstructor_();
 }
 
 function blobToDataUrl_(blob) {
@@ -15394,6 +18519,105 @@ function renderDashboardReportCenter_() {
   `;
 }
 
+function getCongregantAssignmentPerson_() {
+  const personId = String(state.ui.editingCongregantAssignmentPersonId || "").trim();
+
+  if (!personId) {
+    return null;
+  }
+
+  return (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [])
+    .find((person) => String(person?.id || "").trim() === personId) || null;
+}
+
+function renderCongregantAssignmentOptions_(items, selectedValue, placeholder) {
+  return renderOptions(
+    (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        value: String(item?.id || "").trim(),
+        label: `${item?.name || item?.id || "Elemento"}${item?.id ? ` (${item.id})` : ""}`
+      }))
+      .filter((item) => item.value),
+    selectedValue || "",
+    placeholder
+  );
+}
+
+function renderCongregantAssignmentModal_() {
+  const person = getCongregantAssignmentPerson_();
+
+  if (!person) {
+    return "";
+  }
+
+  const fullName = person.nombreCompleto || [person.nombre, person.apellidos].filter(Boolean).join(" ") || "Congregante";
+
+  return `
+    <div class="system-modal-backdrop">
+      <section class="system-modal-card" role="dialog" aria-modal="true" aria-labelledby="congregant-assignment-title">
+        <div class="panel-head">
+          <div>
+            <span class="status-chip neutral">Congregantes</span>
+            <h2 id="congregant-assignment-title">Ministerio y grupo</h2>
+            <p>Actualiza la asignacion base del congregante para que reportes y consultas salgan con informacion correcta.</p>
+          </div>
+          <button class="btn btn-ghost" type="button" data-action="close-congregant-assignment">Cerrar</button>
+        </div>
+
+        <div class="summary-box">
+          <span class="status-chip neutral">Persona</span>
+          <strong>${escapeHtml(fullName)}</strong>
+          <span>${escapeHtml(`QR ${person.id || "-"} | No. ${person.numero || "-"}`)}</span>
+        </div>
+
+        <form id="congregant-assignment-form" style="margin-top: 18px;">
+          <input type="hidden" name="id" value="${escapeHtml(person.id || "")}">
+          <div class="field-grid two">
+            <div class="field">
+              <label for="congregant-assignment-group">Grupo de conexion</label>
+              <select id="congregant-assignment-group" name="grupo">
+                ${renderCongregantAssignmentOptions_(state.catalogs.groups, person.grupo, "Sin grupo de conexion")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-1">Ministerio principal</label>
+              <select id="congregant-assignment-ministry-1" name="ministerio1">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio1, "Sin ministerio")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-2">Ministerio secundario 1</label>
+              <select id="congregant-assignment-ministry-2" name="ministerio2">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio2, "Sin ministerio")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-3">Ministerio secundario 2</label>
+              <select id="congregant-assignment-ministry-3" name="ministerio3">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio3, "Sin ministerio")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="congregant-assignment-ministry-4">Ministerio secundario 3</label>
+              <select id="congregant-assignment-ministry-4" name="ministerio4">
+                ${renderCongregantAssignmentOptions_(state.catalogs.ministries, person.ministerio4, "Sin ministerio")}
+              </select>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-primary" type="button" data-action="save-congregant-assignment">Guardar cambios</button>
+            <button class="btn btn-ghost" type="button" data-action="close-congregant-assignment">Cancelar</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+}
 function renderAssistantsView() {
   const filter = state.filters.assistants;
   const summary = buildPeopleDirectorySummary_();
@@ -15680,7 +18904,7 @@ function renderAssistantsView() {
                   <th>Grupo</th>
                   <th>Contacto</th>
                   <th>Estado</th>
-                  ${canDeleteScrap ? "<th>Acciones</th>" : ""}
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -15699,13 +18923,12 @@ function renderAssistantsView() {
                       <span class="row-meta">${escapeHtml(person.email || "Sin email")}</span>
                     </td>
                     <td>${renderPill(person.estado)}</td>
-                    ${canDeleteScrap ? `
-                      <td>
-                        <div class="inline-actions">
-                          <button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(person.id || "")}" data-origin-view="assistants">Eliminar scrap</button>
-                        </div>
-                      </td>
-                    ` : ""}
+                    <td>
+                      <div class="inline-actions">
+                        <button class="btn btn-secondary" type="button" data-action="open-congregant-assignment" data-person-id="${escapeHtml(person.id || "")}">Ministerio / grupo</button>
+                        ${canDeleteScrap ? `<button class="btn btn-danger" data-action="prompt-scrap-delete-person" data-person-id="${escapeHtml(person.id || "")}" data-origin-view="assistants">Eliminar scrap</button>` : ""}
+                      </div>
+                    </td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -15727,6 +18950,8 @@ function renderAssistantsView() {
           <div class="inline-actions">
             <button class="btn btn-secondary" data-action="print-credential-preview" ${credentialPreviewRows.length ? "" : "disabled"}>Imprimir vista previa</button>
             <button class="btn btn-secondary" data-action="print-credential-batch" ${rows.length ? "" : "disabled"}>Imprimir filtradas</button>
+            <button class="btn btn-secondary" data-action="download-credential-print-pdf" ${rows.length ? "" : "disabled"}>PDF para imprimir</button>
+            <button class="btn btn-secondary" data-action="download-credential-card-image-batch" ${rows.length ? "" : "disabled"}>Imagenes tarjetas ZIP</button>
             <button class="btn btn-primary" data-action="download-credential-batch" ${rows.length ? "" : "disabled"}>Descargar lote ZIP</button>
           </div>
         </div>
@@ -15760,13 +18985,57 @@ function renderAssistantsView() {
         `}
       </article>
     </section>
+    ${renderCongregantAssignmentModal_()}
   `;
 }
 
+function subtractDaysFromInputDate_(value, days) {
+  const date = coerceClientDate_(value);
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  date.setDate(date.getDate() - Number(days || 0));
+  return formatDateForInput_(date);
+}
+
+function buildSeasonGroupCalendarRows_(seasonId, sessions, season) {
+  const cleanSeasonId = String(seasonId || "").trim();
+  const isThirdSeason = normalizeText(season?.name || "").includes("tercera temporada")
+    || normalizeText(season?.name || "").includes("3 temporada")
+    || normalizeText(season?.name || "").includes("tercer temporada");
+
+  return (sessions || []).map((session) => {
+    const groups = getSessionGroups(cleanSeasonId, session.id);
+    const corazonGroups = groups.filter((group) => normalizeText(group?.groupName || "") === "corazon sabio");
+    const otherGroups = groups.filter((group) => normalizeText(group?.groupName || "") !== "corazon sabio");
+    const firstCorazon = corazonGroups[0] || null;
+    const firstOther = otherGroups.find((group) => group?.groupDate || group?.date) || null;
+    const otherDate = firstOther?.groupDate || firstOther?.date || session.date || "";
+    const storedCorazonDate = firstCorazon?.groupDate || firstCorazon?.date || "";
+    const calculatedCorazonDate = isThirdSeason ? subtractDaysFromInputDate_(otherDate || session.date, 2) : "";
+
+    return {
+      sessionId: session.id,
+      sessionName: session.name || "Sesion",
+      sessionNumber: session.number || "",
+      generalDate: session.date || "",
+      corazonDate: calculatedCorazonDate || storedCorazonDate,
+      corazonGroups: corazonGroups.map((group) => group.groupName || "CORAZÓN SABIO"),
+      otherDate,
+      otherGroupsCount: otherGroups.length
+    };
+  });
+}
 function renderSeasonsView() {
   const selectedSeason = state.seasons.find((item) => item.id === state.filters.seasons.seasonId) || getLatestSeason();
   const sessions = selectedSeason ? getSessions(selectedSeason.id) : [];
   const sessionGroups = selectedSeason && sessions.length ? getSessionGroups(selectedSeason.id, sessions[0].id) : [];
+  const groupCalendarRows = selectedSeason ? buildSeasonGroupCalendarRows_(selectedSeason.id, sessions, selectedSeason) : [];
+  const calendarFullyLoaded = selectedSeason && sessions.length
+    ? sessions.every((session) => Object.prototype.hasOwnProperty.call(state.sessionGroupsByKey, `${selectedSeason.id}::${session.id}`))
+    : false;
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
   const buildSessionStatusActions = (session) => {
     const actions = [];
@@ -15991,6 +19260,52 @@ function renderSeasonsView() {
             </table>
           </div>
 
+          <article class="summary-card" style="margin-top: 18px;">
+            <div class="panel-head">
+              <div>
+                <h3>Calendario por grupo</h3>
+                <p>Confirma aquí las fechas reales por grupo antes de inscribir o tomar asistencias.</p>
+              </div>
+              <button class="btn btn-secondary" type="button" data-action="refresh-season-group-calendar" data-season-id="${escapeHtml(selectedSeason.id)}">Actualizar calendario</button>
+            </div>
+
+            ${calendarFullyLoaded ? `
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Sesión</th>
+                      <th>Corazón Sabio</th>
+                      <th>Demás grupos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${groupCalendarRows.map((row) => `
+                      <tr>
+                        <td>
+                          <span class="row-title">${escapeHtml(row.sessionName)}</span>
+                          <span class="row-meta">${escapeHtml(row.sessionId)} | Número ${escapeHtml(String(row.sessionNumber || ""))}</span>
+                        </td>
+                        <td>
+                          <span class="row-title">${escapeHtml(row.corazonDate ? formatDate(row.corazonDate) : "Sin fecha especial")}</span>
+                          <span class="row-meta">${escapeHtml(row.corazonGroups.join(", ") || "No ligado")}</span>
+                        </td>
+                        <td>
+                          <span class="row-title">${escapeHtml(row.otherDate ? formatDate(row.otherDate) : formatDate(row.generalDate))}</span>
+                          <span class="row-meta">${escapeHtml(`${row.otherGroupsCount} grupo(s)`)}</span>
+                        </td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `
+              <div class="empty-state">
+                Calendario por grupo pendiente de cargar. Presiona “Actualizar calendario” para traer las fechas específicas de todos los grupos.
+              </div>
+            `}
+          </article>
+
           <article class="summary-card session-create-inline-card">
             <div class="panel-head">
               <div>
@@ -16042,6 +19357,8 @@ function renderSeasonsView() {
 }
 
 function renderParticipantsView() {
+  return renderParticipantsSimplifiedView_();
+
   const filter = state.filters.participants;
   const canDeleteScrap = canUseScrapDelete_();
   const scopedConnectionGroups = getUserScopedConnectionGroups_();
@@ -16719,6 +20036,421 @@ function renderParticipantsView() {
   `;
 }
 
+function getVisibleConnectionEncounterCandidates_() {
+  const scopedConnectionGroupIds = new Set(
+    getUserScopedConnectionGroups_()
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+
+  return (Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : []).filter((candidate) => {
+    if (!scopedConnectionGroupIds.size) {
+      return true;
+    }
+
+    return scopedConnectionGroupIds.has(String(candidate?.groupId || "").trim());
+  });
+}
+
+function renderConnectionEncounterSummaryRow_(candidate) {
+  const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+  const personName = sanitizeFormationDisplayText_(candidate?.personName, "Congregante");
+  const personNumber = sanitizeFormationDisplayText_(candidate?.personNumber, "Sin número");
+  const personPhone = sanitizeFormationDisplayText_(candidate?.personPhone, "Sin teléfono");
+  const groupName = sanitizeFormationDisplayText_(getFormationRouteGroupName_(candidate), "Sin grupo");
+  const seasonName = sanitizeFormationDisplayText_(resolveSeasonName_(candidate?.seasonId) || candidate?.seasonId, "Sin temporada");
+  const leaderName = sanitizeFormationDisplayText_(candidate?.leaderName, "Sin líder registrado");
+  const attendanceSummary = `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`;
+  const consecutiveSummary = `${candidate?.consecutiveAttendances || 0} consecutivas`;
+  const currentStage = candidate?.encounterRegisteredAt ? "Inscrito a Proceso de Formación" : getFormationPreStageLabel_();
+
+  return `
+    <article class="formation-ledger-row formation-ledger-row-route connection-encounter-row-lite">
+      <div class="formation-ledger-cell formation-ledger-cell-main formation-ledger-route-identity">
+        <small>Congregante</small>
+        <strong>${escapeHtml(personName)}</strong>
+        <div class="formation-ledger-route-inline">
+          <span class="formation-ledger-route-code">${escapeHtml(personNumber)}</span>
+          <span class="formation-ledger-route-code">QR ${escapeHtml(candidate?.personId || "-")}</span>
+          <span class="formation-ledger-route-code">${escapeHtml(personPhone)}</span>
+        </div>
+        <div class="formation-ledger-route-context">
+          <span class="formation-ledger-route-chip">${escapeHtml(groupName)}</span>
+          <span class="formation-ledger-route-chip">${escapeHtml(seasonName)}</span>
+        </div>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-route-stage">
+        <small>Ruta y avance</small>
+        <div class="formation-ledger-route-stage-head">
+          <strong>${escapeHtml(currentStage)}</strong>
+          <div>${renderWorkflowStatusPill_(candidate?.formationStatus || "CANDIDATO_ENCUENTRO")}</div>
+        </div>
+        <div class="formation-ledger-route-metrics">
+          <div class="formation-ledger-route-metric">
+            <label>Asistencia</label>
+            <strong>${escapeHtml(attendanceSummary)}</strong>
+            <span>capturadas en la temporada</span>
+          </div>
+          <div class="formation-ledger-route-metric">
+            <label>Regla cumplida</label>
+            <strong>${escapeHtml(consecutiveSummary)}</strong>
+            <span>listo para invitación</span>
+          </div>
+        </div>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-route-followup">
+        <small>Seguimiento</small>
+        <strong>${escapeHtml(telegramUi.label)}</strong>
+        <span>${escapeHtml(telegramUi.detail)}</span>
+        <div class="formation-ledger-route-note">
+          <span class="formation-ledger-route-note-label">Liderazgo del grupo</span>
+          <strong>${escapeHtml(leaderName)}</strong>
+          <span>La invitación y la inscripción se ejecutan desde Proceso de Formación > Ruta a Encuentro.</span>
+        </div>
+      </div>
+      <div class="formation-ledger-cell formation-ledger-actions formation-ledger-route-actions">
+        <small>Acción</small>
+        <div class="formation-action-stack formation-action-stack-route">
+          <button class="btn btn-ghost" data-action="navigate" data-view="formation">
+            Abrir Proceso de Formación
+          </button>
+        </div>
+        <span class="formation-ledger-action-note">Este bloque solo concentra la consulta agrupada por grupo.</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderConnectionEncounterGroupBoard_(groupBlock) {
+  const countLabel = groupBlock.items.length === 1
+    ? "1 candidato en Pre-Encuentro"
+    : `${groupBlock.items.length} candidatos en Pre-Encuentro`;
+
+  return `
+    <section class="formation-route-group-block connection-encounter-group-board">
+      <div class="formation-route-context">
+        <div class="formation-route-context-head">
+          <div>
+            <small>Grupo de conexión</small>
+            <strong>${escapeHtml(groupBlock.groupName || "Sin grupo")}</strong>
+            <span>Solo aparecen personas con 3 asistencias consecutivas y que aún no están inscritas a ningún proceso de formación.</span>
+          </div>
+          <span class="pill neutral">${escapeHtml(countLabel)}</span>
+        </div>
+        <div class="formation-route-context-meta">
+          ${groupBlock.contacts.length
+            ? groupBlock.contacts.map((contact) => `
+                <span class="context-item">
+                  <strong>${escapeHtml(contact.label)}:</strong> ${escapeHtml(contact.value)}
+                </span>
+              `).join("")
+            : `<span class="context-item">Sin liderazgo registrado en Catálogos.</span>`}
+        </div>
+      </div>
+
+      <div class="formation-ledger">
+        <div class="formation-ledger-head formation-ledger-head-route" aria-hidden="true">
+          <span>Congregante</span>
+          <span>Ruta y avance</span>
+          <span>Seguimiento</span>
+          <span>Acción</span>
+        </div>
+        ${groupBlock.items.map((candidate) => renderConnectionEncounterSummaryRow_(candidate)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderParticipantsSimplifiedView_() {
+  const filter = state.filters.participants;
+  const scopedConnectionGroups = getUserScopedConnectionGroups_();
+  const scopedConnectionGroupIds = new Set(
+    scopedConnectionGroups
+      .map((group) => String(group?.id || "").trim())
+      .filter(Boolean)
+  );
+  const operationalSeasons = getOperationalSeasonList_();
+  const routeSeasonId = ensureValidSeasonIdFromList_(filter.seasonId, operationalSeasons)
+    || operationalSeasons[0]?.id
+    || "";
+  const routeSeasonName = resolveSeasonName_(routeSeasonId) || "Sin temporada";
+  const totalPendingProspects = getPendingRegistrationWelcomePeople_({
+    search: "",
+    groupId: ""
+  });
+  const visiblePendingProspects = totalPendingProspects
+    .filter((person) => {
+      return !scopedConnectionGroupIds.size || scopedConnectionGroupIds.has(String(person?.suggestedGroupId || "").trim());
+    })
+    .slice()
+    .sort((left, right) => {
+      return parseDateToTimestamp_(right.lastContactAt || right.fechaIngreso, true)
+        - parseDateToTimestamp_(left.lastContactAt || left.fechaIngreso, true);
+    });
+  const connectionCandidates = getVisibleConnectionEncounterCandidates_();
+  const groupedConnectionCandidates = buildFormationRouteGroups_(connectionCandidates);
+  const sentCount = connectionCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+  const pendingCount = Math.max(connectionCandidates.length - sentCount, 0);
+
+  return `
+    <section class="view-grid">
+      ${renderModuleMobileHero_({
+        tone: "participants",
+        eyebrow: "Grupo de conexión",
+        title: "Asignación y Pre-Encuentro",
+        copy: "Resuelve prospectos pendientes y consulta candidatos a Encuentro sin cambiar de pantalla.",
+        badge: {
+          label: routeSeasonName,
+          kind: routeSeasonId ? "dark" : "warning"
+        },
+        metrics: [
+          { label: "Pendientes", value: String(visiblePendingProspects.length) },
+          { label: "Pre-Encuentro", value: String(connectionCandidates.length) },
+          { label: "Telegram OK", value: String(sentCount) },
+          { label: "Telegram pendiente", value: String(pendingCount) }
+        ],
+        actions: [
+          { label: "Pendientes", variant: "primary", sectionId: "participants-pending" },
+          { label: "Pre-Encuentro", variant: "secondary", sectionId: "participants-encounter" }
+        ]
+      })}
+
+      <article class="panel-card module-section-anchor" id="participants-pending">
+        <div class="panel-head">
+          <div>
+            <h2>Pendientes por registrar</h2>
+            <p>Estos prospectos llegan desde Bienvenida. Aquí ajustas el grupo si hace falta, avisas al líder por Telegram y luego haces el registro completo en la temporada correcta.</p>
+          </div>
+          <span class="pill warning">${escapeHtml(String(visiblePendingProspects.length))} pendientes</span>
+        </div>
+
+        <div class="context-strip" style="margin-bottom: 18px;">
+          <span class="context-item"><strong>Pendientes totales:</strong> ${escapeHtml(String(totalPendingProspects.length))}</span>
+          <span class="context-item"><strong>Paso 1:</strong> Elige temporada y grupo de conexión.</span>
+          <span class="context-item"><strong>Paso 2:</strong> Si cambias el grupo, guarda y avisa por Telegram al nuevo líder.</span>
+          <span class="context-item"><strong>Paso 3:</strong> Registra a la persona en todas las sesiones de la temporada elegida.</span>
+        </div>
+
+        <div class="results-list participants-picker-results">
+          ${visiblePendingProspects.length ? visiblePendingProspects.map((person) => {
+            const draft = getPendingProspectDraft_(person);
+            const workflow = getWelcomeProspectWorkflowState_(person);
+            const selectedSeasonId = String(draft.seasonId || "").trim();
+            const selectedSeasonName = resolveSeasonName_(selectedSeasonId) || "";
+            const selectedSeasonSessions = selectedSeasonId ? getSessions(selectedSeasonId) : [];
+            const selectedGroupId = String(draft.groupId || "").trim();
+            const selectedGroup = state.catalogs.groups.find((group) => String(group.id) === selectedGroupId) || null;
+            const selectedGroupName = String(selectedGroup?.name || resolveGroupName_(selectedGroupId) || "").trim();
+            const selectedLeaderContacts = buildWelcomeLeaderContactsFromGroup_(selectedGroupId);
+            const selectedLeaderSummary = selectedLeaderContacts.length
+              ? selectedLeaderContacts
+                  .map((leader) => [leader.name, leader.phone].filter(Boolean).join(" · "))
+                  .join(" / ")
+              : "Sin líderes capturados en Catálogos.";
+            const seasonGroupCoverage = getPendingProspectSeasonGroupCoverage_(selectedSeasonId, selectedGroupId);
+            const seasonSelectId = `pending-prospect-season-${String(person.id || "").trim()}`;
+            const groupSelectId = `pending-prospect-group-${String(person.id || "").trim()}`;
+            const pendingTelegramUi = draft.groupDirty
+              ? {
+                tone: "warning",
+                label: "Falta avisar al nuevo líder",
+                meta: "Guardas primero el cambio de grupo y en ese momento se enviará Telegram al liderazgo correcto.",
+                sent: false
+              }
+              : getWelcomeProspectTelegramUiState_(person, workflow, null);
+            const canSavePendingProspectGroup = Boolean(selectedGroupId) && (draft.groupDirty || !pendingTelegramUi.sent);
+            const canRegisterPendingProspect = Boolean(
+              selectedSeasonId
+              && selectedGroupId
+              && !draft.groupDirty
+              && seasonGroupCoverage.available
+            );
+            const savePendingGroupLabel = !selectedGroupId
+              ? "Selecciona grupo"
+              : draft.groupDirty
+                ? "Guardar grupo y avisar por Telegram"
+                : (pendingTelegramUi.sent ? "Grupo ya guardado" : "Avisar al líder por Telegram");
+            const registrationHint = draft.groupDirty
+              ? "Tienes un cambio de grupo pendiente por guardar."
+              : seasonGroupCoverage.status === "missing"
+                ? buildPendingProspectMissingGroupCopy_(selectedSeasonId, selectedGroupId, seasonGroupCoverage.missingSessions)
+                : seasonGroupCoverage.status === "loading"
+                  ? "Validando si el grupo existe en todas las sesiones de la temporada elegida..."
+                  : seasonGroupCoverage.status === "pending-group"
+                    ? "Selecciona el grupo que quedará registrado en la temporada."
+                    : (canRegisterPendingProspect
+                      ? "Listo para registrar en toda la temporada."
+                      : "Elige la temporada para habilitar el registro.");
+
+            return `
+              <article class="result-card participant-picker-card">
+                <div class="result-copy-stack">
+                  <div class="result-title-row">
+                    <span class="row-title">${escapeHtml(person.nombreCompleto || person.nombre || "Sin nombre")}</span>
+                    ${renderWelcomePendingRegistrationPill_(person)}
+                  </div>
+                  <span class="row-meta">${escapeHtml(person.numero || "-")} | QR ${escapeHtml(person.id || "-")} | ${escapeHtml(person.telefono || "Sin teléfono")}</span>
+                  <span class="row-meta">Último contexto de Bienvenida: ${escapeHtml(person.lastFollowupNotes || "Sin notas registradas")}</span>
+                </div>
+
+                <div class="pending-prospect-overview">
+                  <div class="summary-box pending-prospect-summary">
+                    <span>Grupo guardado actualmente</span>
+                    <strong>${escapeHtml(person.suggestedGroupName || "Sin grupo sugerido")}</strong>
+                    <span>${escapeHtml(workflow.detail || "Sin detalle operativo.")}</span>
+                  </div>
+                  <div class="summary-box pending-prospect-summary">
+                    <span>Telegram al líder</span>
+                    <strong>${escapeHtml(pendingTelegramUi.label)}</strong>
+                    <span>${escapeHtml(pendingTelegramUi.meta)}</span>
+                  </div>
+                </div>
+
+                <div class="field-grid two pending-prospect-planner">
+                  <div class="field">
+                    <label for="${escapeHtml(seasonSelectId)}">Temporada a registrar</label>
+                    <select
+                      id="${escapeHtml(seasonSelectId)}"
+                      data-role="pending-prospect-season"
+                      data-person-id="${escapeHtml(person.id || "")}"
+                    >
+                      ${renderOptions(
+                        operationalSeasons.map((season) => ({
+                          value: season.id,
+                          label: `${season.name} (${season.id})`
+                        })),
+                        selectedSeasonId,
+                        "Selecciona temporada"
+                      )}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="${escapeHtml(groupSelectId)}">Grupo de conexión</label>
+                    <select
+                      id="${escapeHtml(groupSelectId)}"
+                      data-role="pending-prospect-group"
+                      data-person-id="${escapeHtml(person.id || "")}"
+                    >
+                      ${renderOptions(
+                        (scopedConnectionGroups.length ? scopedConnectionGroups : state.catalogs.groups).map((group) => ({
+                          value: String(group.id),
+                          label: `${group.name} (${group.id})`
+                        })),
+                        selectedGroupId,
+                        "Selecciona grupo"
+                      )}
+                    </select>
+                  </div>
+                  <div class="summary-box pending-prospect-summary pending-prospect-summary-full">
+                    <span>Liderazgo que recibirá el aviso</span>
+                    <strong>${escapeHtml(selectedGroupName || "Sin grupo seleccionado")}</strong>
+                    <span>${escapeHtml(selectedLeaderSummary)}</span>
+                  </div>
+                </div>
+
+                <div class="context-strip pending-prospect-strip">
+                  <span class="context-item"><strong>Temporada elegida:</strong> ${escapeHtml(selectedSeasonName || "Pendiente")}</span>
+                  <span class="context-item"><strong>Sesiones a registrar:</strong> ${escapeHtml(selectedSeasonSessions.length ? String(selectedSeasonSessions.length) : "Pendiente")}</span>
+                  <span class="context-item"><strong>Grupo para trabajar:</strong> ${escapeHtml(selectedGroupName || "Pendiente")}</span>
+                  <span class="context-item"><strong>Grupo en la temporada:</strong> ${escapeHtml(
+                    seasonGroupCoverage.status === "ok"
+                      ? "Disponible en toda la temporada"
+                      : seasonGroupCoverage.status === "missing"
+                        ? "No está dado de alta en la temporada"
+                        : seasonGroupCoverage.status === "loading"
+                          ? "Validando..."
+                          : "Pendiente"
+                  )}</span>
+                  <span class="context-item"><strong>Estado:</strong> ${escapeHtml(registrationHint)}</span>
+                </div>
+
+                <div class="actions-row pending-prospect-actions">
+                  <button
+                    class="btn ${draft.groupDirty || !pendingTelegramUi.sent ? "btn-primary" : "btn-secondary"}"
+                    data-action="save-pending-prospect-group"
+                    data-person-id="${escapeHtml(person.id || "")}"
+                    ${canSavePendingProspectGroup ? "" : "disabled"}
+                  >
+                    ${escapeHtml(savePendingGroupLabel)}
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    data-action="assign-pending-prospect"
+                    data-person-id="${escapeHtml(person.id || "")}"
+                    data-group-id="${escapeHtml(selectedGroupId)}"
+                    data-season-id="${escapeHtml(selectedSeasonId)}"
+                    ${canRegisterPendingProspect ? "" : "disabled"}
+                  >
+                    Registrar en temporada
+                  </button>
+                </div>
+              </article>
+            `;
+          }).join("") : `
+            <div class="empty-state participant-picker-empty">
+              <strong>Sin prospectos pendientes</strong>
+              <span>Cuando Bienvenida envíe un prospecto para registro aparecerá aquí.</span>
+            </div>
+          `}
+        </div>
+      </article>
+
+      <article class="panel-card module-section-anchor" id="participants-encounter">
+        <div class="panel-head">
+          <div>
+            <h2>Candidatos a Proceso de Formación</h2>
+            <p>Este listado es compartido con Proceso de Formación. Solo aparecen personas con 3 asistencias consecutivas y que todavía no están inscritas a ningún proceso de formación.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(connectionCandidates.length))} candidatos</span>
+        </div>
+
+        <div class="field-grid two" style="margin-bottom: 18px;">
+          <div class="field">
+            <label for="participants-encounter-season">Temporada</label>
+            <select id="participants-encounter-season">
+              ${renderOptions(
+                operationalSeasons.map((season) => ({
+                  value: season.id,
+                  label: `${season.name} (${season.id})`
+                })),
+                routeSeasonId,
+                "Selecciona temporada"
+              )}
+            </select>
+          </div>
+          <div class="summary-box pending-prospect-summary">
+            <span>Consulta compartida</span>
+            <strong>${escapeHtml(routeSeasonName)}</strong>
+            <span>La misma lista se reutiliza en Proceso de Formación > Ruta a Encuentro.</span>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" data-action="refresh-connection-encounter-candidates" ${routeSeasonId ? "" : "disabled"}>Actualizar candidatos a Proceso de Formación</button>
+          <button class="btn btn-ghost" data-action="export-connection-encounter-excel" ${connectionCandidates.length ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-ghost" data-action="export-connection-encounter-pdf" ${connectionCandidates.length ? "" : "disabled"}>PDF</button>
+          <button class="btn btn-ghost" data-action="share-connection-encounter-whatsapp" ${connectionCandidates.length ? "" : "disabled"}>WhatsApp pastor</button>
+        </div>
+
+        <div class="context-strip participants-context-strip">
+          <span class="context-item"><strong>Temporada operativa:</strong> ${escapeHtml(routeSeasonName)}</span>
+          <span class="context-item"><strong>Telegram OK:</strong> ${escapeHtml(String(sentCount))}</span>
+          <span class="context-item"><strong>Telegram pendiente:</strong> ${escapeHtml(String(pendingCount))}</span>
+          <span class="context-item"><strong>Grupos involucrados:</strong> ${escapeHtml(String(groupedConnectionCandidates.length))}</span>
+        </div>
+
+        <div class="connection-candidate-list">
+          ${groupedConnectionCandidates.length ? groupedConnectionCandidates.map((groupBlock) => renderConnectionEncounterGroupBoard_(groupBlock)).join("") : `
+            <div class="empty-state">
+              Todavía no hay personas listas para Pre-Encuentro dentro de la temporada seleccionada.
+            </div>
+          `}
+        </div>
+      </article>
+    </section>
+  `;
+}
+
 function renderAttendanceView() {
   const filter = state.filters.attendance;
   const activeSession = getActiveAttendanceSession_();
@@ -17167,7 +20899,7 @@ function renderQrView() {
     ? `${kioskContext.sessionId} | ${filter.mode === "manual" ? "Sesion forzada" : "Sesion activa"}`
     : "Sin sesion seleccionada";
   const surfaceEyebrow = isKioskSurface ? "Kiosko de asistencia" : "Escaneo QR del equipo";
-  const surfaceTitle = isKioskSurface ? "Registro tipo aeropuerto" : "Escaneo QR asistido";
+  const surfaceTitle = isKioskSurface ? "Registro Kiosko" : "Escaneo QR asistido";
   const surfaceCopy = isKioskSurface
     ? "La camara queda lista para recibir un QR tras otro. Cuando el registro sea exitoso, la pantalla responde en verde y muestra los datos del asistente en tiempo real."
     : "Ideal para un voluntario en recepcion o control. La camara valida un QR a la vez y deja visible el ultimo registro junto con la actividad reciente de la sesion.";
@@ -17543,6 +21275,31 @@ function buildFormationQrProcessingResult_(personId) {
   };
 }
 
+function buildFormationQrOptimisticSuccessResult_(personId) {
+  const selectedOffering = getSelectedFormationOffering_();
+  const currentSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
+  const fallbackMeta = resolveFormationQrScanMeta_(personId);
+  const participant = Array.isArray(state.formationAttendanceContext?.participants)
+    ? (state.formationAttendanceContext.participants.find((item) => String(item?.personId || "").trim() === String(personId || "").trim()) || null)
+    : null;
+  const activeSession = state.formationAttendanceContext?.activeSession || selectedOffering?.activeSession || null;
+
+  return {
+    tone: "success",
+    badge: "QR leído",
+    title: "Asistencia registrada",
+    message: "Registro recibido. Puedes pasar al siguiente QR.",
+    name: participant?.personName || participant?.name || fallbackMeta.name || "Participante registrado",
+    groupName: selectedOffering?.name || fallbackMeta.groupName || "Paso en operación",
+    participantId: participant?.id || fallbackMeta.participantId || "Sin inscripción",
+    personId: String(personId || "").trim(),
+    processName: selectedOffering?.processName || state.formationAttendanceContext?.offering?.processName || "Proceso de Formación",
+    sessionName: activeSession?.label || activeSession?.name || `Sesión ${currentSessionNumber}`,
+    timestampLabel: formatDateTime_(new Date()),
+    levelName: selectedOffering?.levelName || fallbackMeta.levelName || "Nivel"
+  };
+}
+
 function getFormationAttendanceScannerRoot_() {
   if (isAttendanceFormationSectionActive_()) {
     return document.querySelector('#formation-operations-attendance [data-qr-scanner-root="formation-attendance"]')
@@ -17591,13 +21348,21 @@ function getDedicatedFormationAttendanceFeedbackState_(options = {}) {
   );
   const sessionLabel = feedback?.sessionName || `Sesión ${sessionNumber}`;
   const participantId = feedback?.participantId || "";
+  const personId = feedback?.personId || "";
+  const processName = feedback?.processName || offering?.processName || "Proceso de Formación";
+  const levelName = feedback?.levelName || offering?.levelName || offering?.name || "Paso";
 
   return {
     tone,
     badge,
     name,
     message,
-    meta: participantId ? `${sessionLabel} · ${participantId}` : sessionLabel
+    meta: participantId ? `${sessionLabel} · ${participantId}` : sessionLabel,
+    participantId: participantId || "Pendiente",
+    personId: personId || "Pendiente",
+    processName,
+    levelName,
+    sessionName: sessionLabel
   };
 }
 
@@ -17649,6 +21414,20 @@ function applyDedicatedFormationAttendanceFeedback_(snapshot) {
   if (metaNode instanceof HTMLElement) {
     metaNode.textContent = snapshot.meta || "";
   }
+
+  const fieldMap = {
+    "field-name": snapshot.name || "",
+    "field-qr": snapshot.personId || "Pendiente",
+    "field-step": snapshot.levelName || "Paso",
+    "field-session": snapshot.sessionName || snapshot.meta || ""
+  };
+
+  Object.entries(fieldMap).forEach(([field, value]) => {
+    const fieldNode = root.querySelector(`[data-formation-attendance-feedback="${field}"]`);
+    if (fieldNode instanceof HTMLElement) {
+      fieldNode.textContent = value;
+    }
+  });
 
   return true;
 }
@@ -17848,7 +21627,34 @@ function resolveFormationQrScanMeta_(personId) {
       || enrollment?.id
       || ""
     ).trim(),
+    phone: String(
+      lastResult?.phone
+      || recentResult?.phone
+      || attendanceParticipant?.phone
+      || attendanceParticipant?.telefono
+      || enrollment?.phone
+      || enrollment?.telefono
+      || directoryPerson?.telefono
+      || ""
+    ).trim(),
     personId: cleanPersonId,
+    enrollmentId: String(
+      lastResult?.enrollmentId
+      || recentResult?.enrollmentId
+      || attendanceParticipant?.enrollmentId
+      || attendanceParticipant?.id
+      || enrollment?.enrollmentId
+      || enrollment?.id
+      || ""
+    ).trim(),
+    levelId: String(
+      lastResult?.levelId
+      || recentResult?.levelId
+      || attendanceParticipant?.levelId
+      || selectedOffering?.levelId
+      || enrollment?.levelId
+      || ""
+    ).trim(),
     processName: String(
       lastResult?.processName
       || recentResult?.processName
@@ -17891,6 +21697,41 @@ function getAttendanceWorkingSession_() {
   return state.filters.attendance.scope === "selected"
     ? getSelectedAttendanceSession_()
     : getActiveAttendanceSession_();
+}
+
+function getDefaultViewForModule_(moduleId) {
+  const tabs = getModuleTabs_(moduleId);
+  const configuredDefault = MODULE_META[moduleId]?.defaultView || "";
+
+  if (configuredDefault && tabs.some((tab) => tab.view === configuredDefault)) {
+    return configuredDefault;
+  }
+
+  return tabs[0]?.view || configuredDefault || "attendance";
+}
+
+function renderModuleTabs_(moduleId) {
+  const tabs = getModuleTabs_(moduleId);
+
+  if (tabs.length <= 1) {
+    return "";
+  }
+
+  return `
+    <nav class="module-tabs" aria-label="Subfichas">
+      ${tabs.map((tab) => `
+        <button
+          class="module-tab ${state.currentView === tab.view ? "active" : ""}"
+          type="button"
+          data-action="navigate"
+          data-view="${escapeHtml(tab.view)}"
+        >
+          <strong>${escapeHtml(tab.label)}</strong>
+          <span>${escapeHtml(tab.description || "")}</span>
+        </button>
+      `).join("")}
+    </nav>
+  `;
 }
 
 function renderNavButton(moduleId) {
@@ -18204,27 +22045,114 @@ function getConnectionEncounterTelegramUi_(candidate) {
 }
 
 function buildConnectionEncounterCandidatesReportModel_() {
-  const candidates = Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : [];
-  const seasonId = String(state.filters.participants.seasonId || "").trim();
-  const groupId = String(state.filters.participants.groupId || "").trim();
+  const seasonId = String(state.filters.participants.seasonId || getOperationalSeasonList_()[0]?.id || "").trim();
+  const candidates = getVisibleConnectionEncounterCandidates_();
 
-  if (!seasonId || !groupId || !candidates.length) {
+  if (!seasonId || !candidates.length) {
     return null;
   }
 
-  const sentCount = candidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
-  const pendingCount = Math.max(candidates.length - sentCount, 0);
+  const sortedCandidates = candidates.slice().sort((left, right) => {
+    const groupCompare = String(getFormationRouteGroupName_(left) || "").localeCompare(
+      String(getFormationRouteGroupName_(right) || ""),
+      "es",
+      { sensitivity: "base" }
+    );
+
+    if (groupCompare !== 0) {
+      return groupCompare;
+    }
+
+    return String(left?.personName || "").localeCompare(String(right?.personName || ""), "es", { sensitivity: "base" });
+  });
+
+  const groups = buildFormationRouteGroups_(sortedCandidates).map((group) => {
+    const items = Array.isArray(group.items) ? group.items.slice() : [];
+    const sentCount = items.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+    return {
+      groupId: group.groupId,
+      groupName: group.groupName,
+      contacts: Array.isArray(group.contacts) ? group.contacts.slice() : [],
+      total: items.length,
+      sentCount,
+      pendingCount: Math.max(items.length - sentCount, 0),
+      candidates: items
+    };
+  });
+
+  const sentCount = sortedCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
 
   return {
     seasonId,
     seasonName: resolveSeasonName_(seasonId) || seasonId,
-    groupId,
-    groupName: resolveGroupName_(groupId) || groupId,
     generatedAt: new Date(),
-    total: candidates.length,
+    total: sortedCandidates.length,
+    groupCount: groups.length,
     sentCount,
-    pendingCount,
-    candidates
+    pendingCount: Math.max(sortedCandidates.length - sentCount, 0),
+    groups
+  };
+}
+
+function getFormationPreEncounterFollowupLabel_(candidate) {
+  if (candidate?.encounterRegisteredAt) {
+    return `Inscrito ${formatDate(candidate.encounterRegisteredAt)}`;
+  }
+
+  if (candidate?.invitedAt) {
+    return `Invitación ${formatDate(candidate.invitedAt)}`;
+  }
+
+  if (candidate?.leaderNotifiedAt) {
+    return `Líder avisado ${formatDate(candidate.leaderNotifiedAt)}`;
+  }
+
+  return "Pendiente de invitación";
+}
+
+function buildFormationPreEncounterReportModel_(candidatesInput) {
+  const seasonId = String(state.filters.formation.seasonId || getLatestSeason()?.id || "").trim();
+  const candidates = Array.isArray(candidatesInput) ? candidatesInput.slice() : getFilteredFormationCandidates_();
+
+  const sortedCandidates = candidates.slice().sort((left, right) => {
+    const groupCompare = String(getFormationRouteGroupName_(left) || "").localeCompare(
+      String(getFormationRouteGroupName_(right) || ""),
+      "es",
+      { sensitivity: "base" }
+    );
+
+    if (groupCompare !== 0) {
+      return groupCompare;
+    }
+
+    return String(left?.personName || "").localeCompare(String(right?.personName || ""), "es", { sensitivity: "base" });
+  });
+
+  const groups = buildFormationRouteGroups_(sortedCandidates).map((group) => {
+    const items = Array.isArray(group.items) ? group.items.slice() : [];
+    const sentCount = items.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+    return {
+      groupId: group.groupId,
+      groupName: group.groupName,
+      contacts: Array.isArray(group.contacts) ? group.contacts.slice() : [],
+      total: items.length,
+      sentCount,
+      pendingCount: Math.max(items.length - sentCount, 0),
+      candidates: items
+    };
+  });
+
+  const sentCount = sortedCandidates.filter((candidate) => normalizeText(candidate?.leaderTelegramStatus || "") === "enviado").length;
+
+  return {
+    seasonId,
+    seasonName: resolveSeasonName_(seasonId) || seasonId || "Temporada",
+    generatedAt: new Date(),
+    total: sortedCandidates.length,
+    groupCount: groups.length,
+    sentCount,
+    pendingCount: Math.max(sortedCandidates.length - sentCount, 0),
+    groups
   };
 }
 
@@ -18341,19 +22269,132 @@ function buildConnectionEncounterCandidatesExcelHtml_(report) {
   `;
 }
 
+function buildFormationPreEncounterReportExcelHtml_(report) {
+  const logoUrl = getReportLogoAssetUrl_();
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Reporte Pre-Encuentro - ${escapeHtml(report?.seasonName || "Temporada")}</title>
+      <style>
+        body { font-family: Manrope, Arial, sans-serif; padding: 24px; color: #111; }
+        .head { display: grid; gap: 12px; padding: 24px; border-radius: 24px; background: #111; color: #fff; }
+        .head img { width: 180px; filter: brightness(0) invert(1); }
+        .meta { display: flex; flex-wrap: wrap; gap: 10px; }
+        .meta span { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.1); font-size: 12px; }
+        .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+        .card { border: 1px solid #ddd; border-radius: 18px; padding: 16px; }
+        .card strong { font-size: 28px; display: block; margin-top: 8px; }
+        .group { margin-top: 24px; border: 1px solid #ddd; border-radius: 22px; overflow: hidden; }
+        .group-head { padding: 18px 20px; background: #f7f7f7; }
+        .group-head h2 { margin: 0 0 8px; font-size: 22px; }
+        .group-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+        .group-meta span { padding: 7px 11px; border-radius: 999px; background: #fff; border: 1px solid #ddd; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; vertical-align: top; }
+        th { background: #111; color: #fff; }
+      </style>
+    </head>
+    <body>
+      <section class="head">
+        <img src="${escapeHtml(logoUrl)}" alt="Fuertes">
+        <div>
+          <h1>Reporte Pre-Encuentro</h1>
+          <p>${escapeHtml(report?.seasonName || "Temporada")}</p>
+        </div>
+        <div class="meta">
+          <span>Total personas: ${escapeHtml(String(report?.total || 0))}</span>
+          <span>Grupos: ${escapeHtml(String(report?.groupCount || 0))}</span>
+          <span>Telegram OK: ${escapeHtml(String(report?.sentCount || 0))}</span>
+          <span>Telegram pendiente: ${escapeHtml(String(report?.pendingCount || 0))}</span>
+          <span>Generado: ${escapeHtml(formatDateTime_(report?.generatedAt || new Date()))}</span>
+        </div>
+      </section>
+      <section class="grid">
+        <div class="card"><span>Total en Pre-Encuentro</span><strong>${escapeHtml(String(report?.total || 0))}</strong></div>
+        <div class="card"><span>Grupos involucrados</span><strong>${escapeHtml(String(report?.groupCount || 0))}</strong></div>
+        <div class="card"><span>Telegram OK</span><strong>${escapeHtml(String(report?.sentCount || 0))}</strong></div>
+        <div class="card"><span>Telegram pendiente</span><strong>${escapeHtml(String(report?.pendingCount || 0))}</strong></div>
+      </section>
+      ${(report?.groups || []).map((group) => `
+        <section class="group">
+          <div class="group-head">
+            <h2>${escapeHtml(group.groupName || "Sin grupo")}</h2>
+            <div class="group-meta">
+              <span>Total: ${escapeHtml(String(group.total || 0))}</span>
+              <span>Telegram OK: ${escapeHtml(String(group.sentCount || 0))}</span>
+              <span>Telegram pendiente: ${escapeHtml(String(group.pendingCount || 0))}</span>
+              ${group.contacts.map((contact) => `<span>${escapeHtml(contact.label)}: ${escapeHtml(contact.value)}</span>`).join("")}
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Congregante</th>
+                <th>Contacto</th>
+                <th>Asistencia</th>
+                <th>Telegram</th>
+                <th>Estatus</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${group.candidates.map((candidate) => {
+                const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+                return `
+                  <tr>
+                    <td>
+                      <strong>${escapeHtml(candidate?.personName || "")}</strong><br>
+                      ${escapeHtml(candidate?.personNumber || "")} · QR ${escapeHtml(candidate?.personId || "")}
+                    </td>
+                    <td>
+                      ${escapeHtml(candidate?.personPhone || "Sin teléfono")}<br>
+                      ${escapeHtml(candidate?.leaderName || "Sin líder registrado")}
+                    </td>
+                    <td>
+                      ${escapeHtml(`${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} asistencias`)}<br>
+                      ${escapeHtml(`${candidate?.consecutiveAttendances || 0} consecutivas`)}
+                    </td>
+                    <td>
+                      <strong>${escapeHtml(telegramUi.label)}</strong><br>
+                      ${escapeHtml(telegramUi.detail)}
+                    </td>
+                    <td>
+                      ${escapeHtml(candidate?.formationStatus || "")}<br>
+                      ${escapeHtml(getFormationPreEncounterFollowupLabel_(candidate))}
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </section>
+      `).join("")}
+    </body>
+    </html>
+  `;
+}
+
 function buildConnectionEncounterCandidatesWhatsappText_(report) {
+  const groups = Array.isArray(report?.groups) ? report.groups : [];
+
   return [
-    "Ruta a Encuentro - Grupo de Conexión",
+    "Pre-Encuentro por grupos de conexión",
     `Temporada: ${report?.seasonName || "Sin temporada"}`,
-    `Grupo: ${report?.groupName || "Sin grupo"}`,
     `Total candidatos: ${report?.total || 0}`,
+    `Grupos involucrados: ${report?.groupCount || groups.length || 0}`,
     `Telegram entregado: ${report?.sentCount || 0}`,
     `Telegram pendiente: ${report?.pendingCount || 0}`,
     "",
-    ...(report?.candidates || []).map((candidate) => {
-      const telegramUi = getConnectionEncounterTelegramUi_(candidate);
-      return `• ${candidate?.personName || "Congregante"} | ${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} | ${candidate?.consecutiveAttendances || 0} consecutivas | ${telegramUi.label}`;
-    }),
+    ...groups.flatMap((group) => ([
+      `${group.groupName || "Sin grupo"} (${group.total || 0})`,
+      ...(group.candidates || []).map((candidate) => {
+        const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+        return `• ${candidate?.personName || "Congregante"} | ${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0} | ${candidate?.consecutiveAttendances || 0} consecutivas | ${telegramUi.label}`;
+      }),
+      ""
+    ])),
     "",
     `Generado: ${formatDateTime_(report?.generatedAt || new Date())}`
   ].join("\n");
@@ -18449,6 +22490,135 @@ async function downloadConnectionEncounterCandidatesPdf_(report) {
   const fileName = buildDashboardBinaryExportFileName_(
     "RUTA_ENCUENTRO",
     `${report?.groupName || "grupo"}_${report?.seasonName || "temporada"}`,
+    "pdf"
+  );
+  downloadBlob_(doc.output("blob"), fileName);
+}
+
+async function downloadFormationPreEncounterReportPdf_(report) {
+  const JsPdf = getDashboardPdfConstructor_();
+
+  if (!JsPdf) {
+    throw new Error("JSPDF_UNAVAILABLE");
+  }
+
+  const doc = new JsPdf({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+    compress: true
+  });
+
+  if (typeof doc.autoTable !== "function") {
+    throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+  }
+
+  const logoDataUrl = await loadLightAssetAsDataUrl_(getReportLogoAssetUrl_()) || await loadAssetAsDataUrl_(getReportLogoAssetUrl_());
+
+  doc.setFillColor(17, 17, 17);
+  doc.roundedRect(28, 24, 539, 112, 22, 22, "F");
+
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", 44, 40, 118, 38, undefined, "FAST");
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("Reporte Pre-Encuentro", 180, 62);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`${report?.seasonName || "Temporada"}`, 180, 82);
+  doc.text(`Generado: ${formatDateTime_(report?.generatedAt || new Date())}`, 180, 98);
+
+  doc.setTextColor(17, 17, 17);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(`Total personas: ${report?.total || 0}`, 40, 166);
+  doc.text(`Grupos: ${report?.groupCount || 0}`, 180, 166);
+  doc.text(`Telegram OK: ${report?.sentCount || 0}`, 300, 166);
+  doc.text(`Telegram pendiente: ${report?.pendingCount || 0}`, 430, 166);
+
+  let currentY = 190;
+
+  (report?.groups || []).forEach((group, index) => {
+    if (index > 0 && currentY > 640) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(group.groupName || "Sin grupo", 32, currentY);
+    currentY += 16;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    const leaderLine = group.contacts?.length
+      ? group.contacts.map((contact) => `${contact.label}: ${contact.value}`).join(" | ")
+      : "Sin liderazgo registrado en Catálogos.";
+    doc.text(`Total: ${group.total || 0} | Telegram OK: ${group.sentCount || 0} | Telegram pendiente: ${group.pendingCount || 0}`, 32, currentY);
+    currentY += 12;
+    doc.text(leaderLine, 32, currentY, { maxWidth: 530 });
+    currentY += 10;
+
+    doc.autoTable({
+      startY: currentY + 8,
+      head: [[
+        "Congregante",
+        "Contacto",
+        "Asistencia",
+        "Telegram",
+        "Estatus"
+      ]],
+      body: (group.candidates || []).map((candidate) => {
+        const telegramUi = getConnectionEncounterTelegramUi_(candidate);
+        return [
+          `${candidate?.personName || ""}\n${candidate?.personNumber || ""} · QR ${candidate?.personId || ""}`,
+          `${candidate?.personPhone || "Sin teléfono"}\n${candidate?.leaderName || "Sin líder"}`,
+          `${candidate?.attendanceCount || 0}/${candidate?.sessionsCount || 0}\n${candidate?.consecutiveAttendances || 0} consecutivas`,
+          `${telegramUi.label}\n${telegramUi.detail}`,
+          `${candidate?.formationStatus || ""}\n${getFormationPreEncounterFollowupLabel_(candidate)}`
+        ];
+      }),
+      theme: "grid",
+      margin: {
+        left: 28,
+        right: 28
+      },
+      styles: {
+        font: "helvetica",
+        fontSize: 8.1,
+        cellPadding: 6,
+        lineColor: [224, 224, 224],
+        lineWidth: 0.1,
+        overflow: "linebreak",
+        textColor: [33, 33, 33],
+        valign: "middle"
+      },
+      headStyles: {
+        fillColor: [17, 17, 17],
+        textColor: [255, 255, 255],
+        fontStyle: "bold"
+      },
+      alternateRowStyles: {
+        fillColor: [248, 248, 248]
+      },
+      columnStyles: {
+        0: { cellWidth: 116 },
+        1: { cellWidth: 104 },
+        2: { cellWidth: 82 },
+        3: { cellWidth: 120 },
+        4: { cellWidth: 110 }
+      }
+    });
+
+    currentY = (doc.lastAutoTable?.finalY || currentY) + 24;
+  });
+
+  const fileName = buildDashboardBinaryExportFileName_(
+    "PRE_ENCUENTRO",
+    `${report?.seasonName || "temporada"}`,
     "pdf"
   );
   downloadBlob_(doc.output("blob"), fileName);
@@ -18706,13 +22876,9 @@ async function handleClick(event) {
     }
 
     if (action === "set-student-portal-tab") {
-      const nextTab = String(button.dataset.tab || "").trim() || "home";
+      const nextTab = String(button.dataset.tab || "").trim() || "profile";
       state.ui.studentPortalTab = nextTab;
       state.ui.studentPortalMenuOpen = false;
-
-      if (nextTab !== "profile") {
-        state.ui.studentPortalProfileTab = "summary";
-      }
 
       renderApp();
       scrollViewportToTop_();
@@ -18849,6 +23015,7 @@ async function handleClick(event) {
         });
       }, "Actualizando tu formación...");
       renderApp();
+      scrollViewportToTop_();
       return;
     }
 
@@ -18994,8 +23161,8 @@ async function handleClick(event) {
     }
 
     if (action === "download-formation-portal-qr-batch") {
-      const selectedOffering = getSelectedFormationOffering_();
-      const roster = getFilteredFormationOperationEnrollments_(selectedOffering?.id || "");
+      const selectedOffering = getSelectedFormationPortalOffering_();
+      const roster = getFilteredFormationPortalRoster_(selectedOffering?.id || "");
       const people = getFormationPortalBatchPeople_(roster);
 
       if (!people.length) {
@@ -19063,35 +23230,64 @@ async function handleClick(event) {
 
     if (action === "set-formation-section") {
       state.ui.formationSection = normalizeFormationSection_(button.dataset.sectionKey || "");
+      const portalFilters = getFormationPortalFilters_();
+      const journeyFilters = getFormationJourneyFilters_();
+      setFormationFilterBusy_(false, "");
+      clearFormationSectionLoading_();
       if (state.ui.formationSection === "route") {
         clearFormationProfileSelection_();
       }
       if (state.ui.formationSection === "portal") {
-        state.filters.formationOps.levelId = "";
-        state.filters.formationOps.offeringId = "";
+        if (!portalFilters.processId && state.filters.formationOps.processId) {
+          portalFilters.processId = state.filters.formationOps.processId;
+        }
         state.ui.selectedFormationOfferingId = "";
       }
-      await ensureFormationViewData_({
-        force: false,
-        showLoading: false
-      });
+      if (state.ui.formationSection === "operations") {
+        if (!journeyFilters.processId && state.filters.formationOps.processId) {
+          journeyFilters.processId = state.filters.formationOps.processId;
+        }
+      }
+      if (state.ui.formationSection === "portal") {
+        portalFilters.search = "";
+        portalFilters.enrollmentStatus = "ALL";
+      }
+      if (state.ui.formationSection === "operations") {
+        journeyFilters.search = "";
+        journeyFilters.enrollmentStatus = "ALL";
+      }
       renderApp();
       if (state.ui.formationSection === "attendance") {
         scrollToSection_("formation-attendance-workspace");
       } else {
         scrollViewportToTop_();
       }
+      loadViewDataInBackground_("formation");
       return;
     }
 
     if (action === "set-attendance-center-section") {
       state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(button.dataset.sectionKey || "");
+      if (isLeaderScopedUser_()) {
+        state.ui.attendanceCenterSection = "connection";
+      }
       state.qrScanner.enabled = false;
       clearQrScannerFeedbackResult_();
       stopQrScannerRuntime_(true);
       formationAttendanceScannerRuntime.enabled = false;
       stopFormationAttendanceScanner_();
       renderApp();
+
+      if (state.ui.attendanceCenterSection === "formation") {
+        hydrateAttendanceFormationInBackground_({
+          force: false,
+          captureMode: resolveFormationAttendanceMode_(),
+          skipParticipants: true
+        });
+        scrollViewportToTop_();
+        return;
+      }
+
       await ensureAttendanceHubViewData_({
         force: false,
         showLoading: false
@@ -19110,7 +23306,7 @@ async function handleClick(event) {
       formationAttendanceScannerRuntime.enabled = false;
       stopFormationAttendanceScanner_();
       if (state.currentView === "attendance") {
-        state.ui.attendanceCenterSection = "home";
+        state.ui.attendanceCenterSection = isLeaderScopedUser_() ? "connection" : "home";
       }
       if (state.currentView === "congregants-new") {
         primeWelcomeNewView_();
@@ -19133,9 +23329,7 @@ async function handleClick(event) {
         state.ui.formationSection = "route";
         clearFormationProfileSelection_();
         state.filters.formationOps.personSearch = "";
-        state.formationProcessRoster = [];
-        state.loaded.formationProcessRoster = false;
-        state.cacheKeys.formationProcessRoster = "";
+        invalidateFormationWorkspaceCache_("both");
       }
       state.ui.mobileNavOpen = false;
       renderApp();
@@ -19583,6 +23777,39 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "prompt-scrap-delete-encounter-route") {
+      const seasonId = String(button.dataset.seasonId || state.ui.selectedScrapSeasonId || "");
+      const season = (Array.isArray(state.seasons) ? state.seasons : []).find((item) => String(item.id || "") === seasonId);
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!seasonId || !season) {
+        showToast("Temporada no disponible", "Selecciona primero la temporada cuya Ruta a Encuentro deseas limpiar.", "warning");
+        return;
+      }
+
+      openSystemConfirmation_({
+        kind: "scrap-delete-encounter-route",
+        title: "Limpiar Ruta a Encuentro",
+        copy: "Se eliminarán únicamente los registros de Pre-Encuentro guardados en Formación para esta temporada. No se tocarán los datos personales, grupos de conexión, participantes ni asistencias del grupo.",
+        badge: "Reset Pre-Encuentro",
+        confirmLabel: "Limpiar ruta",
+        tone: "warning",
+        notes: [
+          `${season.name || season.id} (${season.id || "-"})`,
+          "Borra solo la bitácora guardada en FORMACION_PROCESO para esta ruta.",
+          "Después usa Actualizar candidatos para reconstruir la lista real desde las 3 asistencias consecutivas."
+        ],
+        payload: {
+          seasonId
+        }
+      });
+      return;
+    }
+
     if (action === "prompt-scrap-delete-formation-process") {
       const processId = String(button.dataset.processId || state.ui.selectedScrapFormationProcessId || "");
       const process = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((item) => String(item.id || "") === processId);
@@ -19615,6 +23842,46 @@ async function handleClick(event) {
           `Niveles: ${preview?.footprint?.levels || 0} | Sesiones programadas: ${preview?.footprint?.scheduledSessions || 0}`,
           `Inscripciones: ${preview?.footprint?.enrollments || 0} | Asistencias: ${preview?.footprint?.levelAttendances || 0}`,
           `Personas involucradas: ${preview?.footprint?.uniquePeople || 0}`
+        ],
+        payload: {
+          processId
+        }
+      });
+      return;
+    }
+
+    if (action === "prompt-scrap-reset-formation-process") {
+      const processId = String(button.dataset.processId || state.ui.selectedScrapFormationProcessId || "");
+      const process = (Array.isArray(state.formationProcesses) ? state.formationProcesses : []).find((item) => String(item.id || "") === processId);
+      let preview = null;
+
+      if (!canUseScrapDelete_()) {
+        showToast("Permiso requerido", "Solo un ADMIN con permiso Eliminar scrap total puede usar esta acción.", "warning");
+        return;
+      }
+
+      if (!processId || !process) {
+        showToast("Proceso no disponible", "Selecciona primero el Proceso de Formación que deseas reiniciar.", "warning");
+        return;
+      }
+
+      preview = await loadScrapFormationProcessPreview_(processId, {
+        message: "Preparando reinicio exclusivo de Formación..."
+      });
+
+      openSystemConfirmation_({
+        kind: "scrap-reset-formation-process",
+        title: "Reiniciar solo datos del módulo Formación",
+        copy: "Se eliminarán únicamente las inscripciones, asistencias, cuentas portal y registros formativos de las personas ligadas a este proceso. El proceso, sus pasos, sesiones programadas y tu padrón base se conservarán intactos para volver a empezar desde cero.",
+        badge: "Reset Formación",
+        confirmLabel: "Reiniciar Formación",
+        tone: "warning",
+        notes: [
+          preview?.processName || process?.name || "Proceso activo",
+          `ID: ${preview?.processId || processId}`,
+          `Personas involucradas: ${preview?.footprint?.uniquePeople || 0}`,
+          `Inscripciones a limpiar: ${preview?.footprint?.enrollments || 0} | Asistencias a limpiar: ${preview?.footprint?.levelAttendances || 0}`,
+          "El proceso y sus pasos operativos se conservarán para reutilizarlos."
         ],
         payload: {
           processId
@@ -19909,6 +24176,71 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "export-leader-whatsapp-access") {
+      const webUrl = getLeaderAccessExportWebUrl_();
+      const result = await withLoading(async () => {
+        try {
+          return await apiPost("users.leaderAccess.prepareAll", {
+            webUrl
+          });
+        } catch (error) {
+          if (isUnknownActionError_(error, "users.leaderAccess.prepareAll")) {
+            throw buildBackendRouteMissingError_("users.leaderAccess.prepareAll", "la exportación masiva de accesos de líderes");
+          }
+
+          throw error;
+        }
+      }, "Generando accesos para WhatsApp...");
+
+      const exportText = buildLeaderAccessWhatsappExportText_(result);
+      downloadPlainTextFile_(exportText, `ACCESOS_LIDERES_WHATSAPP_${formatTimestampToken_()}.txt`);
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+      renderApp();
+      showToast("Exportación lista", `${result?.total || 0} cuenta(s) preparadas con contraseña temporal y link global.`, "success");
+      return;
+    }
+
+    if (action === "generate-leader-support-password") {
+      const email = String(button.dataset.userEmail || "").trim();
+
+      if (!email) {
+        showToast("Usuario no disponible", "No fue posible identificar la cuenta del líder para generar soporte.", "warning");
+        return;
+      }
+
+      const result = await withLoading(async () => {
+        try {
+          return await apiPost("users.leaderAccess.prepare", {
+            email
+          });
+        } catch (error) {
+          if (isUnknownActionError_(error, "users.leaderAccess.prepare")) {
+            throw buildBackendRouteMissingError_("users.leaderAccess.prepare", "la ruta users.leaderAccess.prepare");
+          }
+
+          throw error;
+        }
+      }, "Generando contraseña temporal...");
+
+      state.ui.adminLeaderAccessPreview = result || null;
+      state.ui.adminLeaderAccountEmail = email;
+      await loadAdminUsers_({
+        force: true,
+        silentUnsupported: true
+      });
+      renderApp();
+
+      showToast(
+        "Contraseña generada",
+        `Usuario ${result?.email || email}. Contraseña temporal ${result?.temporaryPassword || "generada"}.`,
+        "success"
+      );
+      return;
+    }
+
     if (action === "send-leader-access-telegram") {
       const email = String(button.dataset.userEmail || "").trim();
 
@@ -19921,6 +24253,7 @@ async function handleClick(event) {
         email
       }), "Enviando acceso del líder por Telegram...");
 
+      state.ui.adminLeaderAccessPreview = result || null;
       await loadAdminUsers_({
         force: true,
         silentUnsupported: true
@@ -19957,6 +24290,8 @@ async function handleClick(event) {
         }
       }, "Preparando acceso del líder por WhatsApp...");
 
+      state.ui.adminLeaderAccessPreview = result || null;
+      state.ui.adminLeaderAccountEmail = email;
       await loadAdminUsers_({
         force: true,
         silentUnsupported: true
@@ -19987,6 +24322,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "open-congregant-assignment") {
+      const personId = String(button.dataset.personId || "").trim();
+
+      if (!personId) {
+        showToast("Congregante no disponible", "Recarga el padron e intenta de nuevo.", "warning");
+        return;
+      }
+
+      await Promise.all([
+        loadGroupsCatalog_({ showLoading: false }),
+        loadMinistriesCatalog_({ showLoading: false })
+      ]);
+      state.ui.editingCongregantAssignmentPersonId = personId;
+      renderApp();
+      return;
+    }
+
+    if (action === "close-congregant-assignment") {
+      state.ui.editingCongregantAssignmentPersonId = "";
+      renderApp();
+      return;
+    }
+
+    if (action === "save-congregant-assignment") {
+      const form = button.closest("form");
+
+      if (!(form instanceof HTMLFormElement)) {
+        showToast("Formulario no disponible", "Cierra el modal, vuelve a abrirlo e intenta guardar.", "warning");
+        return;
+      }
+
+      await saveCongregantAssignment_(form);
+      return;
+    }
     if (action === "download-people-template") {
       downloadPeopleTemplate_();
       return;
@@ -20022,6 +24391,16 @@ async function handleClick(event) {
 
     if (action === "print-credential-batch") {
       printCredentialCards_(getFilteredPeopleDirectory_(), "Credenciales QR - Lote completo");
+      return;
+    }
+
+    if (action === "download-credential-print-pdf") {
+      await downloadCredentialPrintPdf_(getFilteredPeopleDirectory_(), "Credenciales QR - Impresion");
+      return;
+    }
+
+    if (action === "download-credential-card-image-batch") {
+      await downloadCredentialPrintCardImageBatchZip_(getFilteredPeopleDirectory_(), "Credenciales QR - Tarjetas");
       return;
     }
 
@@ -20075,8 +24454,47 @@ async function handleClick(event) {
 
     if (action === "select-season") {
       state.filters.seasons.seasonId = button.dataset.seasonId || "";
-      await ensureSessionsForSeason(state.filters.seasons.seasonId);
+      const sessions = await ensureSessionsForSeason(state.filters.seasons.seasonId);
+      await Promise.all(sessions.map((session) => ensureSessionGroupsFor(state.filters.seasons.seasonId, session.id)));
       renderApp();
+      return;
+    }
+
+    if (action === "refresh-season-group-calendar") {
+      const seasonId = String(button.dataset.seasonId || state.filters.seasons.seasonId || "").trim();
+      if (!seasonId) {
+        showToast("Temporada no seleccionada", "Selecciona una temporada para cargar su calendario por grupo.", "warning");
+        return;
+      }
+
+      let backendCalendarRepaired = false;
+      let backendCalendarUnavailable = false;
+      await withLoading(async () => {
+        try {
+          await apiPost("seasons.applyThirdConnectionCalendar", {
+            seasonId
+          });
+          backendCalendarRepaired = true;
+        } catch (error) {
+          if (!isUnknownActionError_(error, "seasons.applyThirdConnectionCalendar")) {
+            throw error;
+          }
+          backendCalendarUnavailable = true;
+        }
+        const sessions = await ensureSessionsForSeason(seasonId);
+        sessions.forEach((session) => {
+          delete state.sessionGroupsByKey[`${seasonId}::${session.id}`];
+        });
+        await Promise.all(sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id)));
+      }, "Actualizando calendario por grupo...");
+      renderApp();
+      if (backendCalendarRepaired) {
+        showToast("Calendario actualizado", "Corazón Sabio queda en miércoles y los demás grupos en viernes.", "success");
+      } else if (backendCalendarUnavailable) {
+        showToast("Calendario visible actualizado", "La tabla ya muestra Corazón Sabio en miércoles. Falta actualizar el backend para reparar la hoja automáticamente.", "warning");
+      } else {
+        showToast("Calendario cargado", "Ya puedes revisar las fechas por grupo dentro del sistema.", "success");
+      }
       return;
     }
 
@@ -20134,7 +24552,6 @@ async function handleClick(event) {
     }
 
     if (action === "load-participants") {
-      await loadParticipantsData();
       await loadConnectionEncounterCandidates_({
         force: true,
         showLoading: false
@@ -20149,7 +24566,7 @@ async function handleClick(event) {
         syncCandidates: true
       });
       renderApp();
-      showToast("Listado actualizado", "La ruta a Encuentro del grupo quedó actualizada.", "success");
+      showToast("Listado actualizado", "Los candidatos a Proceso de Formación quedaron actualizados para todos los grupos.", "success");
       return;
     }
 
@@ -20157,15 +24574,15 @@ async function handleClick(event) {
       const report = buildConnectionEncounterCandidatesReportModel_();
 
       if (!report) {
-        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para exportar.", "warning");
+        showToast("Sin datos", "Primero selecciona temporada y actualiza los candidatos a Pre-Encuentro para exportar.", "warning");
         return;
       }
 
       downloadExcelHtmlFile_(
-        buildConnectionEncounterCandidatesExcelHtml_(report),
-        buildDashboardBinaryExportFileName_("RUTA_ENCUENTRO", `${report.groupName}_${report.seasonName}`, "xls")
+        buildFormationPreEncounterReportExcelHtml_(report),
+        buildDashboardBinaryExportFileName_("PRE_ENCUENTRO", `${report.seasonName || "temporada"}`, "xls")
       );
-      showToast("Excel listo", "Se descargó el listado operativo de Ruta a Encuentro.", "success");
+      showToast("Excel listo", "Se descargó el reporte agrupado de Pre-Encuentro.", "success");
       return;
     }
 
@@ -20173,14 +24590,14 @@ async function handleClick(event) {
       const report = buildConnectionEncounterCandidatesReportModel_();
 
       if (!report) {
-        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para exportar.", "warning");
+        showToast("Sin datos", "Primero selecciona temporada y actualiza los candidatos a Pre-Encuentro para exportar.", "warning");
         return;
       }
 
       await withLoading(async () => {
-        await downloadConnectionEncounterCandidatesPdf_(report);
+        await downloadFormationPreEncounterReportPdf_(report);
       }, "Descargando reporte PDF...");
-      showToast("PDF listo", "Se descargó el reporte PDF de Ruta a Encuentro.", "success");
+      showToast("PDF listo", "Se descargó el reporte PDF agrupado de Pre-Encuentro.", "success");
       return;
     }
 
@@ -20188,7 +24605,7 @@ async function handleClick(event) {
       const report = buildConnectionEncounterCandidatesReportModel_();
 
       if (!report) {
-        showToast("Sin datos", "Primero selecciona temporada, grupo y carga candidatos para compartir.", "warning");
+        showToast("Sin datos", "Primero selecciona temporada y actualiza los candidatos a Pre-Encuentro para compartir.", "warning");
         return;
       }
 
@@ -20197,6 +24614,50 @@ async function handleClick(event) {
         "_blank",
         "noopener,noreferrer"
       );
+      return;
+    }
+
+    if (action === "refresh-connection-report") {
+      await ensureConnectionReportsViewData_({
+        force: true
+      });
+      renderApp();
+      showToast("Reporte actualizado", "La consulta de Grupos Conexión quedó lista para revisar o exportar.", "success");
+      return;
+    }
+
+    if (action === "export-connection-report-excel") {
+      const report = buildConnectionReportModel_();
+
+      if (!report?.rows?.length) {
+        showToast("Sin datos", "Genera primero el reporte y verifica que tenga personas visibles.", "warning");
+        return;
+      }
+
+      downloadExcelHtmlFile_(
+        buildConnectionReportExcelHtml_(report),
+        buildDashboardBinaryExportFileName_(
+          report.type === "ministry" ? "REPORTE_MINISTERIO" : "REPORTE_GRUPO_CONEXION",
+          report.type === "ministry" ? report.ministryName : report.groupName,
+          "xls"
+        )
+      );
+      showToast("Excel listo", "Se descargó el reporte de Grupos Conexión.", "success");
+      return;
+    }
+
+    if (action === "export-connection-report-pdf") {
+      const report = buildConnectionReportModel_();
+
+      if (!report?.rows?.length) {
+        showToast("Sin datos", "Genera primero el reporte y verifica que tenga personas visibles.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        await downloadConnectionReportPdf_(report);
+      }, "Generando PDF...");
+      showToast("PDF listo", "Se descargó el reporte de Grupos Conexión.", "success");
       return;
     }
 
@@ -20342,7 +24803,8 @@ async function handleClick(event) {
     if (action === "load-attendance") {
       if (state.filters.attendance.scope !== "selected") {
         await loadActiveSession({
-          force: true
+          force: true,
+          groupId: resolveConnectionQrGroupId_()
         });
       }
       await loadAttendanceData({
@@ -20356,7 +24818,10 @@ async function handleClick(event) {
       state.filters.attendance.scope = "today";
       state.filters.attendance.groupId = "";
       state.filters.attendance.search = "";
-      await loadActiveSession();
+      await loadActiveSession({
+        force: true,
+        groupId: resolveConnectionQrGroupId_()
+      });
       await loadAttendanceData({
         force: true
       });
@@ -20405,6 +24870,12 @@ async function handleClick(event) {
 
       state.filters.attendance.groupId = nextGroupId;
       state.filters.attendance.search = "";
+      if (state.filters.attendance.scope !== "selected") {
+        await loadActiveSession({
+          force: true,
+          groupId: nextGroupId
+        });
+      }
       await loadAttendanceData();
       renderApp();
       scrollToSection_("attendance-list");
@@ -20466,7 +24937,9 @@ async function handleClick(event) {
       state.filters.attendance.mode = "kiosk";
       state.currentView = "attendance";
       state.ui.attendanceCenterSection = "connection";
-      await loadQrSummary();
+      await ensureQrViewData_({
+        force: true
+      });
       renderApp();
       scrollViewportToTop_();
       return;
@@ -20483,13 +24956,16 @@ async function handleClick(event) {
       if (nextMode === "manual") {
         state.currentView = "attendance";
         await loadActiveSession({
-          force: true
+          force: true,
+          groupId: resolveConnectionQrGroupId_()
         });
         await loadAttendanceData();
       } else {
         state.currentView = "attendance";
         state.filters.qr.surface = nextMode === "kiosk" ? "kiosk" : "scanner";
-        await loadQrSummary();
+        await ensureQrViewData_({
+          force: true
+        });
       }
 
       renderApp();
@@ -20522,6 +24998,7 @@ async function handleClick(event) {
     if (action === "clear-kiosk-result") {
       clearQrScannerResultReset_();
       clearQrScannerFeedbackResult_();
+      clearFormationAttendanceRuntimeLocks_();
       if (state.qrScanner.enabled) {
         state.qrScanner.status = "scanning";
         state.qrScanner.message = buildQrScannerReadyMessage_();
@@ -20610,20 +25087,66 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "export-formation-pre-encounter-excel") {
+      const report = buildFormationPreEncounterReportModel_();
+
+      if (!report?.total) {
+        showToast("Sin datos", "Primero aplica el filtro y carga personas en Pre-Encuentro para exportar.", "warning");
+        return;
+      }
+
+      downloadExcelHtmlFile_(
+        buildFormationPreEncounterReportExcelHtml_(report),
+        buildDashboardBinaryExportFileName_("PRE_ENCUENTRO", `${report.seasonName || "temporada"}`, "xls")
+      );
+      showToast("Excel listo", "Se descargó el reporte agrupado de Pre-Encuentro.", "success");
+      return;
+    }
+
+    if (action === "export-formation-pre-encounter-pdf") {
+      const report = buildFormationPreEncounterReportModel_();
+
+      if (!report?.total) {
+        showToast("Sin datos", "Primero aplica el filtro y carga personas en Pre-Encuentro para exportar.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        await downloadFormationPreEncounterReportPdf_(report);
+      }, "Descargando reporte PDF...");
+      showToast("PDF listo", "Se descargó el reporte agrupado de Pre-Encuentro.", "success");
+      return;
+    }
+
     if (action === "refresh-formation-operations") {
       if (isAttendanceFormationSectionActive_() || state.ui.formationSection === "attendance") {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId || "",
-          sessionNumber: state.filters.formationOps.sessionNumber || "1"
+          sessionNumber: state.filters.formationOps.sessionNumber || "1",
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_()) {
+          const selectedOffering = getSelectedFormationOffering_();
+          if (selectedOffering?.id) {
+            hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+              force: true,
+              sessionNumber: state.filters.formationOps.sessionNumber || "1",
+              message: "Cargando inscritos del paso..."
+            });
+            return;
+          }
+        }
       } else if (state.ui.formationSection === "portal") {
         await ensureFormationPortalSectionData_({
-          force: true
+          force: true,
+          skipSync: true
         });
       } else if (state.ui.formationSection === "operations") {
         await ensureFormationJourneySectionData_({
-          force: true
+          force: true,
+          skipSync: true
         });
       } else if (state.ui.formationSection === "levels") {
         await loadFormationLevelsWorkspaceData_({
@@ -20637,9 +25160,6 @@ async function handleClick(event) {
           showLoading: false
         });
       }
-      if (state.ui.formationSection === "portal") {
-        ensureFormationPortalDefaultOffering_();
-      }
       renderApp();
       return;
     }
@@ -20648,6 +25168,7 @@ async function handleClick(event) {
       const nextMode = button.dataset.mode === "kiosk"
         ? "kiosk"
         : (button.dataset.mode === "qr" ? "qr" : "manual");
+      const selectedOffering = getSelectedFormationOffering_();
 
       state.filters.formationOps.captureMode = nextMode;
       clearQrScannerFeedbackResult_();
@@ -20668,15 +25189,31 @@ async function handleClick(event) {
         stopQrScannerRuntime_(true);
       }
 
+      if (nextMode !== "manual") {
+        resetFormationAttendanceParticipantsState_();
+      }
+
       renderApp();
       scrollToSection_("formation-operations-attendance");
+
+      if (nextMode === "manual" && selectedOffering?.id) {
+        hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+          force: false,
+          sessionNumber: state.filters.formationOps.sessionNumber || "1",
+          message: "Cargando inscritos del paso..."
+        });
+      }
       return;
     }
 
     if (action === "start-formation-attendance-camera") {
+      const selectedOffering = getSelectedFormationOffering_();
+      primeFormationAttendanceVoice_();
       formationAttendanceScannerRuntime.enabled = true;
       formationAttendanceScannerRuntime.status = "starting";
       formationAttendanceScannerRuntime.message = `Preparando cámara ${getQrCameraLabel_(state.filters.qr.cameraFacing)} para el lector de Formación...`;
+      formationAttendanceScannerRuntime.lockedOfferingId = String(selectedOffering?.id || state.filters.formationOps.offeringId || "").trim();
+      formationAttendanceScannerRuntime.lockedSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
       state.qrScanner.enabled = false;
       stopQrScannerRuntime_(true);
       clearDedicatedFormationAttendanceFeedback_();
@@ -20686,6 +25223,8 @@ async function handleClick(event) {
 
     if (action === "stop-formation-attendance-camera") {
       formationAttendanceScannerRuntime.enabled = false;
+      formationAttendanceScannerRuntime.lockedOfferingId = "";
+      formationAttendanceScannerRuntime.lockedSessionNumber = "";
       stopFormationAttendanceScanner_();
       renderApp();
       return;
@@ -20792,7 +25331,82 @@ async function handleClick(event) {
         return;
       }
       await registerFormationEncounter_(candidate || null);
-      scrollToSection_("formation-operations-workspace");
+      scrollToSection_(
+        state.ui.formationSection === "route"
+          ? "formation-route-workspace"
+          : "formation-operations-workspace"
+      );
+      return;
+    }
+
+    if (action === "formation-route-toggle-selection") {
+      const personId = String(button.dataset.personId || "").trim();
+      toggleFormationRouteSelection_(personId, !isFormationRoutePersonSelected_(personId));
+      renderApp();
+      return;
+    }
+
+    if (action === "formation-route-select-visible") {
+      getFilteredFormationCandidates_()
+        .filter((candidate) => !candidate?.encounterRegisteredAt)
+        .forEach((candidate) => {
+          toggleFormationRouteSelection_(String(candidate?.personId || ""), true);
+        });
+      renderApp();
+      showToast("Lote preparado", "Los candidatos visibles quedaron listos para invitación o inscripción masiva.", "success");
+      return;
+    }
+
+    if (action === "formation-route-clear-selection") {
+      state.selectedFormationRoutePeople = [];
+      renderApp();
+      return;
+    }
+
+    if (action === "formation-route-invite-bulk") {
+      await sendFormationEncounterInviteBulk_();
+      return;
+    }
+
+    if (action === "formation-route-register-bulk") {
+      await registerFormationEncounterBulk_();
+      return;
+    }
+
+    if (action === "formation-add-bulk-person") {
+      toggleBulkSelection(String(button.dataset.personId || ""), true);
+      renderApp();
+      focusInputById_("formation-ops-person-search");
+      return;
+    }
+
+    if (action === "formation-remove-bulk-person") {
+      toggleBulkSelection(String(button.dataset.personId || ""), false);
+      renderApp();
+      focusInputById_("formation-ops-person-search");
+      return;
+    }
+
+    if (action === "formation-clear-bulk-selection") {
+      state.selectedBulkPeople = [];
+      renderApp();
+      focusInputById_("formation-ops-person-search");
+      return;
+    }
+
+    if (action === "formation-select-visible-bulk") {
+      const selectedOffering = getSelectedFormationOffering_();
+      const visibleCandidates = getFormationManualEnrollmentCandidates_(selectedOffering).slice(0, 60);
+      visibleCandidates.forEach((person) => {
+        toggleBulkSelection(String(person?.id || ""), true);
+      });
+      renderApp();
+      showToast("Lote preparado", `${visibleCandidates.length} personas quedaron listas para inscribirse al Paso 1.`, "success");
+      return;
+    }
+
+    if (action === "formation-assign-selected-bulk") {
+      await assignFormationSelectedBulk_();
       return;
     }
 
@@ -21000,6 +25614,42 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "load-formation-manual-context") {
+      const offeringId = String(button.dataset.offeringId || state.filters.formationOps.offeringId || "").trim();
+      if (!offeringId) {
+        return;
+      }
+
+      await loadFormationAttendanceContext_(offeringId, {
+        force: true,
+        showLoading: false,
+        sessionNumber: state.filters.formationOps.sessionNumber || "1"
+      });
+
+      renderApp();
+      return;
+    }
+
+    if (action === "formation-manual-mark-visible") {
+      const affected = applyBulkFormationManualAttendanceDraft_(button.dataset.value || "");
+      renderApp();
+      showToast(
+        "Cambios preparados",
+        affected
+          ? `Se marcaron ${affected} filas visibles para guardar en lote.`
+          : "No hubo cambios nuevos para preparar en el listado actual.",
+        affected ? "success" : "warning"
+      );
+      return;
+    }
+
+    if (action === "formation-manual-clear-draft") {
+      resetFormationManualAttendanceDraft_();
+      renderApp();
+      showToast("Cambios limpiados", "El formulario manual volvió a sus valores actuales guardados.", "success");
+      return;
+    }
+
     if (action === "activate-formation-session") {
       await activateFormationAttendanceSession_(
         button.dataset.offeringId || "",
@@ -21010,8 +25660,29 @@ async function handleClick(event) {
 
     if (action === "select-formation-enrollment") {
       state.ui.selectedFormationEnrollmentId = String(button.dataset.enrollmentId || "");
+      state.ui.selectedFormationPersonId = String(button.dataset.personId || "");
       renderApp();
       scrollToSection_("formation-operation-evaluation");
+      return;
+    }
+
+    if (action === "prompt-formation-admin-remove-enrollment") {
+      openSystemConfirmation_({
+        kind: "formation-admin-remove-enrollment",
+        title: "Corregir inscripción del paso",
+        copy: `Se quitará a ${button.dataset.personName || "este participante"} del paso ${button.dataset.stepName || "actual"} sin tocar sus datos personales ni Grupos de Conexión.`,
+        badge: "Solo administrador",
+        tone: "danger",
+        confirmLabel: "Quitar del paso",
+        notes: [
+          "Úsalo solo para corregir un avance automático o manual incorrecto.",
+          "El sistema conservará el historial previo y recalculará el estado formativo restante."
+        ],
+        payload: {
+          enrollmentId: String(button.dataset.enrollmentId || ""),
+          personId: String(button.dataset.personId || "")
+        }
+      });
       return;
     }
   } catch (error) {
@@ -21042,8 +25713,10 @@ async function handleSubmit(event) {
       state.user = data.user;
       state.studentPortal = data.portal || null;
       state.loaded.studentPortal = Boolean(data.portal);
-      state.ui.studentPortalTab = "home";
+      state.ui.studentPortalTab = "profile";
       state.ui.studentPortalProfileTab = "summary";
+      state.ui.studentPortalMenuOpen = false;
+      state.ui.studentPortalConnectionSeasonId = String(data?.portal?.connectionSeasons?.[0]?.seasonId || "").trim();
       setStoredUser(data.user);
       state.currentView = "student-portal";
       renderApp();
@@ -21071,9 +25744,10 @@ async function handleSubmit(event) {
 
       state.user = data.user;
       setStoredUser(data.user);
-      state.currentView = canAccessView_("dashboard")
-        ? "dashboard"
+      state.currentView = canAccessView_("attendance")
+        ? "attendance"
         : getFirstAccessibleView_(ACCESSIBLE_VIEWS);
+      state.ui.attendanceCenterSection = "home";
       state.ui.mobileNavOpen = false;
       if (state.currentView === "dashboard") {
         setDashboardHydrationState_(true, "Preparando Dashboard Iglesia...");
@@ -21083,9 +25757,11 @@ async function handleSubmit(event) {
       renderApp();
       showToast("Bienvenido", `Sesion iniciada como ${data.user.name}.`, "success");
       bootstrapApplicationInBackground_({
-        message: state.currentView === "dashboard"
-          ? "Preparando Dashboard Iglesia..."
-          : "Preparando tu grupo de conexión..."
+        message: state.currentView === "attendance"
+          ? "Preparando Centro de Asistencias..."
+          : (state.currentView === "dashboard"
+            ? "Preparando Dashboard Iglesia..."
+            : "Preparando tu grupo de conexión...")
       });
       scrollViewportToTop_();
 
@@ -21186,18 +25862,7 @@ async function handleSubmit(event) {
     }
 
     if (form.id === "catalog-ministry-form") {
-      const payload = Object.fromEntries(new FormData(form).entries());
-
-      await withLoading(async () => {
-        await apiPost("catalog.ministries.save", payload);
-        await loadMinistriesCatalog_({
-          force: true
-        });
-      }, payload.id ? "Actualizando ministerio..." : "Creando ministerio...");
-
-      state.ui.editingMinistryId = "";
-      showToast("Catalogo actualizado", "El ministerio quedo guardado correctamente.", "success");
-      renderApp();
+      await saveCatalogMinistryForm_(form);
       return;
     }
 
@@ -21310,6 +25975,20 @@ async function handleChange(event) {
   }
 
   try {
+    const formationAttendancePersonId = String(target.getAttribute("data-formation-attendance-person") || "").trim();
+    if (formationAttendancePersonId) {
+      const didChangeDraft = setFormationManualAttendanceDraftValue_(
+        formationAttendancePersonId,
+        target.value,
+        target.getAttribute("data-current-attendance") || ""
+      );
+
+      if (didChangeDraft) {
+        renderApp();
+      }
+      return;
+    }
+
     if (target.id === "assistants-status") {
       state.filters.assistants.status = target.value;
       renderApp();
@@ -21330,6 +26009,12 @@ async function handleChange(event) {
 
     if (target.id === "welcome-group") {
       state.filters.welcome.groupId = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "student-portal-connection-season") {
+      state.ui.studentPortalConnectionSeasonId = String(target.value || "").trim();
       renderApp();
       return;
     }
@@ -21468,6 +26153,24 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "participants-encounter-season") {
+      state.filters.participants.seasonId = target.value || "";
+      state.connectionEncounterCandidates = [];
+      state.loaded.connectionEncounterCandidates = false;
+      state.cacheKeys.connectionEncounterCandidates = "";
+      renderApp();
+      void loadConnectionEncounterCandidates_({
+        seasonId: state.filters.participants.seasonId,
+        force: true,
+        showLoading: false
+      }).then(() => {
+        if (state.currentView === "participants") {
+          renderApp();
+        }
+      }).catch(() => {});
+      return;
+    }
+
     if (target.id === "participants-session") {
       state.filters.participants.sessionId = target.value;
       state.filters.participants.moveTargets = {};
@@ -21532,9 +26235,43 @@ async function handleChange(event) {
     if (target.id === "attendance-group") {
       state.filters.attendance.groupId = target.value;
       state.filters.attendance.search = "";
+      if (state.filters.attendance.scope !== "selected") {
+        await loadActiveSession({
+          force: true,
+          groupId: target.value
+        });
+      }
       await loadAttendanceData();
       renderApp();
       focusInputById_("attendance-search");
+      return;
+    }
+
+    if (target.id === "connection-report-season") {
+      state.filters.connectionReports.seasonId = target.value;
+      await ensureConnectionReportsViewData_({
+        force: true
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-report-type") {
+      state.filters.connectionReports.type = target.value === "ministry" ? "ministry" : "group";
+      syncConnectionReportsFilters_();
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-report-group") {
+      state.filters.connectionReports.groupId = target.value;
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-report-ministry") {
+      state.filters.connectionReports.ministryId = target.value;
+      renderApp();
       return;
     }
 
@@ -21585,13 +26322,9 @@ async function handleChange(event) {
           processId: target.value || ""
         };
 
-        await loadFormationOperationsData_({
-          force: false,
-          showLoading: false,
-          processId: target.value || "",
-          levelId: "",
-          offeringId: "",
-          sessionNumber: "1"
+        await loadFormationPortalOfferingsList_(target.value || "", "", {
+          force: true,
+          showLoading: false
         });
 
         renderApp();
@@ -21619,14 +26352,25 @@ async function handleChange(event) {
       const activeFormationSection = state.currentView === "formation"
         ? getActiveFormationSection_()
         : "";
+      const portalFilters = getFormationPortalFilters_();
+      const journeyFilters = getFormationJourneyFilters_();
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
       if (attendanceFormationSection) {
         formationAttendanceScannerRuntime.enabled = false;
         stopFormationAttendanceScanner_();
       }
-      state.filters.formationOps.processId = target.value || "";
-      state.filters.formationOps.levelId = "";
-      state.filters.formationOps.offeringId = "";
+      if (activeFormationSection === "portal") {
+        portalFilters.processId = target.value || "";
+        portalFilters.levelId = "";
+        portalFilters.offeringId = "";
+      } else if (activeFormationSection === "operations") {
+        journeyFilters.processId = target.value || "";
+        journeyFilters.levelId = "";
+      } else {
+        state.filters.formationOps.processId = target.value || "";
+        state.filters.formationOps.levelId = "";
+        state.filters.formationOps.offeringId = "";
+      }
       state.ui.selectedFormationOfferingId = "";
       state.ui.editingFormationOfferingId = "";
       clearQrScannerFeedbackResult_();
@@ -21635,20 +26379,33 @@ async function handleChange(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
-          sessionNumber: "1"
+          sessionNumber: "1",
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_()) {
+          const selectedOffering = getSelectedFormationOffering_();
+          if (selectedOffering?.id) {
+            hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+              force: true,
+              sessionNumber: state.filters.formationOps.sessionNumber || "1",
+              message: "Cargando inscritos del paso..."
+            });
+            return;
+          }
+        }
       } else if (activeFormationSection === "portal") {
         await ensureFormationPortalSectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId,
+          processId: portalFilters.processId,
           sessionNumber: "1"
         });
       } else if (activeFormationSection === "operations") {
         await ensureFormationJourneySectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId
+          processId: journeyFilters.processId
         });
       } else {
         await loadFormationAttendanceBootstrap_({
@@ -21676,13 +26433,22 @@ async function handleChange(event) {
       const activeFormationSection = state.currentView === "formation"
         ? getActiveFormationSection_()
         : "";
+      const portalFilters = getFormationPortalFilters_();
+      const journeyFilters = getFormationJourneyFilters_();
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
       if (attendanceFormationSection) {
         formationAttendanceScannerRuntime.enabled = false;
         stopFormationAttendanceScanner_();
       }
-      state.filters.formationOps.levelId = target.value;
-      state.filters.formationOps.offeringId = "";
+      if (activeFormationSection === "portal") {
+        portalFilters.levelId = target.value;
+        portalFilters.offeringId = "";
+      } else if (activeFormationSection === "operations") {
+        journeyFilters.levelId = target.value;
+      } else {
+        state.filters.formationOps.levelId = target.value;
+        state.filters.formationOps.offeringId = "";
+      }
       state.ui.selectedFormationOfferingId = "";
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
@@ -21690,21 +26456,35 @@ async function handleChange(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
-          sessionNumber: state.filters.formationOps.sessionNumber
+          sessionNumber: state.filters.formationOps.sessionNumber,
+          skipParticipants: true
         });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_()) {
+          const selectedOffering = getSelectedFormationOffering_();
+          if (selectedOffering?.id) {
+            hydrateFormationManualAttendanceInBackground_(selectedOffering.id, {
+              force: true,
+              sessionNumber: state.filters.formationOps.sessionNumber || "1",
+              message: "Cargando inscritos del paso..."
+            });
+            return;
+          }
+        }
       } else if (activeFormationSection === "portal") {
         await ensureFormationPortalSectionData_({
           force: true,
           showLoading: false,
-          processId: state.filters.formationOps.processId,
-          levelId: state.filters.formationOps.levelId,
+          processId: portalFilters.processId,
+          levelId: portalFilters.levelId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
       } else if (activeFormationSection === "operations") {
         await ensureFormationJourneySectionData_({
           force: true,
           showLoading: false,
-          levelId: state.filters.formationOps.levelId,
+          processId: journeyFilters.processId,
+          levelId: journeyFilters.levelId,
           sessionNumber: state.filters.formationOps.sessionNumber
         });
       } else {
@@ -21723,12 +26503,17 @@ async function handleChange(event) {
       const activeFormationSection = state.currentView === "formation"
         ? getActiveFormationSection_()
         : "";
+      const portalFilters = getFormationPortalFilters_();
       const attendanceFormationSection = isAttendanceFormationSectionActive_();
       if (attendanceFormationSection) {
         formationAttendanceScannerRuntime.enabled = false;
         stopFormationAttendanceScanner_();
       }
-      state.filters.formationOps.offeringId = target.value;
+      if (activeFormationSection === "portal") {
+        portalFilters.offeringId = target.value;
+      } else {
+        state.filters.formationOps.offeringId = target.value;
+      }
       state.ui.selectedFormationOfferingId = target.value;
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
@@ -21736,15 +26521,26 @@ async function handleChange(event) {
         await loadFormationAttendanceSectionData_({
           force: true,
           processId: state.filters.formationOps.processId,
-          sessionNumber: state.filters.formationOps.sessionNumber
-        });
-      } else if (activeFormationSection === "portal") {
-        await loadFormationOperationsData_({
-          force: false,
-          showLoading: false,
-          offeringId: state.filters.formationOps.offeringId,
           sessionNumber: state.filters.formationOps.sessionNumber,
-          loadAttendanceContext: false
+          skipParticipants: true
+        });
+        renderApp();
+        if (shouldLoadFormationAttendanceParticipants_() && target.value) {
+          hydrateFormationManualAttendanceInBackground_(target.value, {
+            force: true,
+            sessionNumber: state.filters.formationOps.sessionNumber || "1",
+            message: "Cargando inscritos del paso..."
+          });
+          return;
+        }
+      } else if (activeFormationSection === "portal") {
+        await ensureFormationPortalSectionData_({
+          force: true,
+          showLoading: false,
+          processId: portalFilters.processId,
+          levelId: portalFilters.levelId,
+          offeringId: portalFilters.offeringId,
+          sessionNumber: state.filters.formationOps.sessionNumber
         });
       }
 
@@ -21761,12 +26557,20 @@ async function handleChange(event) {
       clearQrScannerFeedbackResult_();
       state.formationQrActivity = [];
 
-      if ((isAttendanceFormationSectionActive_() || getActiveFormationSection_() === "attendance") && state.filters.formationOps.offeringId) {
-        await loadFormationAttendanceContext_(state.filters.formationOps.offeringId, {
+      if (
+        (isAttendanceFormationSectionActive_() || getActiveFormationSection_() === "attendance")
+        && state.filters.formationOps.offeringId
+        && shouldLoadFormationAttendanceParticipants_()
+      ) {
+        renderApp();
+        hydrateFormationManualAttendanceInBackground_(state.filters.formationOps.offeringId, {
           force: true,
-          showLoading: false,
-          sessionNumber: state.filters.formationOps.sessionNumber
+          sessionNumber: state.filters.formationOps.sessionNumber,
+          message: "Actualizando inscritos de la sesión..."
         });
+        return;
+      } else if (!shouldLoadFormationAttendanceParticipants_()) {
+        resetFormationAttendanceParticipantsState_();
       }
 
       renderApp();
@@ -21774,8 +26578,15 @@ async function handleChange(event) {
     }
 
     if (target.id === "formation-ops-enrollment-status") {
-      state.filters.formationOps.enrollmentStatus = target.value || "ALL";
-      syncFormationOperationsSelection_();
+      if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+        getFormationPortalFilters_().enrollmentStatus = target.value || "ALL";
+      } else if (state.currentView === "formation" && getActiveFormationSection_() === "operations") {
+        getFormationJourneyFilters_().enrollmentStatus = target.value || "ALL";
+        syncFormationOperationsSelection_();
+      } else {
+        state.filters.formationOps.enrollmentStatus = target.value || "ALL";
+        syncFormationOperationsSelection_();
+      }
       renderApp();
       return;
     }
@@ -21891,20 +26702,31 @@ function handleInput(event) {
 
   if (target.id === "formation-search") {
     getFormationFilterDraft_().search = target.value;
-    rerenderPreservingInput_(target);
+    rerenderPreservingInputDebounced_(target, "formation-search");
     return;
   }
 
   if (target.id === "formation-ops-search") {
-    state.filters.formationOps.search = target.value;
-    syncFormationOperationsSelection_();
-    rerenderPreservingInput_(target);
+    if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+      getFormationPortalFilters_().search = target.value;
+    } else if (state.currentView === "formation" && getActiveFormationSection_() === "operations") {
+      getFormationJourneyFilters_().search = target.value;
+      syncFormationOperationsSelection_();
+    } else {
+      state.filters.formationOps.search = target.value;
+      syncFormationOperationsSelection_();
+    }
+    rerenderPreservingInputDebounced_(target, "formation-ops-search");
     return;
   }
 
   if (target.id === "formation-ops-person-search") {
-    state.filters.formationOps.personSearch = target.value;
-    rerenderPreservingInput_(target);
+    if (state.currentView === "formation" && getActiveFormationSection_() === "portal") {
+      getFormationPortalFilters_().personSearch = target.value;
+    } else {
+      state.filters.formationOps.personSearch = target.value;
+    }
+    rerenderPreservingInputDebounced_(target, "formation-ops-person-search");
     return;
   }
 
@@ -22025,6 +26847,9 @@ async function loadCurrentViewData(options = {}) {
       return;
     case "participants":
       await ensureParticipantsViewData_(options);
+      return;
+    case "connection-reports":
+      await ensureConnectionReportsViewData_(options);
       return;
     case "attendance":
       await ensureAttendanceHubViewData_(options);
@@ -22278,13 +27103,17 @@ async function loadPeopleDirectory(options = {}) {
 }
 
 async function loadActiveSession(options = {}) {
-  if (!options.force && state.loaded.activeSession) {
+  const groupId = String(options.groupId || "").trim();
+  const cacheKey = groupId ? `group:${groupId}` : "global";
+
+  if (!options.force && state.loaded.activeSession && state.cacheKeys.activeSession === cacheKey) {
     return state.activeSession;
   }
 
-  return runSharedLoad_("activeSession", async () => {
-    state.activeSession = await apiGet("sessions.active");
+  return runSharedLoad_(`activeSession::${cacheKey}`, async () => {
+    state.activeSession = await apiGet("sessions.active", groupId ? { groupId } : {});
     state.loaded.activeSession = true;
+    state.cacheKeys.activeSession = cacheKey;
     return state.activeSession;
   });
 }
@@ -22888,14 +27717,26 @@ async function loadFormationCatalog_(options = {}) {
 }
 
 async function loadFormationProcesses_(options = {}) {
+  const requestedMode = options.summaryOnly ? "summary" : "full";
+  const currentMode = String(state.cacheKeys.formationProcesses || "");
+
   if (!options.force && state.loaded.formationProcesses) {
-    return state.formationProcesses;
+    if (requestedMode === "summary") {
+      return state.formationProcesses;
+    }
+    if (currentMode === "full") {
+      return state.formationProcesses;
+    }
   }
 
   const task = () => runSharedLoad_("formationProcesses", async () => {
     try {
-      state.formationProcesses = await apiGet("formation.processes.list");
+      state.formationProcesses = await apiGet(
+        "formation.processes.list",
+        options.summaryOnly ? { includeOfferings: "0" } : {}
+      );
       state.loaded.formationProcesses = true;
+      state.cacheKeys.formationProcesses = requestedMode;
       return state.formationProcesses;
     } catch (error) {
       if (!isUnknownActionError_(error, "formation.processes.list")) {
@@ -22917,10 +27758,8 @@ async function loadFormationAttendanceBootstrap_(options = {}) {
   const task = async () => {
     await Promise.all([
       state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
-        showLoading: false
-      }),
-      state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
-        showLoading: false
+        showLoading: false,
+        summaryOnly: true
       })
     ]);
 
@@ -22929,13 +27768,47 @@ async function loadFormationAttendanceBootstrap_(options = {}) {
     }
 
     const processId = String(options.processId !== undefined ? options.processId : (state.filters.formationOps.processId || "")).trim();
-    const offerings = await apiGet("formation.offerings.list", processId ? { processId } : {});
-    state.formationOfferings = Array.isArray(offerings) ? offerings : [];
-    state.loaded.formationOfferings = true;
-    state.cacheKeys.formationOfferings = `ATTENDANCE::${processId || "ALL"}`;
+    const cacheKey = `ATTENDANCE::${processId || "ALL"}`;
+    const requestedLevelId = String(
+      options.levelId !== undefined ? options.levelId : (state.filters.formationOps.levelId || "")
+    ).trim();
+    const requestedOfferingId = String(
+      options.offeringId !== undefined ? options.offeringId : (state.filters.formationOps.offeringId || "")
+    ).trim();
+
+    if (
+      options.force
+      || !state.loaded.formationOfferings
+      || String(state.cacheKeys.formationOfferings || "") !== cacheKey
+    ) {
+      const offerings = await apiGet("formation.offerings.list", processId ? { processId } : {});
+      state.formationOfferings = Array.isArray(offerings) ? offerings : [];
+      state.loaded.formationOfferings = true;
+      state.cacheKeys.formationOfferings = cacheKey;
+    }
+
     const preferredOffering = getPreferredFormationAttendanceOffering_(processId);
 
-    if (preferredOffering?.id) {
+    if (requestedLevelId) {
+      state.filters.formationOps.levelId = requestedLevelId;
+    }
+
+    if (
+      requestedOfferingId
+      && state.formationOfferings.some((offering) => String(offering?.id || "").trim() === requestedOfferingId)
+    ) {
+      const selectedOffering = state.formationOfferings.find((offering) => {
+        return String(offering?.id || "").trim() === requestedOfferingId;
+      });
+      state.filters.formationOps.offeringId = requestedOfferingId;
+      state.ui.selectedFormationOfferingId = requestedOfferingId;
+      if (selectedOffering?.levelId) {
+        state.filters.formationOps.levelId = String(selectedOffering.levelId || "");
+      }
+      if (options.sessionNumber) {
+        state.filters.formationOps.sessionNumber = String(options.sessionNumber || "1");
+      }
+    } else if (preferredOffering?.id && !requestedLevelId) {
       state.filters.formationOps.levelId = String(preferredOffering.levelId || "");
       state.filters.formationOps.offeringId = String(preferredOffering.id || "");
       state.ui.selectedFormationOfferingId = String(preferredOffering.id || "");
@@ -22949,6 +27822,32 @@ async function loadFormationAttendanceBootstrap_(options = {}) {
     }
 
     syncFormationOperationsSelection_();
+
+    const selectedOffering = getSelectedFormationOffering_();
+    const selectedSessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
+    const todaySession = getTodayFormationSession_(selectedOffering || {});
+    const hasActiveSession = Boolean(String(selectedOffering?.activeSessionNumber || selectedOffering?.activeSession?.number || "").trim());
+    const shouldAutoActivateToday = Boolean(
+      options.autoActivate !== false
+      && selectedOffering?.id
+      && todaySession?.number
+      && !hasActiveSession
+      && String(todaySession.number || "").trim() === selectedSessionNumber
+    );
+
+    if (shouldAutoActivateToday) {
+      const activationResponse = await apiPost("formation.levelAttendance.activateSession", {
+        offeringId: String(selectedOffering.id || ""),
+        sessionNumber: selectedSessionNumber,
+        activatedBy: state.user?.name || "Sistema",
+        includeContext: "0"
+      });
+
+      if (activationResponse?.offering) {
+        syncFormationOfferingIntoState_(activationResponse.offering);
+      }
+    }
+
     return state.formationOfferings;
   };
 
@@ -23023,6 +27922,20 @@ async function loadFormationLevelsWorkspaceData_(options = {}) {
       state.filters.formationOps.processId = requestedProcessId;
     }
     return state.formationOfferings;
+  }
+
+  if (state.currentView === "formation") {
+    return withFormationSectionLoading_("levels", {
+      title: "Abriendo Catálogos...",
+      detail: "Preparando procesos, pasos y niveles programados.",
+      doneTitle: "Catálogos listos",
+      doneDetail: "Ya puedes editar el proceso y su estructura sin esperar a ciegas."
+    }, async (setProgress) => {
+      setProgress(20, "Cargando procesos base...", "Estamos trayendo el proceso y la ruta pastoral disponible.");
+      const offerings = await task();
+      setProgress(86, "Armando estructura visible...", "La lista compacta de procesos y pasos ya casi queda lista.");
+      return offerings;
+    });
   }
 
   if (options.showLoading === false) {
@@ -23171,7 +28084,8 @@ async function loadFormationCandidates_(options = {}) {
         try {
           candidates = await apiGet("formation.candidates.list", {
             seasonId: filter.seasonId,
-            groupId: shouldSyncCandidates ? requestedGroupId : ""
+            groupId: shouldSyncCandidates ? requestedGroupId : "",
+            includeEligibility: shouldSyncCandidates ? "1" : "0"
           });
         } catch (error) {
           if (!isUnknownActionError_(error, "formation.candidates.list")) {
@@ -23183,6 +28097,9 @@ async function loadFormationCandidates_(options = {}) {
       }
 
       state.formationCandidates = Array.isArray(candidates) ? candidates : [];
+      state.selectedFormationRoutePeople = getSelectedFormationRoutePersonIds_().filter((personId) => (
+        state.formationCandidates.some((candidate) => String(candidate?.personId || "").trim() === personId)
+      ));
       state.cacheKeys.formationCandidates = candidatesKey;
       state.loaded.formationCandidates = true;
       return state.formationCandidates;
@@ -23223,6 +28140,34 @@ async function loadFormationData_(options = {}) {
     await Promise.all(requests);
   };
 
+  if (state.currentView === "formation" && options.showLoading !== false) {
+    if (!options.syncCandidates) {
+      setFormationFilterBusy_(false, "");
+    }
+    const sectionKey = getActiveFormationSection_() === "report" ? "report" : "route";
+    await withFormationSectionLoading_(sectionKey, {
+      title: sectionKey === "report" ? "Abriendo Reporte Pre-Encuentro..." : "Abriendo Ruta a Encuentro...",
+      detail: sectionKey === "report"
+        ? "Preparando el reporte agrupado por grupos de conexión."
+        : "Buscando a quienes ya cumplieron la regla de 3 asistencias consecutivas.",
+      doneTitle: sectionKey === "report" ? "Reporte listo" : "Ruta lista",
+      doneDetail: sectionKey === "report"
+        ? "El reporte ya quedó listo para exportar o revisar."
+        : "La lista operativa ya quedó lista para invitar o continuar inscripción."
+    }, async (setProgress) => {
+      setProgress(22, "Sincronizando temporada y grupos...", "Validando el contexto pastoral para traer solo la información útil.");
+      await task();
+      setProgress(
+        86,
+        sectionKey === "report" ? "Armando bloques del reporte..." : "Armando listado operativo...",
+        sectionKey === "report"
+          ? "Ya estamos agrupando la información por grupos de conexión."
+          : "Ya estamos dejando lista la ruta de invitación e inscripción."
+      );
+    });
+    return;
+  }
+
   if (options.showLoading === false) {
     await task();
     return;
@@ -23243,9 +28188,10 @@ function syncFormationOperationsSelection_() {
     state.filters.formationOps.processId = String(state.formationProcesses[0].id || "");
   }
 
+  const availableLevels = getFormationOperationalLevelsForSelectedProcess_();
   if (
     state.filters.formationOps.levelId
-    && !state.formationCatalog.some((level) => String(level.id || "") === String(state.filters.formationOps.levelId || ""))
+    && !availableLevels.some((level) => String(level?.id || "") === String(state.filters.formationOps.levelId || ""))
   ) {
     state.filters.formationOps.levelId = "";
   }
@@ -23263,8 +28209,11 @@ function syncFormationOperationsSelection_() {
   }
 
   const currentOfferingId = String(state.filters.formationOps.offeringId || state.ui.selectedFormationOfferingId || "");
-  const preferredTodayOffering = !currentOfferingId
-    ? getPreferredFormationAttendanceOffering_(state.filters.formationOps.processId || "")
+  const preferredTodayOfferingId = !currentOfferingId
+    ? String(getPreferredFormationAttendanceOffering_(state.filters.formationOps.processId || "")?.id || "").trim()
+    : "";
+  const preferredTodayOffering = preferredTodayOfferingId
+    ? availableOfferings.find((item) => String(item?.id || "").trim() === preferredTodayOfferingId) || null
     : null;
   const nextOffering = availableOfferings.find((item) => String(item.id || "") === currentOfferingId)
     || preferredTodayOffering
@@ -23336,11 +28285,107 @@ function syncFormationOfferingIntoState_(offeringDto) {
   });
 }
 
+function buildFormationActiveSessionFromActivation_(offering, response, sessionNumber) {
+  const cleanSessionNumber = String(
+    response?.activeSession?.number
+    || response?.context?.activeSession?.number
+    || response?.context?.sessionNumber
+    || sessionNumber
+    || "1"
+  ).trim();
+  const scheduledSession = (offering?.sessionSchedule || []).find((session) => {
+    return String(session?.number || "") === cleanSessionNumber;
+  }) || null;
+  const responseSession = response?.activeSession || response?.context?.activeSession || {};
+
+  return {
+    ...(scheduledSession || {}),
+    ...(responseSession || {}),
+    number: cleanSessionNumber,
+    label: responseSession?.label || scheduledSession?.label || `Sesión ${cleanSessionNumber}`,
+    date: responseSession?.date || scheduledSession?.date || ""
+  };
+}
+
+function applyFormationAttendanceActivationState_(offeringId, sessionNumber, response = {}) {
+  const cleanOfferingId = String(offeringId || "").trim();
+  const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+
+  if (!cleanOfferingId) {
+    return;
+  }
+
+  let selectedOffering = state.formationOfferings.find((offering) => String(offering?.id || "") === cleanOfferingId) || null;
+  if (response?.offering) {
+    syncFormationOfferingIntoState_(response.offering);
+    selectedOffering = state.formationOfferings.find((offering) => String(offering?.id || "") === cleanOfferingId) || response.offering;
+  }
+
+  const activeSession = buildFormationActiveSessionFromActivation_(selectedOffering, response, cleanSessionNumber);
+  const selectedSession = (selectedOffering?.sessionSchedule || []).find((session) => {
+    return String(session?.number || "") === String(activeSession.number || cleanSessionNumber);
+  }) || activeSession;
+
+  state.formationOfferings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : []).map((offering) => {
+    if (String(offering?.id || "") !== cleanOfferingId) {
+      return offering;
+    }
+
+    return {
+      ...offering,
+      activeSession,
+      activeSessionNumber: String(activeSession.number || cleanSessionNumber),
+      activeSessionLabel: activeSession.label || `Sesión ${cleanSessionNumber}`
+    };
+  });
+
+  const previousContext = String(state.formationAttendanceContext?.offering?.id || "") === cleanOfferingId
+    ? state.formationAttendanceContext
+    : null;
+  const contextOffering = state.formationOfferings.find((offering) => String(offering?.id || "") === cleanOfferingId)
+    || selectedOffering
+    || response?.offering
+    || { id: cleanOfferingId };
+
+  state.formationAttendanceContext = {
+    ...(previousContext || {}),
+    ...(response?.context || {}),
+    offering: {
+      ...(contextOffering || {}),
+      activeSession,
+      activeSessionNumber: String(activeSession.number || cleanSessionNumber),
+      activeSessionLabel: activeSession.label || `Sesión ${cleanSessionNumber}`
+    },
+    sessionNumber: String(activeSession.number || cleanSessionNumber),
+    selectedSession,
+    activeSession,
+    captureEnabled: true,
+    participants: Array.isArray(response?.context?.participants)
+      ? response.context.participants
+      : (Array.isArray(previousContext?.participants) ? previousContext.participants : [])
+  };
+  state.loaded.formationAttendanceContext = true;
+  state.cacheKeys.formationAttendanceContext = `${cleanOfferingId}::${state.formationAttendanceContext.sessionNumber}`;
+  state.filters.formationOps.sessionNumber = state.formationAttendanceContext.sessionNumber;
+}
+
 function applyFormationAttendanceContextState_(context, options = {}) {
   const normalizedContext = context && typeof context === "object" ? context : null;
   const offeringId = String(normalizedContext?.offering?.id || options.offeringId || "").trim();
-  const sessionNumber = String(normalizedContext?.sessionNumber || options.sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const lockedOfferingId = String(formationAttendanceScannerRuntime.lockedOfferingId || "").trim();
+  const lockedSessionNumber = String(formationAttendanceScannerRuntime.lockedSessionNumber || "").trim();
+  const shouldKeepLockedSession = Boolean(
+    formationAttendanceScannerRuntime.enabled
+    && lockedSessionNumber
+    && (!lockedOfferingId || !offeringId || lockedOfferingId === offeringId)
+  );
+  const sessionNumber = String(
+    shouldKeepLockedSession
+      ? lockedSessionNumber
+      : (options.sessionNumber || normalizedContext?.sessionNumber || state.filters.formationOps.sessionNumber || "1")
+  ).trim();
 
+  resetFormationManualAttendanceDraft_();
   state.formationAttendanceContext = normalizedContext;
   state.loaded.formationAttendanceContext = Boolean(normalizedContext && offeringId);
   state.cacheKeys.formationAttendanceContext = offeringId ? `${offeringId}::${sessionNumber}` : "";
@@ -23357,6 +28402,16 @@ function applyFormationAttendanceContextState_(context, options = {}) {
       ? `ATTENDANCE::${offeringId}::${state.filters.formationOps.sessionNumber || "1"}`
       : state.cacheKeys.formationEnrollments;
   }
+}
+
+function resetFormationAttendanceParticipantsState_() {
+  resetFormationManualAttendanceDraft_();
+  state.formationEnrollments = [];
+  state.loaded.formationEnrollments = false;
+  state.cacheKeys.formationEnrollments = "";
+  state.formationAttendanceContext = null;
+  state.loaded.formationAttendanceContext = false;
+  state.cacheKeys.formationAttendanceContext = "";
 }
 
 function applyFormationQrAttendanceLocally_(response, sessionNumber) {
@@ -23401,21 +28456,151 @@ function applyFormationQrAttendanceLocally_(response, sessionNumber) {
   });
 }
 
+function getFormationAttendanceRuntimeLockKey_(personId, sessionNumber, offeringId) {
+  const cleanOfferingId = String(
+    offeringId
+    || state.filters.formationOps.offeringId
+    || state.ui.selectedFormationOfferingId
+    || state.formationAttendanceContext?.offering?.id
+    || ""
+  ).trim();
+  const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const cleanPersonId = String(personId || "").trim();
+
+  return cleanOfferingId && cleanSessionNumber && cleanPersonId
+    ? `${cleanOfferingId}::${cleanSessionNumber}::${cleanPersonId}`
+    : "";
+}
+
+function getFormationAttendanceRuntimeLocks_() {
+  if (!qrScannerRuntime.localAttendanceLocks) {
+    qrScannerRuntime.localAttendanceLocks = Object.create(null);
+  }
+
+  if (!formationAttendanceScannerRuntime.localAttendanceLocks) {
+    formationAttendanceScannerRuntime.localAttendanceLocks = Object.create(null);
+  }
+
+  return [
+    qrScannerRuntime.localAttendanceLocks,
+    formationAttendanceScannerRuntime.localAttendanceLocks
+  ];
+}
+
+function pruneFormationAttendanceRuntimeLocks_() {
+  const now = Date.now();
+  getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
+    Object.keys(lockMap).forEach((key) => {
+      if (Number(lockMap[key] || 0) <= now) {
+        delete lockMap[key];
+      }
+    });
+  });
+}
+
+function markFormationAttendanceRegisteredInRuntime_(personId, sessionNumber, options = {}) {
+  const key = getFormationAttendanceRuntimeLockKey_(personId, sessionNumber, options.offeringId);
+  if (!key) {
+    return;
+  }
+
+  const expiresAt = Date.now() + Math.max(Number(options.ttlMs || 2500), 1200);
+  getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
+    lockMap[key] = expiresAt;
+  });
+}
+
+function clearFormationAttendanceRuntimeLocks_(offeringId = "", sessionNumber = "") {
+  const cleanOfferingId = String(offeringId || "").trim();
+  const cleanSessionNumber = String(sessionNumber || "").trim();
+  getFormationAttendanceRuntimeLocks_().forEach((lockMap) => {
+    Object.keys(lockMap).forEach((key) => {
+      const shouldRemove = (!cleanOfferingId || key.startsWith(`${cleanOfferingId}::`))
+        && (!cleanSessionNumber || key.includes(`::${cleanSessionNumber}::`));
+      if (shouldRemove) {
+        delete lockMap[key];
+      }
+    });
+  });
+}
+
+function applyFormationManualAttendancesLocally_(attendances, sessionNumber) {
+  const selectedSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const updatesByPerson = Array.isArray(attendances)
+    ? attendances.reduce((accumulator, item) => {
+      const personId = String(item?.personId || "").trim();
+      const attended = String(item?.attended || "").trim().toUpperCase();
+
+      if (personId && (attended === "SI" || attended === "NO")) {
+        accumulator[personId] = attended;
+      }
+
+      return accumulator;
+    }, {})
+    : {};
+
+  if (!Object.keys(updatesByPerson).length || !state.formationAttendanceContext || !Array.isArray(state.formationAttendanceContext.participants)) {
+    return;
+  }
+
+  const nextParticipants = state.formationAttendanceContext.participants.map((participant) => {
+    const personId = String(participant?.personId || "").trim();
+    const nextAttendance = String(updatesByPerson[personId] || "").trim().toUpperCase();
+
+    if (!personId || !nextAttendance) {
+      return participant;
+    }
+
+    const previousSelectedAttendance = String(participant?.selectedSessionAttendance || "").trim().toUpperCase();
+    const previousBySessionAttendance = String(participant?.attendanceBySession?.[selectedSessionNumber] || "").trim().toUpperCase();
+    const previousAttendance = previousBySessionAttendance || previousSelectedAttendance;
+    const currentAttendance = participant?.attendance || {};
+    const attendedSessions = Math.max(Number(currentAttendance?.attendedSessions || 0), 0);
+    let nextAttendedSessions = attendedSessions;
+
+    if (previousAttendance !== nextAttendance) {
+      if (previousAttendance === "SI" && nextAttendance !== "SI") {
+        nextAttendedSessions = Math.max(attendedSessions - 1, 0);
+      } else if (previousAttendance !== "SI" && nextAttendance === "SI") {
+        nextAttendedSessions = attendedSessions + 1;
+      }
+    }
+
+    return {
+      ...participant,
+      selectedSessionAttendance: nextAttendance,
+      attendanceBySession: {
+        ...(participant?.attendanceBySession || {}),
+        [selectedSessionNumber]: nextAttendance
+      },
+      attendance: {
+        ...currentAttendance,
+        attendedSessions: nextAttendedSessions
+      }
+    };
+  });
+
+  applyFormationAttendanceContextState_({
+    ...(state.formationAttendanceContext || {}),
+    participants: nextParticipants
+  }, {
+    offeringId: state.formationAttendanceContext?.offering?.id || "",
+    sessionNumber: selectedSessionNumber
+  });
+}
+
 function isFormationAttendanceAlreadyRegisteredLocally_(personId, sessionNumber) {
   const cleanPersonId = String(personId || "").trim();
   const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
-  const participants = Array.isArray(state.formationAttendanceContext?.participants)
-    ? state.formationAttendanceContext.participants
-    : [];
-  const match = participants.find((participant) => String(participant?.personId || "").trim() === cleanPersonId);
+  const key = getFormationAttendanceRuntimeLockKey_(cleanPersonId, cleanSessionNumber);
 
-  if (!match) {
+  if (!key) {
     return false;
   }
 
-  const bySession = String(match?.attendanceBySession?.[cleanSessionNumber] || "").trim().toUpperCase();
-  const selectedAttendance = String(match?.selectedSessionAttendance || "").trim().toUpperCase();
-  return bySession === "SI" || selectedAttendance === "SI";
+  pruneFormationAttendanceRuntimeLocks_();
+
+  return getFormationAttendanceRuntimeLocks_().some((lockMap) => Number(lockMap[key] || 0) > Date.now());
 }
 
 async function loadFormationAttendanceContext_(offeringId, options = {}) {
@@ -23459,9 +28644,41 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
       context = response?.context || context;
     }
 
+    const requestedSessionNumber = String(sessionNumber || selectedSessionNumber || "1").trim();
+    const previousContext = String(state.formationAttendanceContext?.offering?.id || "") === cleanOfferingId
+      ? state.formationAttendanceContext
+      : null;
+    const previousActiveSession = previousContext?.activeSession || null;
+    const contextActiveNumber = String(context?.activeSession?.number || context?.offering?.activeSessionNumber || "").trim();
+    if (
+      requestedSessionNumber
+      && context
+      && contextActiveNumber
+      && contextActiveNumber !== requestedSessionNumber
+      && String(previousActiveSession?.number || "") === requestedSessionNumber
+    ) {
+      context = {
+        ...context,
+        sessionNumber: requestedSessionNumber,
+        activeSession: previousActiveSession,
+        captureEnabled: true,
+        offering: {
+          ...(context.offering || {}),
+          activeSession: previousActiveSession,
+          activeSessionNumber: requestedSessionNumber,
+          activeSessionLabel: previousActiveSession?.label || `Sesión ${requestedSessionNumber}`
+        }
+      };
+    } else if (requestedSessionNumber && context) {
+      context = {
+        ...context,
+        sessionNumber: requestedSessionNumber
+      };
+    }
+
     applyFormationAttendanceContextState_(context, {
       offeringId: cleanOfferingId,
-      sessionNumber
+      sessionNumber: requestedSessionNumber
     });
     return state.formationAttendanceContext;
   };
@@ -23489,49 +28706,66 @@ async function loadFormationAttendanceContext_(offeringId, options = {}) {
 }
 
 async function loadFormationAttendanceSectionData_(options = {}) {
-  await loadFormationAttendanceBootstrap_({
-    force: options.force,
-    showLoading: false,
-    processId: options.processId !== undefined
-      ? options.processId
-      : (state.filters.formationOps.processId || "")
-  });
+  const task = async () => {
+    const shouldLoadParticipants = !options.skipParticipants
+      && shouldLoadFormationAttendanceParticipants_(options.captureMode);
 
-  const selectedOffering = getSelectedFormationOffering_();
+    await loadFormationAttendanceBootstrap_({
+      force: options.force,
+      showLoading: false,
+      autoActivate: true,
+      processId: options.processId !== undefined
+        ? options.processId
+        : (state.filters.formationOps.processId || "")
+    });
 
-  if (!selectedOffering?.id) {
-    state.formationEnrollments = [];
-    state.loaded.formationEnrollments = false;
-    state.cacheKeys.formationEnrollments = "";
-    state.formationAttendanceContext = null;
-    state.loaded.formationAttendanceContext = false;
-    state.cacheKeys.formationAttendanceContext = "";
+    const selectedOffering = getSelectedFormationOffering_();
+
+    if (!selectedOffering?.id) {
+      resetFormationAttendanceParticipantsState_();
+      state.formationProcessRoster = [];
+      state.loaded.formationProcessRoster = false;
+      state.cacheKeys.formationProcessRoster = "";
+      return;
+    }
+
+    if (!shouldLoadParticipants) {
+      resetFormationAttendanceParticipantsState_();
+      state.formationProcessRoster = [];
+      state.loaded.formationProcessRoster = false;
+      state.cacheKeys.formationProcessRoster = "";
+      return;
+    }
+
+    await loadFormationAttendanceContext_(selectedOffering.id, {
+      force: options.force,
+      showLoading: false,
+      sessionNumber: options.sessionNumber || state.filters.formationOps.sessionNumber || "1"
+    });
+
+    state.formationEnrollments = Array.isArray(state.formationAttendanceContext?.participants)
+      ? state.formationAttendanceContext.participants
+      : [];
+    state.loaded.formationEnrollments = true;
+    state.cacheKeys.formationEnrollments = `ATTENDANCE::${selectedOffering.id}::${state.filters.formationOps.sessionNumber || "1"}`;
     state.formationProcessRoster = [];
     state.loaded.formationProcessRoster = false;
     state.cacheKeys.formationProcessRoster = "";
+  };
+
+  if (options.showLoading === false) {
+    await task();
     return;
   }
 
-  await loadFormationAttendanceContext_(selectedOffering.id, {
-    force: options.force,
-    showLoading: false,
-    sessionNumber: options.sessionNumber || state.filters.formationOps.sessionNumber || "1"
-  });
-
-  state.formationEnrollments = Array.isArray(state.formationAttendanceContext?.participants)
-    ? state.formationAttendanceContext.participants
-    : [];
-  state.loaded.formationEnrollments = true;
-  state.cacheKeys.formationEnrollments = `ATTENDANCE::${selectedOffering.id}::${state.filters.formationOps.sessionNumber || "1"}`;
-  state.formationProcessRoster = [];
-  state.loaded.formationProcessRoster = false;
-  state.cacheKeys.formationProcessRoster = "";
+  await withLoading(task, options.message || "Preparando asistencias del Proceso de Formación...");
 }
 
 async function loadFormationProcessRoster_(processId, options = {}) {
   const cleanOfferingId = String(options.offeringId || "").trim();
   const cleanLevelId = String(options.levelId || "").trim();
   const cleanProcessId = (cleanLevelId || cleanOfferingId) ? "" : String(processId || state.filters.formationOps.processId || "").trim();
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
   const cacheKey = cleanOfferingId
     ? `OFFERING::${cleanOfferingId}`
     : (cleanLevelId ? `LEVEL::${cleanLevelId}` : `PROCESS::${cleanProcessId}`);
@@ -23562,7 +28796,7 @@ async function loadFormationProcessRoster_(processId, options = {}) {
     try {
       roster = await apiGet("formation.enrollments.list", {
         ...requestParams,
-        skipSync: "1"
+        skipSync: shouldSkipSync ? "1" : ""
       });
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
@@ -23595,6 +28829,64 @@ async function loadFormationProcessRoster_(processId, options = {}) {
   }
 
   return withLoading(sharedTask, options.message || "Cargando inscritos del proceso...");
+}
+
+async function loadFormationProcessRosterFallback_(preferredProcessId = "") {
+  let roster = [];
+
+  try {
+    roster = await apiGet("formation.enrollments.list", {
+      skipSync: ""
+    });
+  } catch (error) {
+    if (isUnknownActionError_(error, "formation.enrollments.list")) {
+      throw buildBackendRouteMissingError_("formation.enrollments.list", "las rutas de operación de Proceso de Formación");
+    }
+
+    if (isFormationPortalRepositoryMissingError_(error)) {
+      throw new ApiError(
+        "Tu backend publicado no tiene cargado el archivo V2_44_FormationPortalRepository.gs o quedó incompleto el despliegue de Formación. Súbelo y vuelve a desplegar la Web App.",
+        "BACKEND_OUTDATED",
+        {
+          file: "V2_44_FormationPortalRepository.gs"
+        }
+      );
+    }
+
+    throw error;
+  }
+
+  const rows = Array.isArray(roster) ? roster : [];
+  const groupedByProcess = new Map();
+
+  rows.forEach((row) => {
+    const processId = String(row?.processId || "").trim();
+
+    if (!processId) {
+      return;
+    }
+
+    if (!groupedByProcess.has(processId)) {
+      groupedByProcess.set(processId, []);
+    }
+
+    groupedByProcess.get(processId).push(row);
+  });
+
+  const preferredId = String(preferredProcessId || "").trim();
+  const allProcessIds = [
+    preferredId,
+    ...state.formationProcesses.map((process) => String(process?.id || "").trim()),
+    ...Array.from(groupedByProcess.keys())
+  ].filter(Boolean);
+  const nextProcessId = allProcessIds.find((id, index) => {
+    return allProcessIds.indexOf(id) === index && groupedByProcess.has(id) && groupedByProcess.get(id).length;
+  }) || "";
+
+  return {
+    processId: nextProcessId,
+    rows: nextProcessId ? (groupedByProcess.get(nextProcessId) || []) : []
+  };
 }
 
 async function loadFormationAttendanceTransitionRoster_(options = {}) {
@@ -23655,8 +28947,9 @@ async function loadFormationOperationsData_(options = {}) {
   const requestedSessionNumber = String(options.sessionNumber || state.filters.formationOps.sessionNumber || "1");
   const shouldLoadAttendanceContext = options.loadAttendanceContext !== false;
   const shouldLoadEnrollments = options.loadEnrollments !== false;
+  const shouldSkipSync = options.skipSync === true || String(options.skipSync || "").trim() === "1";
   const offeringsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}`;
-  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "AUTO"}::${requestedSessionNumber || "1"}`;
+  const enrollmentsKey = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${requestedOfferingId || "AUTO"}`;
 
   if (
     !options.force
@@ -23771,7 +29064,7 @@ async function loadFormationOperationsData_(options = {}) {
     try {
       enrollments = await apiGet("formation.enrollments.list", {
         ...enrollmentsParams,
-        skipSync: getActiveFormationSection_() === "attendance" ? "1" : ""
+        skipSync: shouldSkipSync || getActiveFormationSection_() === "attendance" ? "1" : ""
       });
     } catch (error) {
       if (isUnknownActionError_(error, "formation.enrollments.list")) {
@@ -23793,7 +29086,7 @@ async function loadFormationOperationsData_(options = {}) {
 
     state.formationEnrollments = Array.isArray(enrollments) ? enrollments : [];
     state.loaded.formationEnrollments = true;
-    state.cacheKeys.formationEnrollments = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${effectiveOfferingId || "ALL"}::${requestedSessionNumber || "1"}`;
+    state.cacheKeys.formationEnrollments = `${requestedProcessId || "ALL"}::${requestedLevelId || "ALL"}::${effectiveOfferingId || "ALL"}`;
 
     if (effectiveOfferingId && shouldLoadAttendanceContext) {
       await loadFormationAttendanceContext_(effectiveOfferingId, {
@@ -23922,16 +29215,32 @@ async function ensureCatalogsViewData_() {
 async function ensureParticipantsViewData_(options = {}) {
   const leaderScoped = isLeaderScopedUser_();
 
-  if (!leaderScoped) {
-    await Promise.all([
-      state.loaded.people ? Promise.resolve() : loadPeople(),
-      loadWelcomePeople_({
-        showLoading: false
-      })
-    ]);
+  if (!state.loaded.groups) {
+    await loadGroupsCatalog_({
+      showLoading: false
+    });
+  }
 
-    await loadParticipantsData(options);
+  if (!state.loaded.welcome) {
+    await loadWelcomePeople_({
+      showLoading: false
+    });
+  }
+
+  if (!state.loaded.people) {
+    void loadPeople().catch(() => {});
+  }
+
+  if (!state.filters.participants.seasonId) {
+    state.filters.participants.seasonId = ensureValidSeasonIdFromList_(
+      state.filters.participants.seasonId,
+      getOperationalSeasonList_()
+    ) || getOperationalSeasonList_()[0]?.id || "";
+  }
+
+  if (!leaderScoped) {
     void loadConnectionEncounterCandidates_({
+      seasonId: state.filters.participants.seasonId,
       force: options.force,
       showLoading: false
     })
@@ -23941,32 +29250,14 @@ async function ensureParticipantsViewData_(options = {}) {
         }
       })
       .catch((error) => {
-        console.warn("No se pudo cargar la Ruta a Encuentro del grupo.", error);
+        console.warn("No se pudo cargar el listado compartido de Pre-Encuentro.", error);
       });
     return;
   }
 
-  await loadParticipantsData({
-    ...options,
-    skipSeasonAssignments: true
-  });
-
   void Promise.allSettled([
-    state.loaded.people
-      ? Promise.resolve()
-      : (pendingResourceLoads.people || loadPeople()),
-    state.loaded.welcome
-      ? Promise.resolve()
-      : (pendingResourceLoads.welcome || loadWelcomePeople_({
-        showLoading: false
-      })),
-    state.cacheKeys.participantSeasonAssignments === String(state.filters.participants.seasonId || "")
-      ? Promise.resolve()
-      : loadParticipantSeasonAssignments_({
-        seasonId: state.filters.participants.seasonId,
-        showLoading: false
-      }),
     loadConnectionEncounterCandidates_({
+      seasonId: state.filters.participants.seasonId,
       force: options.force,
       showLoading: false
     })
@@ -23977,8 +29268,32 @@ async function ensureParticipantsViewData_(options = {}) {
       }
     })
     .catch((error) => {
-      console.warn("No se pudo completar la carga diferida del grupo del líder.", error);
+      console.warn("No se pudo completar la carga diferida de Pre-Encuentro.", error);
     });
+}
+
+async function ensureConnectionReportsViewData_(options = {}) {
+  await Promise.all([
+    loadGroupsCatalog_({
+      showLoading: false
+    }),
+    loadMinistriesCatalog_({
+      showLoading: false
+    }),
+    state.loaded.peopleDirectory ? Promise.resolve() : loadPeopleDirectory()
+  ]);
+
+  syncConnectionReportsFilters_();
+
+  if (!state.filters.connectionReports.seasonId) {
+    return;
+  }
+
+  await loadDashboardSeasonMatrix_({
+    force: options.force,
+    seasonId: state.filters.connectionReports.seasonId,
+    showLoading: false
+  });
 }
 
 async function ensureDashboardViewData_(options = {}) {
@@ -24032,6 +29347,10 @@ async function ensureQrViewData_(options = {}) {
     await loadPeople();
   }
 
+  await loadActiveSession({
+    force: Boolean(options.force),
+    groupId: resolveConnectionQrGroupId_()
+  });
   await loadQrSummary(options);
 }
 
@@ -24044,7 +29363,9 @@ async function ensureAttendanceHubViewData_(options = {}) {
 
   if (activeSection === "connection") {
     if (resolveConnectionAttendanceMode_() === "manual") {
-      await loadActiveSession();
+      await loadActiveSession({
+        groupId: resolveConnectionQrGroupId_()
+      });
       await loadAttendanceData(options);
     } else {
       await ensureQrViewData_(options);
@@ -24053,29 +29374,12 @@ async function ensureAttendanceHubViewData_(options = {}) {
   }
 
   const task = async () => {
-    await loadFormationAttendanceBootstrap_({
+    await loadFormationAttendanceSectionData_({
       force: options.force,
       showLoading: false,
-      processId: state.filters.formationOps.processId || ""
-    });
-
-    const selectedOffering = getSelectedFormationOffering_();
-
-    if (!selectedOffering?.id) {
-      state.formationAttendanceContext = null;
-      state.loaded.formationAttendanceContext = false;
-      state.cacheKeys.formationAttendanceContext = "";
-      state.formationEnrollments = [];
-      state.loaded.formationEnrollments = false;
-      state.cacheKeys.formationEnrollments = "";
-      return;
-    }
-
-    await loadFormationAttendanceContext_(selectedOffering.id, {
-      force: options.force,
-      showLoading: false,
+      processId: state.filters.formationOps.processId || "",
       sessionNumber: state.filters.formationOps.sessionNumber || "1",
-      autoActivate: true
+      captureMode: resolveFormationAttendanceMode_()
     });
   };
 
@@ -24110,7 +29414,8 @@ async function ensureFormationOperationsViewData_(options = {}) {
       levelId: options.levelId,
       offeringId: options.offeringId,
       sessionNumber: options.sessionNumber,
-      loadAttendanceContext: options.loadAttendanceContext
+      loadAttendanceContext: options.loadAttendanceContext,
+      skipSync: options.skipSync
     });
 
     if (options.includeProcessRoster) {
@@ -24129,64 +29434,89 @@ async function ensureFormationOperationsViewData_(options = {}) {
 }
 
 async function ensureFormationPortalSectionData_(options = {}) {
-  await ensureFormationOperationsViewData_({
-    force: options.force,
-    showLoading: false,
-    processId: state.filters.formationOps.processId || "",
-    levelId: state.filters.formationOps.levelId || "",
-    offeringId: state.filters.formationOps.offeringId || "",
-    sessionNumber: state.filters.formationOps.sessionNumber || "1",
-    includeProcessRoster: false,
-    includePeopleDirectory: false,
-    loadAttendanceContext: false
-  });
-
-  const previousOfferingId = String(state.filters.formationOps.offeringId || "").trim();
-  const portalOfferingChanged = ensureFormationPortalDefaultOffering_();
-
-  if (portalOfferingChanged && String(state.filters.formationOps.offeringId || "").trim() !== previousOfferingId) {
-    await loadFormationOperationsData_({
+  const task = async (setProgress = () => {}) => {
+    state.ui.pendingFormationEnrollmentPersonId = "";
+    const effectiveProcessId = String(
+      options.processId !== undefined && String(options.processId || "").trim()
+        ? options.processId
+        : (getSelectedFormationPortalProcessId_()
+          || getPreferredActiveFormationProcess_()?.id
+          || state.formationProcesses[0]?.id
+          || "")
+    ).trim();
+    setProgress(18, "Preparando filtros del proceso...", "Sincronizando proceso, paso y oferta visible.");
+    await loadFormationPortalWorkspaceFresh_({
       force: options.force,
       showLoading: false,
-      processId: state.filters.formationOps.processId || "",
-      levelId: state.filters.formationOps.levelId || "",
-      offeringId: state.filters.formationOps.offeringId || "",
-      sessionNumber: state.filters.formationOps.sessionNumber || "1",
-      loadAttendanceContext: false
+      skipSync: options.skipSync !== undefined ? options.skipSync : true,
+      processId: effectiveProcessId,
+      preferredOfferingId: options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || ""
     });
+    setProgress(88, "Armando inscritos y accesos...", "Ya estamos organizando la lista visible y los datos de acceso.");
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
   }
+
+  await withFormationSectionLoading_("portal", {
+    title: "Abriendo Inscritos y portal...",
+    detail: "Preparando procesos, pasos e inscritos con acceso al portal.",
+    doneTitle: "Inscritos listos",
+    doneDetail: "La subficha ya quedó lista para revisar accesos y credenciales."
+  }, task);
 }
 
 async function ensureFormationJourneySectionData_(options = {}) {
-  await Promise.all([
-    state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
-      showLoading: false
-    }),
-    state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
-      showLoading: false
-    })
-  ]);
+  const task = async (setProgress = () => {}) => {
+    const journeyFilters = getFormationJourneyFilters_();
+    setProgress(16, "Cargando procesos y catálogo...", "Primero reunimos el proceso activo y sus pasos disponibles.");
+    await Promise.all([
+      state.loaded.formationProcesses ? Promise.resolve() : loadFormationProcesses_({
+        showLoading: false
+      }),
+      state.loaded.formationCatalog ? Promise.resolve() : loadFormationCatalog_({
+        showLoading: false
+      })
+    ]);
 
-  if (!state.filters.formationOps.processId && state.formationProcesses.length) {
-    state.filters.formationOps.processId = String(state.formationProcesses[0]?.id || "");
+    const effectiveProcessId = String(
+      options.processId !== undefined && String(options.processId || "").trim()
+        ? options.processId
+        : (journeyFilters.processId
+          || state.filters.formationOps.processId
+          || getPreferredActiveFormationProcess_()?.id
+          || state.formationProcesses[0]?.id
+          || "")
+    ).trim();
+
+    if (effectiveProcessId) {
+      journeyFilters.processId = effectiveProcessId;
+    }
+
+    setProgress(52, "Cargando inscritos del proceso...", "Estamos trayendo únicamente el listado del camino para no frenar la vista.");
+    await loadFormationJourneyWorkspaceFresh_({
+      force: options.force,
+      showLoading: false,
+      skipSync: options.skipSync !== undefined ? options.skipSync : true,
+      processId: effectiveProcessId
+    });
+
+    setProgress(88, "Armando camino visible...", "Ya estamos acomodando paso actual, aprobado y siguiente paso.");
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
   }
 
-  await loadFormationOperationsData_({
-    force: options.force,
-    showLoading: false,
-    processId: state.filters.formationOps.processId || "",
-    levelId: state.filters.formationOps.levelId || "",
-    offeringId: "",
-    sessionNumber: state.filters.formationOps.sessionNumber || "1",
-    loadAttendanceContext: false,
-    loadEnrollments: false
-  });
-
-  await loadFormationProcessRoster_(state.filters.formationOps.processId || "", {
-    force: options.force,
-    showLoading: false,
-    levelId: state.filters.formationOps.levelId || ""
-  });
+  await withFormationSectionLoading_("operations", {
+    title: "Abriendo Camino Proceso de Formación...",
+    detail: "Preparando el paso actual, el paso aprobado y el siguiente paso de cada inscrito.",
+    doneTitle: "Camino listo",
+    doneDetail: "La ruta del inscrito ya quedó lista para revisar avance y validación."
+  }, task);
 }
 
 async function ensureFormationViewData_(options = {}) {
@@ -24241,10 +29571,22 @@ async function ensureFormationViewData_(options = {}) {
   }
 
   if (!state.formationProfile || state.formationProfile?.person?.id !== state.ui.selectedFormationPersonId) {
-    await loadFormationProfile_(state.ui.selectedFormationPersonId, {
-      seasonId: state.filters.formation.seasonId,
-      showLoading: false
-    });
+    const personId = String(state.ui.selectedFormationPersonId || "").trim();
+    Promise.resolve()
+      .then(() => loadFormationProfile_(personId, {
+        seasonId: state.filters.formation.seasonId,
+        showLoading: false
+      }))
+      .then(() => {
+        if (
+          state.currentView === "formation"
+          && (getActiveFormationSection_() === "route" || getActiveFormationSection_() === "report")
+          && String(state.ui.selectedFormationPersonId || "").trim() === personId
+        ) {
+          renderApp();
+        }
+      })
+      .catch(() => {});
   }
 }
 
@@ -24305,13 +29647,9 @@ async function openConnectionEncounterEnrollmentModal_(candidate) {
   ).trim();
 
   if (preferredProcessId) {
-    await loadFormationOperationsData_({
+    await loadFormationPortalOfferingsList_(preferredProcessId, "", {
       force: false,
-      showLoading: false,
-      processId: preferredProcessId,
-      levelId: "",
-      offeringId: "",
-      sessionNumber: "1"
+      showLoading: false
     });
   }
 
@@ -24384,17 +29722,13 @@ async function continueConnectionEncounterEnrollment_() {
 
   state.ui.connectionEncounterModal = null;
   state.currentView = "formation";
-  state.ui.formationSection = "portal";
+  state.ui.formationSection = "route";
   state.filters.formation.seasonId = modalState.seasonId || state.filters.formation.seasonId;
   state.filters.formationOps.processId = modalState.processId;
   renderApp();
 
-  await ensureFormationViewData_({
-    showLoading: false,
-    force: false
-  });
   await registerFormationEncounter_(modalState.candidate);
-  scrollToSection_("formation-portal-workspace");
+  scrollToSection_("formation-route-workspace");
 }
 
 async function openFormationProfile_(personId, options = {}) {
@@ -24456,8 +29790,9 @@ async function openFormationPortalPreview_(personId, options = {}) {
   const force = Boolean(options.force);
   state.ui.formationSection = "portal";
   state.ui.selectedFormationPortalPersonId = cleanPersonId;
-  state.ui.studentPortalTab = "home";
+  state.ui.studentPortalTab = "profile";
   state.ui.studentPortalProfileTab = "summary";
+  state.ui.studentPortalMenuOpen = false;
 
   await withLoading(async () => {
     await Promise.all([
@@ -24500,10 +29835,16 @@ async function openFormationPortalAdminModal_(personId, options = {}) {
         seasonId: state.filters.formation.seasonId,
         showLoading: false
       }),
-      loadStudentPortalByPersonId_(cleanPersonId, {
-        force,
-        showLoading: false
-      })
+      apiGet("formation.account.get", {
+        personId: cleanPersonId,
+        revealPin: "1"
+      }).then((account) => {
+        if (account) {
+          applyPortalAccountToFormationProfile_(cleanPersonId, account, {
+            seasonId: state.filters.formation.seasonId
+          });
+        }
+      }).catch(() => {})
     ]);
   } finally {
     state.ui.formationPortalModal = {
@@ -24577,7 +29918,7 @@ async function ensureSeasonViewData() {
   const sessions = await ensureSessionsForSeason(seasonId);
 
   if (seasonId && sessions.length) {
-    await ensureSessionGroupsFor(seasonId, sessions[0].id);
+    await Promise.all(sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id)));
   }
 }
 
@@ -24634,9 +29975,11 @@ async function loadDashboardSessionInsights_(options = {}) {
 }
 
 async function loadDashboardSeasonMatrix_(options = {}) {
-  syncDashboardFilterState_();
+  if (!options.seasonId) {
+    syncDashboardFilterState_();
+  }
 
-  const seasonId = state.filters.dashboard.seasonId || getLatestSeason()?.id || "";
+  const seasonId = String(options.seasonId || state.filters.dashboard.seasonId || getLatestSeason()?.id || "");
   const cacheKey = String(seasonId || "");
   const loadKey = `dashboardSeasonMatrix::${cacheKey || "none"}`;
 
@@ -24896,14 +30239,15 @@ async function loadParticipantsData(options = {}) {
 }
 
 async function loadConnectionEncounterCandidates_(options = {}) {
-  await syncFilterState("participants");
-
-  const seasonId = String(options.seasonId || state.filters.participants.seasonId || "").trim();
-  const groupId = String(options.groupId || state.filters.participants.groupId || "").trim();
+  const seasonId = String(options.seasonId || state.filters.participants.seasonId || ensureValidSeasonIdFromList_("", getOperationalSeasonList_()) || "").trim();
+  const hasExplicitGroup = Object.prototype.hasOwnProperty.call(options, "groupId");
+  const groupId = hasExplicitGroup
+    ? String(options.groupId || "").trim()
+    : "";
   const requestKey = `${seasonId}::${groupId}`;
   const shouldSync = Boolean(options.syncCandidates);
 
-  if (!seasonId || !groupId) {
+  if (!seasonId) {
     state.connectionEncounterCandidates = [];
     state.loaded.connectionEncounterCandidates = false;
     state.cacheKeys.connectionEncounterCandidates = "";
@@ -24950,7 +30294,7 @@ async function loadConnectionEncounterCandidates_(options = {}) {
     return task();
   }
 
-  return withLoading(task, shouldSync ? "Actualizando candidatos a Encuentro..." : "Cargando ruta a Encuentro del grupo...");
+  return withLoading(task, shouldSync ? "Actualizando candidatos a Proceso de Formación..." : "Cargando candidatos a Proceso de Formación...");
 }
 
 async function saveAssistant(rawPayload) {
@@ -25019,6 +30363,55 @@ async function saveAssistant(rawPayload) {
   return savedPerson;
 }
 
+async function saveCongregantAssignment_(form) {
+  const formData = new FormData(form);
+  const personId = String(formData.get("id") || "").trim();
+  const person = (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : [])
+    .find((item) => String(item?.id || "").trim() === personId);
+
+  if (!person) {
+    showToast("Congregante no disponible", "Recarga el padron e intenta guardar de nuevo.", "warning");
+    return;
+  }
+
+  const fallbackNameParts = splitFullName_(person.nombreCompleto || person.name || "");
+  const currentAuditUser = getCurrentSystemUserAudit_();
+  const payload = {
+    ...person,
+    id: personId,
+    nombre: person.nombre || fallbackNameParts.nombre,
+    apellidos: person.apellidos || fallbackNameParts.apellidos || person.numero || "Sin apellidos",
+    telefono: person.telefono || "",
+    email: person.email || "",
+    estado: person.estado || "ACTIVO",
+    tipoPersona: person.tipoPersona || "CONGREGANTE",
+    fechaIngreso: person.fechaIngreso || person.fecha || formatDateForInput_(new Date()),
+    grupo: String(formData.get("grupo") || "").trim(),
+    ministerio1: String(formData.get("ministerio1") || "").trim(),
+    ministerio2: String(formData.get("ministerio2") || "").trim(),
+    ministerio3: String(formData.get("ministerio3") || "").trim(),
+    ministerio4: String(formData.get("ministerio4") || "").trim(),
+    systemUserName: currentAuditUser.name,
+    systemUserEmail: currentAuditUser.email
+  };
+
+  let savedPerson = null;
+  await withLoading(async () => {
+    savedPerson = await apiPost("servers.save", payload);
+    upsertPeopleDirectoryInState_(savedPerson);
+    upsertPeopleListInState_(savedPerson);
+  }, "Guardando ministerio y grupo...");
+
+  if (!savedPerson) {
+    showToast("No se guardo la asignacion", "La API no devolvio confirmacion. Intenta de nuevo.", "warning");
+    return;
+  }
+
+  state.ui.editingCongregantAssignmentPersonId = "";
+  invalidateDashboardSeasonMatrix_();
+  showToast("Asignacion actualizada", "El ministerio y el grupo quedaron guardados correctamente.", "success");
+  renderApp();
+}
 function validateWelcomeNewForm_(form) {
   if (!(form instanceof HTMLFormElement)) {
     showToast("Formulario no disponible", "Recarga Bienvenida e intenta nuevamente.", "warning");
@@ -26022,6 +31415,52 @@ async function saveCatalogGroupForm_(form) {
   renderApp();
 }
 
+async function saveCatalogMinistryForm_(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    showToast("Formulario no disponible", "Recarga el catalogo de ministerios e intenta nuevamente.", "warning");
+    return;
+  }
+
+  const payload = Object.fromEntries(new FormData(form).entries());
+  const name = String(payload.name || "").trim();
+  let savedMinistry = null;
+
+  if (!String(payload.id || "").trim() && state.ui.editingMinistryId) {
+    payload.id = String(state.ui.editingMinistryId || "").trim();
+  }
+
+  if (!name) {
+    const nameField = form.querySelector("[name=\"name\"]");
+    showToast("Falta el nombre", "Escribe el nombre del ministerio antes de guardar.", "warning");
+    nameField?.focus();
+    return;
+  }
+
+  payload.name = name;
+
+  await withLoading(async () => {
+    savedMinistry = await apiPost("catalog.ministries.save", payload);
+    await loadMinistriesCatalog_({
+      force: true
+    });
+  }, payload.id ? "Actualizando ministerio..." : "Creando ministerio...");
+
+  if (savedMinistry?.id && Array.isArray(state.catalogs.ministries)) {
+    const savedId = String(savedMinistry.id);
+    const index = state.catalogs.ministries.findIndex((ministry) => String(ministry.id || "") === savedId);
+    if (index >= 0) {
+      state.catalogs.ministries[index] = {
+        ...state.catalogs.ministries[index],
+        ...savedMinistry
+      };
+    }
+  }
+
+  state.ui.editingMinistryId = String(savedMinistry?.id || payload.id || "");
+  showToast("Catalogo actualizado", "El ministerio quedo guardado correctamente.", "success");
+  renderApp();
+}
+
 function applyTelegramLinkToLocalGroup_(payload) {
   const groupId = String(payload?.groupId || "").trim();
   const leaderSlot = String(payload?.leaderSlot || "").trim();
@@ -26418,6 +31857,7 @@ async function saveFormationProcess_(rawPayload) {
 async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
   const cleanOfferingId = String(offeringId || "").trim();
   const cleanSessionNumber = String(sessionNumber || state.filters.formationOps.sessionNumber || "1").trim();
+  const shouldHydrateManual = shouldLoadFormationAttendanceParticipants_();
   let response = null;
 
   if (!cleanOfferingId) {
@@ -26432,15 +31872,17 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     response = await apiPost("formation.levelAttendance.activateSession", {
       offeringId: cleanOfferingId,
       sessionNumber: cleanSessionNumber,
-      activatedBy: state.user?.name || ""
+      activatedBy: state.user?.name || "",
+      includeContext: "0"
     });
 
     state.filters.formationOps.offeringId = cleanOfferingId;
     state.ui.selectedFormationOfferingId = cleanOfferingId;
     state.filters.formationOps.sessionNumber = String(response?.context?.sessionNumber || cleanSessionNumber || "1");
-    if (response?.offering) {
-      syncFormationOfferingIntoState_(response.offering);
-    }
+    clearFormationAttendanceRuntimeLocks_(cleanOfferingId, state.filters.formationOps.sessionNumber);
+
+    applyFormationAttendanceActivationState_(cleanOfferingId, state.filters.formationOps.sessionNumber, response);
+
     if (response?.context) {
       applyFormationAttendanceContextState_(response.context, {
         offeringId: cleanOfferingId,
@@ -26457,54 +31899,43 @@ async function activateFormationAttendanceSession_(offeringId, sessionNumber) {
     state.ui.formationAttendanceActivating = false;
     renderApp();
   }
+
+  if (shouldHydrateManual) {
+    hydrateFormationManualAttendanceInBackground_(cleanOfferingId, {
+      force: true,
+      sessionNumber: state.filters.formationOps.sessionNumber,
+      message: "Cargando inscritos del paso..."
+    });
+  }
 }
 
-async function assignFormationEnrollment_(personId) {
+async function commitFormationEnrollmentToOffering_(personId, offering, options = {}) {
   const cleanPersonId = String(personId || "").trim();
-  const selectedOffering = getSelectedFormationOffering_();
+  const selectedOffering = offering || null;
   const rosterPerson = (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : []).find((item) => String(item?.personId || "") === cleanPersonId) || null;
-  const person = state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId) || rosterPerson || null;
-  const pendingCandidate = getFormationPendingEnrollmentCandidate_();
+  const person = options.person
+    || state.peopleDirectory.find((item) => String(item.id || "") === cleanPersonId)
+    || rosterPerson
+    || null;
   const originSeasonId = resolveFormationOriginSeasonIdForPerson_(cleanPersonId)
     || state.filters.formation.seasonId
     || state.filters.participants.seasonId
     || getLatestSeason()?.id
     || "";
-  const previousLevel = getPreviousFormationLevel_(selectedOffering?.levelId || "");
   let response = null;
 
   if (!cleanPersonId) {
     showToast("Congregante no disponible", "Recarga el módulo y vuelve a intentar inscribir a la persona.", "warning");
-    return;
+    return null;
   }
 
   if (!selectedOffering?.id) {
     showToast("Selecciona un paso", "Primero elige el paso en operación donde vas a inscribir congregantes.", "warning");
-    return;
+    return null;
   }
 
   try {
-    await withLoading(async () => {
-      if (previousLevel?.id) {
-        const previousEnrollment = getLatestFormationEnrollmentByPersonLevel_(cleanPersonId, previousLevel.id);
-        const previousStatus = String(previousEnrollment?.status || "").trim().toUpperCase();
-        const previousApprovalMode = resolveFormationApprovalMode_(previousEnrollment);
-        const previousAttendanceCompleted = Boolean(previousEnrollment?.attendance?.completed);
-
-        if (
-          previousEnrollment?.id
-          && previousStatus !== "ACREDITADO"
-          && previousApprovalMode === "ATTENDANCE_ONLY"
-          && previousAttendanceCompleted
-        ) {
-          await apiPost("formation.enrollment.evaluate", {
-            enrollmentId: previousEnrollment.id,
-            comments: "Acreditación automática previa a la inscripción del siguiente paso.",
-            evaluatedBy: state.user?.name || "Sistema"
-          });
-        }
-      }
-
+    const runAssign = async () => {
       response = await apiPost("formation.enrollment.assign", {
         personId: cleanPersonId,
         offeringId: selectedOffering.id,
@@ -26513,42 +31944,32 @@ async function assignFormationEnrollment_(personId) {
         skipSync: "1",
         skipPortal: "1"
       });
-    }, "Inscribiendo al paso...");
+    };
+
+    if (options.skipLoading) {
+      await runAssign();
+    } else {
+      await withLoading(runAssign, options.loadingMessage || "Inscribiendo al paso...");
+    }
   } catch (error) {
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "PREVIOUS_LEVEL_REQUIRED") {
       const previousLevelName = String(error.details?.previousLevelName || "el nivel anterior");
       showToast("Primero acredita el paso anterior", `Esta persona debe acreditar ${previousLevelName} antes de entrar a ${selectedOffering.levelName || "este paso"}.`, "warning");
-      return;
+      return null;
     }
 
     if (error instanceof ApiError && String(error.code || "").toUpperCase() === "DUPLICATE_LEVEL_ENROLLMENT") {
       showToast("Ya está inscrito en ese paso", "La persona ya tiene una inscripción activa o acreditada para este mismo paso.", "warning");
-      return;
+      return null;
     }
 
     throw error;
   }
 
   state.filters.formationOps.personSearch = "";
-  state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || "";
-  if (getActiveFormationSection_() === "attendance") {
-    await loadFormationAttendanceSectionData_({
-      force: true,
-      processId: state.filters.formationOps.processId || "",
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
-  } else {
-    await loadFormationOperationsData_({
-      force: true,
-      showLoading: false,
-      offeringId: selectedOffering.id,
-      sessionNumber: state.filters.formationOps.sessionNumber
-    });
-    await loadFormationAttendanceTransitionRoster_({
-      force: true,
-      showLoading: false
-    });
-  }
+  syncFormationSectionFiltersAfterEnrollment_(response?.enrollment || null, selectedOffering);
+  state.filters.formationOps.enrollmentStatus = "ALL";
+  state.filters.formationOps.search = "";
 
   if (String(state.formationProfile?.person?.id || "") === cleanPersonId) {
     await loadFormationProfile_(cleanPersonId, {
@@ -26564,25 +31985,58 @@ async function assignFormationEnrollment_(personId) {
     clearStudentPortalByPersonCache_(cleanPersonId);
   }
 
+  if (response?.enrollment) {
+    applyFormationEnrollmentToLocalState_(response.enrollment);
+  }
+
   if (response?.record) {
     applyFormationRecordToLocalState_(response.record, {
-      portalAccount: response?.account || null,
-      removeCandidatePersonId: cleanPersonId
+      portalAccount: response?.account || null
     });
-  } else if (pendingCandidate && String(pendingCandidate.personId || "") === cleanPersonId) {
-    state.formationCandidates = state.formationCandidates.filter((candidate) => String(candidate?.personId || "") !== cleanPersonId);
   }
 
-  if (pendingCandidate && String(pendingCandidate.personId || "") === cleanPersonId) {
-    state.ui.pendingFormationEnrollmentPersonId = "";
+  markFormationEncounterEnrollmentLocally_(cleanPersonId, response?.enrollment || null, response?.record || null);
+  return {
+    response,
+    person,
+    offering: selectedOffering
+  };
+}
+
+async function assignFormationEnrollment_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+  const selectedOffering = state.ui.formationSection === "portal"
+    ? getSelectedFormationPortalOffering_()
+    : getSelectedFormationOffering_();
+  const result = await commitFormationEnrollmentToOffering_(cleanPersonId, selectedOffering, {
+    loadingMessage: "Inscribiendo al paso..."
+  });
+
+  if (!result?.response) {
+    return;
   }
 
+  state.ui.pendingFormationEnrollmentPersonId = "";
+  invalidateFormationWorkspaceCache_("both");
+  await ensureFormationPortalSectionData_({
+    force: true,
+    showLoading: false,
+    processId: getFormationPortalFilters_().processId || state.filters.formationOps.processId || "",
+    preferredOfferingId: getFormationPortalFilters_().offeringId || selectedOffering?.id || ""
+  });
+  await ensureFormationJourneySectionData_({
+    force: true,
+    showLoading: false,
+    processId: getFormationJourneyFilters_().processId || getFormationPortalFilters_().processId || state.filters.formationOps.processId || ""
+  });
+  state.ui.formationSection = "portal";
   renderApp();
+  scrollToSection_("formation-portal-workspace");
   showToast(
-    response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción guardada",
-    response?.account?.temporaryPin
-      ? `La persona quedó inscrita. Usuario ${response.account.username} con PIN temporal ${response.account.temporaryPin}. Ya puedes abrir Inscritos y portal para enviarlo por WhatsApp.`
-      : `${person.nombreCompleto || person.nombre || person.personName || "La persona"} ya quedó inscrita a ${selectedOffering.levelName || "este nivel"}.`,
+    result.response?.account?.temporaryPin ? "Inscripción y acceso listos" : "Inscripción confirmada",
+    result.response?.account?.temporaryPin
+      ? `La persona quedó inscrita en ${result.response?.enrollment?.offeringName || result.response?.enrollment?.levelName || result.offering?.levelName || "este paso"}. Usuario ${result.response.account.username} con PIN temporal ${result.response.account.temporaryPin}. Ya te dejé abierta la subficha Inscritos y portal para validarlo de inmediato.`
+      : `${result.person?.nombreCompleto || result.person?.nombre || result.person?.personName || "La persona"} ya quedó inscrita en ${result.response?.enrollment?.offeringName || result.response?.enrollment?.levelName || result.offering?.levelName || "este paso"}. Ya te dejé abierta la subficha Inscritos y portal para validarlo de inmediato.`,
     "success"
   );
 }
@@ -26641,19 +32095,97 @@ async function assignFormationEnrollmentsBulk_() {
   );
 }
 
+async function assignFormationSelectedBulk_() {
+  const selectedOffering = state.ui.formationSection === "portal"
+    ? getSelectedFormationPortalOffering_()
+    : getSelectedFormationOffering_();
+  const portalFilters = getFormationPortalFilters_();
+  const journeyFilters = getFormationJourneyFilters_();
+  const selectedPeople = getSelectedBulkPeople_().filter((person) => {
+    return canAssignPersonToFormationOffering_(person?.id || "", selectedOffering);
+  });
+  const personIds = selectedPeople
+    .map((person) => String(person?.id || "").trim())
+    .filter(Boolean);
+  const seasonId = state.filters.formation.seasonId
+    || state.filters.participants.seasonId
+    || getLatestSeason()?.id
+    || "";
+  let response = null;
+
+  if (!selectedOffering?.id) {
+    showToast("Selecciona un paso", "Primero elige el Paso 1 donde vas a inscribir manualmente a las personas.", "warning");
+    return;
+  }
+
+  if (Number(selectedOffering?.levelOrder || 0) > 1) {
+    showToast("Solo para Paso 1", "La inscripción manual masiva quedó habilitada únicamente para Ahora Qué 1 y Ahora Qué 2.", "warning");
+    return;
+  }
+
+  if (!personIds.length) {
+    showToast("Sin personas en lote", "Agrega primero participantes al lote antes de confirmar la inscripción.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("formation.enrollment.assignBulk", {
+      offeringId: selectedOffering.id,
+      personIds,
+      seasonId,
+      enrolledBy: state.user?.name || ""
+    });
+  }, `Inscribiendo ${personIds.length} personas al Paso 1...`);
+
+  state.selectedBulkPeople = [];
+  portalFilters.personSearch = "";
+  syncFormationSectionFiltersAfterEnrollment_(response?.sampleEnrollment || response?.lastEnrollment || null, selectedOffering);
+  if (!journeyFilters.processId) {
+    journeyFilters.processId = portalFilters.processId || state.filters.formationOps.processId || "";
+  }
+  invalidateFormationWorkspaceCache_("both");
+  await ensureFormationPortalSectionData_({
+    force: true,
+    showLoading: false,
+    processId: portalFilters.processId || state.filters.formationOps.processId || "",
+    preferredOfferingId: selectedOffering.id
+  });
+  await ensureFormationJourneySectionData_({
+    force: true,
+    showLoading: false,
+    processId: journeyFilters.processId || portalFilters.processId || state.filters.formationOps.processId || ""
+  });
+  state.ui.formationSection = "portal";
+  renderApp();
+  showToast(
+    "Inscripción manual completada",
+    `${response?.created || 0} nuevos, ${response?.alreadyExisting || 0} ya estaban inscritos y ${response?.errors || 0} quedaron para revisión.`,
+    response?.errors ? "warning" : "success"
+  );
+}
+
 async function saveFormationLevelAttendance_(form) {
   const offeringId = String(form.offeringId?.value || "").trim();
   const sessionNumber = String(form.sessionNumber?.value || state.filters.formationOps.sessionNumber || "1").trim();
   const currentContext = String(state.formationAttendanceContext?.offering?.id || "") === offeringId
     ? state.formationAttendanceContext
     : null;
-  const selects = Array.from(form.querySelectorAll("[data-formation-attendance-person]"));
-  const attendances = selects
-    .map((element) => ({
-      personId: String(element.getAttribute("data-formation-attendance-person") || "").trim(),
-      attended: String(element.value || "").trim().toUpperCase()
+  const manualDraft = getFormationManualAttendanceDraft_();
+  const attendances = Object.entries(manualDraft)
+    .map(([personId, entry]) => ({
+      personId: String(personId || "").trim(),
+      attended: String(entry?.value || "").trim().toUpperCase(),
+      currentAttendance: String(entry?.currentAttendance || "").trim().toUpperCase()
     }))
-    .filter((item) => item.personId && (item.attended === "SI" || item.attended === "NO"));
+    .filter((item) => {
+      return item.personId
+        && (item.attended === "SI" || item.attended === "NO")
+        && item.attended !== item.currentAttendance;
+    })
+    .map(({ personId, attended }) => ({
+      personId,
+      attended
+    }));
   let response = null;
 
   if (!offeringId) {
@@ -26667,7 +32199,7 @@ async function saveFormationLevelAttendance_(form) {
   }
 
   if (!attendances.length) {
-    showToast("Sin cambios", "Marca al menos una asistencia en SI o NO antes de guardar.", "warning");
+    showToast("Sin cambios", "Solo se guardan las asistencias que realmente cambiaste en la sesión.", "warning");
     return;
   }
 
@@ -26676,6 +32208,7 @@ async function saveFormationLevelAttendance_(form) {
       offeringId,
       sessionNumber,
       capturedBy: state.user?.name || "",
+      includeContext: "0",
       attendances
     });
   }, "Guardando asistencia del nivel...");
@@ -26683,12 +32216,11 @@ async function saveFormationLevelAttendance_(form) {
   state.filters.formationOps.offeringId = offeringId;
   state.ui.selectedFormationOfferingId = offeringId;
   state.filters.formationOps.sessionNumber = String(response?.sessionNumber || sessionNumber || "1");
-  await loadFormationOperationsData_({
-    force: true,
-    showLoading: false,
-    offeringId,
-    sessionNumber: state.filters.formationOps.sessionNumber
-  });
+  if (response?.offering) {
+    syncFormationOfferingIntoState_(response.offering);
+  }
+  applyFormationManualAttendancesLocally_(attendances, state.filters.formationOps.sessionNumber);
+  resetFormationManualAttendanceDraft_();
   renderApp();
   showToast("Asistencia guardada", `Se actualizaron ${response?.updated || 0} y se agregaron ${response?.inserted || 0} registros en la sesión ${state.filters.formationOps.sessionNumber}.`, "success");
 }
@@ -26698,10 +32230,12 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
     enrollmentId: V(rawPayload.enrollmentId),
     examScore: V(rawPayload.examScore),
     examApproved: V(rawPayload.examApproved),
+    questionnairesDelivered: V(rawPayload.questionnairesDelivered),
     comments: V(rawPayload.comments),
     evaluatedBy: state.user?.name || ""
   };
   let response = null;
+  const previousSelectedPersonId = String(state.ui.selectedFormationPersonId || "").trim();
 
   if (!payload.enrollmentId) {
     showToast("Selecciona un inscrito", "Primero elige a la persona que vas a evaluar.", "warning");
@@ -26713,11 +32247,14 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
   }, "Guardando evaluación...");
 
   state.ui.selectedFormationEnrollmentId = response?.enrollment?.id || payload.enrollmentId;
-  await loadFormationOperationsData_({
+  state.ui.selectedFormationPersonId = String(response?.enrollment?.personId || previousSelectedPersonId || "").trim();
+  state.filters.formationOps.search = "";
+  state.filters.formationOps.enrollmentStatus = "ALL";
+  invalidateFormationWorkspaceCache_("both");
+  await ensureFormationJourneySectionData_({
     force: true,
     showLoading: false,
-    offeringId: state.filters.formationOps.offeringId,
-    sessionNumber: state.filters.formationOps.sessionNumber
+    processId: state.filters.formationOps.processId || ""
   });
 
   if (response?.enrollment?.personId && String(state.formationProfile?.person?.id || "") === String(response.enrollment.personId || "")) {
@@ -26759,21 +32296,66 @@ async function saveFormationEnrollmentEvaluation_(rawPayload) {
   );
 }
 
+async function executeFormationAdminRemoveEnrollment_(enrollmentId, personId) {
+  const cleanEnrollmentId = String(enrollmentId || "").trim();
+  const cleanPersonId = String(personId || "").trim();
+  let response = null;
+
+  if (!cleanEnrollmentId) {
+    showToast("Inscripción no disponible", "No fue posible ubicar el paso que quieres corregir.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("formation.enrollment.adminRemove", {
+      enrollmentId: cleanEnrollmentId,
+      removedBy: state.user?.name || ""
+    });
+  }, "Corrigiendo inscripción...");
+
+  if (cleanPersonId) {
+    clearStudentPortalByPersonCache_(cleanPersonId);
+  }
+
+  if (cleanPersonId && String(state.formationProfile?.person?.id || "") === cleanPersonId) {
+    await loadFormationProfile_(cleanPersonId, {
+      force: true,
+      seasonId: state.filters.formation.seasonId,
+      showLoading: false
+    });
+  }
+
+  invalidateFormationWorkspaceCache_("both");
+  await ensureFormationPortalSectionData_({
+    force: true,
+    showLoading: false,
+    processId: state.filters.formationOps.processId,
+    preferredOfferingId: state.filters.formationOps.offeringId
+  });
+  await ensureFormationJourneySectionData_({
+    force: true,
+    showLoading: false,
+    processId: state.filters.formationOps.processId
+  });
+  state.ui.selectedFormationEnrollmentId = "";
+  renderApp();
+  showToast(
+    "Paso corregido",
+    `${response?.person?.name || "La persona"} ya salió del paso actual. El sistema recalculó su estado formativo restante.`,
+    "success"
+  );
+}
+
 async function sendFormationEncounterInvite_(candidate) {
   if (!candidate?.personId) {
     showToast("Selecciona una persona", "No fue posible ubicar el congregante para enviar la invitación.", "warning");
     return;
   }
 
-  if (!candidate.personPhone) {
-    showToast("Sin teléfono", "Esta persona no tiene teléfono registrado para preparar el WhatsApp.", "warning");
-    return;
-  }
-
   const fastWhatsappUrl = buildEncounterInviteWhatsappUrlClient_(candidate);
-  const inviteWindow = fastWhatsappUrl
+  const inviteWindow = fastWhatsappUrl && candidate.personPhone
     ? window.open(fastWhatsappUrl, "_blank", "noopener,noreferrer")
-    : window.open("", "_blank");
+    : null;
   let response = null;
 
   await withLoading(async () => {
@@ -26813,7 +32395,7 @@ async function sendFormationEncounterInvite_(candidate) {
 
   renderApp();
 
-  if (!fastWhatsappUrl && response?.whatsappUrl) {
+  if (!fastWhatsappUrl && response?.whatsappUrl && candidate.personPhone) {
     if (inviteWindow) {
       inviteWindow.location = response.whatsappUrl;
     } else {
@@ -26823,7 +32405,86 @@ async function sendFormationEncounterInvite_(candidate) {
     // Si el enlace rápido ya abrió WhatsApp, no hacemos nada más.
   }
 
-  showToast("Invitación lista", "La fecha de invitación quedó registrada y el WhatsApp del congregante se abrió de inmediato.", "success");
+  showToast(
+    "Invitación lista",
+    candidate.personPhone
+      ? "La fecha de invitación quedó registrada y el WhatsApp del congregante se abrió de inmediato."
+      : "La fecha de invitación quedó registrada como invitación manual/presencial. Ya puedes continuar con la inscripción.",
+    "success"
+  );
+}
+
+async function sendFormationEncounterInviteBulk_() {
+  const selectedCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => !candidate?.encounterRegisteredAt);
+  const invitableCandidates = selectedCandidates.filter((candidate) => !candidate?.invitedAt);
+  const manualInviteCount = invitableCandidates.filter((candidate) => !candidate?.personPhone).length;
+  let response = null;
+
+  if (!selectedCandidates.length) {
+    showToast("Sin selección", "Selecciona primero a las personas que vas a invitar en lote.", "warning");
+    return;
+  }
+
+  if (!invitableCandidates.length) {
+    showToast("Sin invitaciones pendientes", "Las personas seleccionadas ya tienen invitación registrada o ya fueron inscritas.", "warning");
+    return;
+  }
+
+  try {
+    setFormationRouteBulkProgress_(
+      "invite",
+      10,
+      "Preparando invitaciones...",
+      `Se revisarán ${invitableCandidates.length} persona(s) seleccionadas.`
+    );
+    renderApp();
+    await waitMs_(90);
+
+    setFormationRouteBulkProgress_(
+      "invite",
+      42,
+      "Registrando invitaciones en lote...",
+      "Se está guardando la fecha de invitación para habilitar la inscripción posterior."
+    );
+    renderApp();
+
+    response = await apiPost("formation.encounter.sendInviteBulk", {
+      seasonId: invitableCandidates[0]?.seasonId || state.filters.formation.seasonId || "",
+      personIds: invitableCandidates.map((candidate) => String(candidate?.personId || "").trim()).filter(Boolean),
+      sentBy: state.user?.name || ""
+    });
+
+    setFormationRouteBulkProgress_(
+      "invite",
+      82,
+      "Sincronizando listado...",
+      "Actualizando el estado visible de la Ruta a Encuentro."
+    );
+
+    (Array.isArray(response?.results) ? response.results : []).forEach((item) => {
+      if (item?.ok && item?.record) {
+        applyFormationRecordToLocalState_(item.record);
+      }
+    });
+
+    setFormationRouteBulkProgress_(
+      "invite",
+      100,
+      "Invitaciones registradas",
+      `${response?.invited || 0} persona(s) ya quedaron marcadas como invitadas.`
+    );
+    renderApp();
+    await waitMs_(700);
+
+    showToast(
+      "Invitación masiva completada",
+      `${response?.invited || 0} invitación(es) registradas en lote${manualInviteCount ? `, ${manualInviteCount} manual(es) por falta de teléfono` : ""}${response?.errors ? ` y ${response.errors} con error` : ""}.`,
+      response?.errors ? "warning" : "success"
+    );
+  } finally {
+    clearFormationRouteBulkProgress_();
+    renderApp();
+  }
 }
 
 async function registerFormationEncounter_(candidate) {
@@ -26845,36 +32506,43 @@ async function registerFormationEncounter_(candidate) {
   }
 
   const preferredProcessId = String(state.filters.formationOps.processId || state.formationProcesses[0]?.id || "").trim();
-  state.ui.pendingFormationEnrollmentPersonId = candidate.personId;
+  state.ui.pendingFormationEnrollmentPersonId = "";
+  setFormationRouteEnrollmentProgress_(
+    candidate.personId,
+    8,
+    "Preparando inscripción...",
+    "Estamos tomando el proceso activo y validando el primer paso disponible."
+  );
   state.ui.selectedFormationPersonId = candidate.personId;
-  state.ui.formationSection = "operations";
+  state.ui.formationSection = "route";
   state.filters.formationOps.processId = preferredProcessId;
   state.filters.formationOps.levelId = "";
   state.filters.formationOps.offeringId = "";
   state.filters.formationOps.personSearch = "";
-
-  await loadFormationOperationsData_({
-    force: false,
-    showLoading: false,
-    processId: preferredProcessId,
-    levelId: "",
-    offeringId: "",
-    sessionNumber: "1"
-  });
-
-  const eligibleOfferings = getAssignableFormationOfferings_(candidate.personId);
-  const firstEligibleOffering = eligibleOfferings[0] || null;
-
-  if (firstEligibleOffering) {
-    state.filters.formationOps.levelId = String(firstEligibleOffering.levelId || "");
-    state.filters.formationOps.offeringId = String(firstEligibleOffering.id || "");
-    state.ui.selectedFormationOfferingId = String(firstEligibleOffering.id || "");
-    syncFormationOperationsSelection_();
-  }
-
   renderApp();
 
+  try {
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      24,
+      "Buscando proceso activo...",
+      "Estamos revisando los pasos disponibles para esta persona."
+    );
+    renderApp();
+    await loadFormationPortalOfferingsList_(preferredProcessId, "", {
+      force: false,
+      showLoading: false
+    });
+  } catch (error) {
+    clearFormationRouteEnrollmentProgress_();
+    renderApp();
+    throw error;
+  }
+
+  const firstEligibleOffering = getRouteEncounterEnrollmentOfferingForPerson_(candidate.personId, preferredProcessId);
+
   if (!firstEligibleOffering) {
+    clearFormationRouteEnrollmentProgress_();
     state.ui.formationSection = "levels";
     renderApp();
     showToast(
@@ -26886,11 +32554,271 @@ async function registerFormationEncounter_(candidate) {
     return;
   }
 
-  showToast(
-    "Paso listo",
-    `Ahora confirma el Proceso de Formación y completa la inscripción de ${candidate.personName || "la persona"} en ${firstEligibleOffering.levelName || "el Paso 1"}.`,
-    "success"
-  );
+  try {
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      52,
+      "Paso localizado",
+      `El sistema encontró ${firstEligibleOffering.name || firstEligibleOffering.levelName || "el paso inicial"} y preparará la inscripción.`
+    );
+    renderApp();
+    await waitMs_(120);
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      74,
+      "Guardando inscripción...",
+      "Se está registrando a la persona dentro del Proceso de Formación."
+    );
+    renderApp();
+    const result = await commitFormationEnrollmentToOffering_(candidate.personId, firstEligibleOffering, {
+      loadingMessage: "Inscribiendo a Encuentro...",
+      skipLoading: true
+    });
+
+    if (!result?.response) {
+      clearFormationRouteEnrollmentProgress_();
+      renderApp();
+      return;
+    }
+
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      88,
+      "Sincronizando acceso...",
+      "Se está generando la cuenta y reflejando el estado del participante."
+    );
+    renderApp();
+
+    syncFormationSectionFiltersAfterEnrollment_(result.response?.enrollment || null, firstEligibleOffering);
+    state.ui.pendingFormationEnrollmentPersonId = "";
+    invalidateFormationWorkspaceCache_("both");
+    await ensureFormationPortalSectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationPortalFilters_().processId || preferredProcessId || "",
+      preferredOfferingId: getFormationPortalFilters_().offeringId || firstEligibleOffering.id || ""
+    });
+    await ensureFormationJourneySectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationJourneyFilters_().processId || getFormationPortalFilters_().processId || preferredProcessId || ""
+    });
+    state.ui.formationSection = "portal";
+    setFormationRouteEnrollmentProgress_(
+      candidate.personId,
+      100,
+      "Inscrito a Proceso de Formación",
+      `${candidate.personName || "La persona"} ya quedó registrada y ahora aparecerá en Inscritos y portal.`
+    );
+    renderApp();
+    await waitMs_(900);
+
+    showToast(
+      "Proceso de Formación inscrito",
+      result.response?.account?.temporaryPin
+        ? `${candidate.personName || "La persona"} ya quedó inscrito(a) al Proceso de Formación. Usuario ${result.response.account.username} con PIN ${result.response.account.temporaryPin}. Ahora entra a Inscritos y portal y valida su paso actual.`
+        : `${candidate.personName || "La persona"} ya quedó inscrito(a) al Proceso de Formación. Ahora entra a Inscritos y portal y valida su paso actual.`,
+      "success"
+    );
+  } finally {
+    clearFormationRouteEnrollmentProgress_();
+    renderApp();
+  }
+}
+
+async function registerFormationEncounterBulk_() {
+  const selectedCandidates = getSelectedFormationRouteCandidates_().filter((candidate) => candidate?.invitedAt && !candidate?.encounterRegisteredAt);
+  const preferredProcessId = String(state.filters.formationOps.processId || state.formationProcesses[0]?.id || "").trim();
+  const groupedAssignments = new Map();
+  const skippedCandidates = [];
+  const successfulPersonIds = [];
+  let createdCount = 0;
+  let alreadyExistingCount = 0;
+  let errorCount = 0;
+  let firstOffering = null;
+
+  if (!selectedCandidates.length) {
+    showToast("Sin lote listo", "Selecciona personas invitadas para inscribirlas al Proceso de Formación.", "warning");
+    return;
+  }
+
+  if (!state.formationProcesses.length) {
+    state.ui.formationSection = "levels";
+    renderApp();
+    showToast(
+      "Primero crea el proceso",
+      "Antes de inscribir en lote, crea al menos un Proceso de Formación y su primer paso programado.",
+      "warning"
+    );
+    scrollToSection_("formation-process-panel");
+    return;
+  }
+
+  try {
+    setFormationRouteBulkProgress_(
+      "register",
+      8,
+      "Preparando inscripción masiva...",
+      `Se validarán ${selectedCandidates.length} persona(s) invitadas.`
+    );
+    state.ui.pendingFormationEnrollmentPersonId = "";
+    renderApp();
+
+    await loadFormationPortalOfferingsList_(preferredProcessId, "", {
+      force: false,
+      showLoading: false
+    });
+
+    setFormationRouteBulkProgress_(
+      "register",
+      24,
+      "Buscando pasos disponibles...",
+      "El sistema está revisando el primer paso válido para cada persona seleccionada."
+    );
+    renderApp();
+
+    selectedCandidates.forEach((candidate) => {
+      const selectedOffering = getRouteEncounterEnrollmentOfferingForPerson_(candidate.personId, preferredProcessId);
+
+      if (!selectedOffering?.id) {
+        skippedCandidates.push(candidate);
+        return;
+      }
+
+      if (!groupedAssignments.has(selectedOffering.id)) {
+        groupedAssignments.set(selectedOffering.id, {
+          offering: selectedOffering,
+          seasonId: String(candidate?.seasonId || state.filters.formation.seasonId || "").trim(),
+          personIds: []
+        });
+      }
+
+      groupedAssignments.get(selectedOffering.id).personIds.push(String(candidate?.personId || "").trim());
+    });
+
+    if (!groupedAssignments.size) {
+      clearFormationRouteBulkProgress_();
+      renderApp();
+      showToast(
+        "Sin paso habilitado",
+        "Las personas seleccionadas todavía no tienen un paso disponible dentro del proceso activo. Revisa Catálogos y el primer paso programado.",
+        "warning"
+      );
+      return;
+    }
+
+    const assignmentGroups = Array.from(groupedAssignments.values());
+
+    for (let index = 0; index < assignmentGroups.length; index += 1) {
+      const assignment = assignmentGroups[index];
+      const currentOffering = assignment.offering;
+      let response = null;
+
+      if (!firstOffering) {
+        firstOffering = currentOffering;
+      }
+
+      setFormationRouteBulkProgress_(
+        "register",
+        Math.min(86, 30 + Math.round((index / Math.max(assignmentGroups.length, 1)) * 48)),
+        "Inscribiendo lote...",
+        `${currentOffering?.name || currentOffering?.levelName || "Paso inicial"}: ${assignment.personIds.length} persona(s).`
+      );
+      renderApp();
+
+      response = await apiPost("formation.enrollment.assignBulk", {
+        offeringId: currentOffering.id,
+        personIds: assignment.personIds,
+        seasonId: assignment.seasonId,
+        enrolledBy: state.user?.name || ""
+      });
+
+      createdCount += Number(response?.created || 0);
+      alreadyExistingCount += Number(response?.alreadyExisting || 0);
+      errorCount += Number(response?.errors || 0);
+
+      (Array.isArray(response?.results) ? response.results : []).forEach((resultItem) => {
+        const cleanPersonId = String(resultItem?.personId || "").trim();
+
+        if (!cleanPersonId || !resultItem?.ok) {
+          return;
+        }
+
+        successfulPersonIds.push(cleanPersonId);
+        markFormationEncounterEnrollmentLocally_(
+          cleanPersonId,
+          {
+            offeringName: currentOffering?.name || currentOffering?.levelName || "",
+            levelName: currentOffering?.levelName || currentOffering?.name || "",
+            status: resultItem?.status || "EN_CURSO",
+            enrolledAt: new Date().toISOString()
+          },
+          {
+            status: resultItem?.status || "EN_CURSO",
+            levelName: currentOffering?.levelName || currentOffering?.name || "",
+            encounterRegisteredAt: new Date().toISOString()
+          }
+        );
+      });
+    }
+
+    if (successfulPersonIds.length) {
+      const successfulSet = new Set(successfulPersonIds);
+      state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((candidate) => {
+        return !successfulSet.has(String(candidate?.personId || "").trim());
+      });
+    }
+
+    state.selectedFormationRoutePeople = [];
+    invalidateFormationWorkspaceCache_("both");
+
+    if (firstOffering) {
+      syncFormationSectionFiltersAfterEnrollment_({
+        processId: firstOffering.processId,
+        levelId: firstOffering.levelId,
+        offeringId: firstOffering.id
+      }, firstOffering);
+    }
+
+    setFormationRouteBulkProgress_(
+      "register",
+      92,
+      "Sincronizando subfichas...",
+      "Actualizando Inscritos y portal y el Camino Proceso de Formación."
+    );
+    renderApp();
+
+    await ensureFormationPortalSectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationPortalFilters_().processId || preferredProcessId || "",
+      preferredOfferingId: getFormationPortalFilters_().offeringId || firstOffering?.id || ""
+    });
+    await ensureFormationJourneySectionData_({
+      force: true,
+      showLoading: false,
+      processId: getFormationJourneyFilters_().processId || getFormationPortalFilters_().processId || preferredProcessId || ""
+    });
+
+    state.ui.formationSection = "portal";
+    setFormationRouteBulkProgress_(
+      "register",
+      100,
+      "Inscripción masiva completada",
+      `${successfulPersonIds.length} persona(s) ya quedaron dentro del Proceso de Formación.`
+    );
+    renderApp();
+    await waitMs_(900);
+
+    showToast(
+      "Inscripción masiva completada",
+      `${createdCount} nueva(s), ${alreadyExistingCount} ya estaban inscritas${skippedCandidates.length ? `, ${skippedCandidates.length} sin paso habilitado` : ""}${errorCount ? ` y ${errorCount} con error` : ""}.`,
+      (errorCount || skippedCandidates.length) ? "warning" : "success"
+    );
+  } finally {
+    clearFormationRouteBulkProgress_();
+    renderApp();
+  }
 }
 
 function downloadPeopleTemplate_() {
@@ -27498,6 +33426,92 @@ function applyScrapDeleteFormationProcessLocally_(processId) {
   state.cacheKeys.formationEnrollments = "";
 }
 
+function applyScrapResetFormationProcessLocally_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  const affectedOfferingIds = new Set(
+    (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
+      .filter((offering) => String(offering?.processId || "").trim() === cleanProcessId)
+      .map((offering) => String(offering?.id || "").trim())
+      .filter(Boolean)
+  );
+
+  if (!cleanProcessId) {
+    return;
+  }
+
+  state.formationEnrollments = (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []).filter(
+    (enrollment) => String(enrollment?.processId || "").trim() !== cleanProcessId
+  );
+  state.formationProcessRoster = (Array.isArray(state.formationProcessRoster) ? state.formationProcessRoster : []).filter(
+    (row) => String(row?.processId || "").trim() !== cleanProcessId
+  );
+  state.loaded.formationRecords = false;
+  state.cacheKeys.formationRecords = "";
+  state.ui.scrapFormationProcessPreview = null;
+
+  if (String(state.filters.formationOps.processId || "") === cleanProcessId) {
+    state.ui.selectedFormationEnrollmentId = "";
+    state.ui.selectedFormationOfferingId = "";
+    state.filters.formationOps.offeringId = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
+    state.formationProcessRoster = [];
+    state.loaded.formationProcessRoster = false;
+    state.cacheKeys.formationProcessRoster = "";
+  }
+
+  if (
+    String(state.ui.selectedFormationOfferingId || "")
+    && affectedOfferingIds.has(String(state.ui.selectedFormationOfferingId || "").trim())
+  ) {
+    state.ui.selectedFormationEnrollmentId = "";
+    state.ui.selectedFormationOfferingId = "";
+    state.filters.formationOps.offeringId = "";
+    state.formationAttendanceContext = null;
+    state.loaded.formationAttendanceContext = false;
+    state.cacheKeys.formationAttendanceContext = "";
+  }
+
+  state.loaded.formationEnrollments = false;
+  state.cacheKeys.formationEnrollments = "";
+  invalidateFormationWorkspaceCache_("both");
+}
+
+function applyScrapDeleteEncounterRouteLocally_(seasonId, groupId = "") {
+  const cleanSeasonId = String(seasonId || "").trim();
+  const cleanGroupId = String(groupId || "").trim();
+  const isRouteStatus = (status) => {
+    const normalized = normalizeFormationStatusToken_(status);
+    return normalized === "CANDIDATO_ENCUENTRO" || normalized === "INVITADO_ENCUENTRO" || normalized === "PROSPECTO_GF";
+  };
+
+  if (!cleanSeasonId) {
+    return;
+  }
+
+  const isSameSeason = (item) => String(item?.seasonId || "").trim() === cleanSeasonId;
+  const isSameGroup = (item) => !cleanGroupId || String(item?.groupId || "").trim() === cleanGroupId;
+
+  state.formationCandidates = (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((item) => {
+    return !(isSameSeason(item) && isSameGroup(item));
+  });
+  state.connectionEncounterCandidates = (Array.isArray(state.connectionEncounterCandidates) ? state.connectionEncounterCandidates : []).filter((item) => {
+    return !(isSameSeason(item) && isSameGroup(item));
+  });
+  state.formationRecords = (Array.isArray(state.formationRecords) ? state.formationRecords : []).filter((item) => {
+    return !(isSameSeason(item) && isSameGroup(item) && isRouteStatus(item?.status));
+  });
+
+  state.loaded.formationCandidates = false;
+  state.cacheKeys.formationCandidates = "";
+  state.loaded.connectionEncounterCandidates = false;
+  state.cacheKeys.connectionEncounterCandidates = "";
+  state.loaded.formationRecords = false;
+  state.cacheKeys.formationRecords = "";
+  invalidateFormationWorkspaceCache_("both");
+}
+
 function applyDeleteFormationLevelLocally_(levelId) {
   const cleanLevelId = String(levelId || "").trim();
 
@@ -27711,6 +33725,112 @@ async function executeScrapDeleteFormationProcess_(processId) {
   scrollToSection_("admin-scrap-center");
 }
 
+async function executeScrapResetFormationProcess_(processId) {
+  const cleanProcessId = String(processId || "").trim();
+  let response = null;
+
+  if (!cleanProcessId) {
+    showToast("Falta proceso", "Selecciona el Proceso de Formación que deseas reiniciar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteFormationProcessModuleData", {
+      processId: cleanProcessId
+    });
+
+    applyScrapResetFormationProcessLocally_(cleanProcessId);
+
+    const refreshResults = await Promise.allSettled([
+      loadScrapFormationProcessPreview_(cleanProcessId, {
+        force: true,
+        showLoading: false
+      }),
+      loadPeopleDirectory({
+        force: true,
+        showLoading: false
+      }),
+      (state.loaded.formationOfferings || state.loaded.formationEnrollments)
+        ? loadFormationOperationsData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      state.currentView === "formation"
+        ? ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve()
+    ]);
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP formation reset refresh warning", result.reason);
+      });
+  }, "Reiniciando solo datos del módulo Formación...");
+
+  showToast(
+    "Formación reiniciada",
+    `${response?.processName || cleanProcessId} conservó su estructura y limpió ${response?.deletedEnrollments || 0} inscripción(es), ${response?.deletedLevelAttendances || 0} asistencia(s), ${response?.deletedFormationRecords || 0} registro(s) y ${response?.deletedFormationAccounts || 0} cuenta(s) portal. ${response?.resetPeople || 0} persona(s) quedaron listas para iniciar de nuevo.`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
+}
+
+async function executeScrapDeleteEncounterRoute_(seasonId, groupId = "") {
+  const cleanSeasonId = String(seasonId || "").trim();
+  const cleanGroupId = String(groupId || "").trim();
+  let response = null;
+
+  if (!cleanSeasonId) {
+    showToast("Falta temporada", "Selecciona primero la temporada cuya Ruta a Encuentro deseas limpiar.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    response = await apiPost("scrap.deleteEncounterRouteData", {
+      seasonId: cleanSeasonId,
+      groupId: cleanGroupId
+    });
+
+    applyScrapDeleteEncounterRouteLocally_(cleanSeasonId, cleanGroupId);
+
+    const refreshResults = await Promise.allSettled([
+      state.currentView === "formation"
+        ? ensureFormationViewData_({
+          force: true,
+          showLoading: false
+        })
+        : Promise.resolve(),
+      state.currentView === "participants"
+        ? loadConnectionEncounterCandidates_({
+          force: true,
+          showLoading: false,
+          seasonId: cleanSeasonId,
+          groupId: cleanGroupId
+        })
+        : Promise.resolve()
+    ]);
+
+    refreshResults
+      .filter((result) => result.status === "rejected")
+      .forEach((result) => {
+        console.error("SCRAP encounter route refresh warning", result.reason);
+      });
+  }, "Limpiando Ruta a Encuentro...");
+
+  showToast(
+    "Ruta a Encuentro limpia",
+    `${response?.seasonName || cleanSeasonId} quedó sin ${response?.deletedFormationRecords || 0} registro(s) de Pre-Encuentro. Ahora ya puedes usar Actualizar candidatos para recalcular desde las 3 asistencias consecutivas reales.`,
+    "success"
+  );
+  renderApp();
+  scrollToSection_("admin-scrap-center");
+}
+
 async function executeDeleteFormationLevel_(levelId) {
   const cleanLevelId = String(levelId || "").trim();
   let response = null;
@@ -27849,6 +33969,8 @@ async function executeScrapDeleteFormationAttendances_(personId) {
       state.ui.selectedFormationPersonId = "";
       state.formationProfile = null;
     }
+
+    clearFormationAttendanceRuntimeLocks_();
 
     const refreshResults = await Promise.allSettled([
       loadScrapDeletePreview_(cleanPersonId, {
@@ -28208,6 +34330,7 @@ async function saveAttendanceCapture() {
     await loadAttendanceData({
       force: true
     });
+    invalidateDashboardSeasonMatrix_();
   }, "Guardando asistencia...");
 
   showToast("Asistencia guardada", "La captura quedo registrada correctamente.", "success");
@@ -28279,12 +34402,18 @@ async function registerQrAttendance(personId, options = {}) {
 
     const source = options.source || "manual";
     const task = async () => {
-      state.qrLastResult = await apiPost("formation.levelAttendance.registerQr", {
+      const scanMeta = resolveFormationQrScanMeta_(cleanPersonId);
+      state.qrLastResult = await apiPost("formation.levelAttendance.registerQrFast", {
         offeringId: formationContext.offeringId,
         sessionNumber: formationContext.sessionNumber,
         personId: cleanPersonId,
+        enrollmentId: scanMeta.enrollmentId || "",
+        levelId: scanMeta.levelId || "",
+        personName: scanMeta.name || "",
+        personNumber: scanMeta.participantId || "",
+        personPhone: scanMeta.phone || "",
         capturedBy: state.user?.name || "",
-        skipProgressSync: source === "scanner" ? "1" : ""
+        skipOfferingLookup: "1"
       });
       const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, source);
       applyFormationScannerFeedbackResult_(successResult, {
@@ -28298,19 +34427,14 @@ async function registerQrAttendance(personId, options = {}) {
       qrScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
       scheduleQrScannerResultReset_(FORMATION_QR_SUCCESS_HOLD_MS);
       playKioskSignal_(state.qrScanner.result?.tone || "success");
+      speakFormationAttendanceWelcome_(successResult);
       try {
-        applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
         state.formationQrActivity = [
           {
             ...state.qrScanner.result
           },
           ...state.formationQrActivity
         ].slice(0, 8);
-        scheduleFormationAttendanceContextRefresh_(
-          formationContext.offeringId,
-          formationContext.sessionNumber,
-          12000
-        );
       } catch (postSuccessError) {
         console.error("Formation QR post-success sync warning", postSuccessError);
       }
@@ -28363,6 +34487,10 @@ async function registerQrAttendance(personId, options = {}) {
     payload.sessionId = context.sessionId;
   }
 
+  if (context?.groupId) {
+    payload.groupId = context.groupId;
+  }
+
   const source = options.source || "manual";
   const task = async () => {
     state.qrLastResult = await apiPost("qr.registerAttendance", payload);
@@ -28370,7 +34498,10 @@ async function registerQrAttendance(personId, options = {}) {
     state.qrScanner.status = "success";
     state.qrScanner.message = state.qrScanner.result.message;
     state.filters.qr.personId = "";
-    await loadActiveSession();
+    await loadActiveSession({
+      force: true,
+      groupId: context?.groupId || ""
+    });
     await loadQrSummary({
       showLoading: options.showLoading !== false,
       force: true
@@ -28430,8 +34561,17 @@ async function ensureFormationAttendanceScannerStarted_() {
     return;
   }
 
+  await waitForQrDecoderRuntime_(900);
+
   if (!formationAttendanceScannerRuntime.detector) {
-    if ("BarcodeDetector" in window) {
+    if (isIOSLikeDevice_() && typeof window.jsQR === "function") {
+      formationAttendanceScannerRuntime.detector = {
+        detect() {
+          return [];
+        }
+      };
+      formationAttendanceScannerRuntime.engine = "jsqr";
+    } else if ("BarcodeDetector" in window) {
       formationAttendanceScannerRuntime.detector = new window.BarcodeDetector({
         formats: ["qr_code"]
       });
@@ -28477,6 +34617,7 @@ async function ensureFormationAttendanceScannerStarted_() {
   video.autoplay = true;
   video.playsInline = true;
   video.setAttribute("playsinline", "true");
+  video.setAttribute("webkit-playsinline", "true");
 
   try {
     await video.play();
@@ -28528,6 +34669,8 @@ function stopFormationAttendanceScanner_(keepFeedback = false) {
   formationAttendanceScannerRuntime.canvas = null;
   formationAttendanceScannerRuntime.context = null;
   formationAttendanceScannerRuntime.cameraFacing = "";
+  formationAttendanceScannerRuntime.lockedOfferingId = "";
+  formationAttendanceScannerRuntime.lockedSessionNumber = "";
   formationAttendanceScannerRuntime.status = keepFeedback && formationAttendanceScannerRuntime.enabled ? "starting" : "idle";
   formationAttendanceScannerRuntime.message = keepFeedback && formationAttendanceScannerRuntime.enabled
     ? "Preparando cámara..."
@@ -28634,7 +34777,9 @@ function detectFormationAttendanceQrWithJsQrFallback_(video) {
     return "";
   }
 
-  const regions = buildPreferredQrScanRegions_(width, height, 1120);
+  const regions = isIOSLikeDevice_()
+    ? buildPreferredQrScanRegions_(width, height, 760).slice(0, 2)
+    : buildPreferredQrScanRegions_(width, height, 1120);
   for (const region of regions) {
     const decoded = decodeFormationAttendanceQrFromVideoRegion_(video, region);
     if (decoded) {
@@ -28645,7 +34790,7 @@ function detectFormationAttendanceQrWithJsQrFallback_(video) {
   return "";
 }
 
-function drawFormationAttendanceQrRegionToCanvas_(video, region) {
+function drawFormationAttendanceQrRegionToCanvas_(video, region, mirror = false) {
   if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context) {
     formationAttendanceScannerRuntime.canvas = document.createElement("canvas");
     formationAttendanceScannerRuntime.context = formationAttendanceScannerRuntime.canvas.getContext("2d", {
@@ -28666,6 +34811,11 @@ function drawFormationAttendanceQrRegionToCanvas_(video, region) {
   }
 
   formationAttendanceScannerRuntime.context.clearRect(0, 0, canvasWidth, canvasHeight);
+  formationAttendanceScannerRuntime.context.save();
+  if (mirror) {
+    formationAttendanceScannerRuntime.context.translate(canvasWidth, 0);
+    formationAttendanceScannerRuntime.context.scale(-1, 1);
+  }
   formationAttendanceScannerRuntime.context.drawImage(
     video,
     region.sx,
@@ -28677,12 +34827,13 @@ function drawFormationAttendanceQrRegionToCanvas_(video, region) {
     canvasWidth,
     canvasHeight
   );
+  formationAttendanceScannerRuntime.context.restore();
 
   return formationAttendanceScannerRuntime.canvas;
 }
 
 function decodeFormationAttendanceQrFromVideoRegion_(video, region) {
-  if (!formationAttendanceScannerRuntime.canvas || !formationAttendanceScannerRuntime.context || typeof window.jsQR !== "function") {
+  if (typeof window.jsQR !== "function") {
     return "";
   }
 
@@ -28693,8 +34844,28 @@ function decodeFormationAttendanceQrFromVideoRegion_(video, region) {
 
   const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
-  const imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
-  const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+  let imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
+  let decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+    inversionAttempts: "attemptBoth"
+  });
+
+  if (decoded?.data) {
+    return String(decoded.data).trim();
+  }
+
+  const shouldTryMirroredFrame = isIOSLikeDevice_()
+    || normalizeQrCameraFacing_(formationAttendanceScannerRuntime.cameraFacing || state.filters.qr.cameraFacing) === "front";
+  if (!shouldTryMirroredFrame) {
+    return "";
+  }
+
+  const mirroredCanvas = drawFormationAttendanceQrRegionToCanvas_(video, region, true);
+  if (!mirroredCanvas) {
+    return "";
+  }
+
+  imageData = formationAttendanceScannerRuntime.context.getImageData(0, 0, mirroredCanvas.width, mirroredCanvas.height);
+  decoded = window.jsQR(imageData.data, mirroredCanvas.width, mirroredCanvas.height, {
     inversionAttempts: "attemptBoth"
   });
 
@@ -28731,25 +34902,15 @@ function processFormationAttendanceQrRawValue_(rawValue) {
     return;
   }
 
-  if (isFormationAttendanceAlreadyRegisteredLocally_(extractedPersonId, state.filters.formationOps.sessionNumber)) {
-    const duplicateResult = buildFormationQrFailureResult_(
-      new ApiError("La asistencia ya estaba registrada en esta sesión del paso.", "DUPLICATE_FORMATION_QR_ATTENDANCE"),
-      extractedPersonId
-    );
-    formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = now + 2200;
-    formationAttendanceScannerRuntime.pausedUntil = now + FORMATION_QR_ERROR_HOLD_MS;
-    setDedicatedFormationAttendanceFeedback_(duplicateResult, FORMATION_QR_ERROR_HOLD_MS);
-    playKioskSignal_("error");
-    return;
-  }
-
   formationAttendanceScannerRuntime.lastValue = extractedPersonId;
   formationAttendanceScannerRuntime.lastValueAt = now;
   formationAttendanceScannerRuntime.requestPending = true;
   formationAttendanceScannerRuntime.requestPersonId = extractedPersonId;
   formationAttendanceScannerRuntime.requestStartedAt = now;
-  formationAttendanceScannerRuntime.pausedUntil = now + 5000;
+  formationAttendanceScannerRuntime.suppressPersonId = extractedPersonId;
+  formationAttendanceScannerRuntime.suppressUntil = now + 900;
+  formationAttendanceScannerRuntime.pausedUntil = now + 900;
+
   setDedicatedFormationAttendanceFeedback_(buildFormationQrProcessingResult_(extractedPersonId), 0);
   void submitFormationAttendanceScannerRegistration_(extractedPersonId);
 }
@@ -28757,7 +34918,10 @@ function processFormationAttendanceQrRawValue_(rawValue) {
 async function submitFormationAttendanceScannerRegistration_(personId) {
   const cleanPersonId = String(personId || "").trim();
   const formationContext = resolveFormationQrContext_();
-  const attendanceContext = state.formationAttendanceContext || null;
+  const selectedOffering = getSelectedFormationOffering_();
+  const scanMeta = resolveFormationQrScanMeta_(cleanPersonId);
+  const requestStartedAt = Date.now();
+  let qrResponse = null;
 
   if (!formationContext?.offeringId) {
     const missingContextResult = buildFormationQrFailureResult_(
@@ -28771,10 +34935,19 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     return;
   }
 
-  if (
-    String(attendanceContext?.offering?.id || "") !== String(formationContext.offeringId || "")
-    || !attendanceContext?.captureEnabled
-  ) {
+  const activeSessionNumber = String(
+    selectedOffering?.activeSessionNumber
+    || selectedOffering?.activeSession?.number
+    || ""
+  ).trim();
+  const captureEnabled = Boolean(
+    selectedOffering
+    && String(selectedOffering.id || "") === String(formationContext.offeringId || "")
+    && activeSessionNumber
+    && activeSessionNumber === String(formationContext.sessionNumber || "").trim()
+  );
+
+  if (!captureEnabled) {
     const inactiveSessionResult = buildFormationQrFailureResult_(
       new ApiError("Primero activa la sesión correcta del paso antes de seguir escaneando.", "FORMATION_SESSION_NOT_ACTIVE"),
       cleanPersonId
@@ -28787,16 +34960,38 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
   }
 
   try {
-    state.qrLastResult = await apiPost("formation.levelAttendance.registerQr", {
-      offeringId: formationContext.offeringId,
-      sessionNumber: formationContext.sessionNumber,
-      personId: cleanPersonId,
-      capturedBy: state.user?.name || "",
-      skipProgressSync: "1"
-    });
+    try {
+      qrResponse = await apiPost("formation.levelAttendance.registerQrFast", {
+        offeringId: formationContext.offeringId,
+        sessionNumber: formationContext.sessionNumber,
+          personId: cleanPersonId,
+          enrollmentId: scanMeta.enrollmentId || "",
+          levelId: scanMeta.levelId || "",
+          personName: scanMeta.name || "",
+          personNumber: scanMeta.participantId || "",
+          personPhone: scanMeta.phone || "",
+          capturedBy: state.user?.name || "",
+          skipOfferingLookup: "1"
+        });
+      formationAttendanceScannerRuntime.fastRouteSupported = true;
+    } catch (fastRouteError) {
+      formationAttendanceScannerRuntime.fastRouteSupported = false;
+      if (isUnknownActionError_(fastRouteError, "formation.levelAttendance.registerQrFast")) {
+        throw new ApiError(
+          "La API publicada todavía no tiene la ruta rápida de asistencia. Sube el backend actualizado y vuelve a desplegar la Web App.",
+          "FORMATION_FAST_QR_ROUTE_MISSING"
+        );
+      }
 
+      throw fastRouteError;
+    }
+
+    if ((Date.now() - requestStartedAt) < FORMATION_QR_PROCESSING_MIN_MS) {
+      await waitMs_(FORMATION_QR_PROCESSING_MIN_MS - (Date.now() - requestStartedAt));
+    }
+
+    state.qrLastResult = qrResponse;
     const successResult = buildFormationQrSuccessResult_(state.qrLastResult, cleanPersonId, "scanner");
-    applyFormationQrAttendanceLocally_(state.qrLastResult, formationContext.sessionNumber);
     state.formationQrActivity = [
       successResult,
       ...state.formationQrActivity
@@ -28805,22 +35000,18 @@ async function submitFormationAttendanceScannerRegistration_(personId) {
     formationAttendanceScannerRuntime.requestPersonId = "";
     formationAttendanceScannerRuntime.requestStartedAt = 0;
     formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 2200;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
     formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_SUCCESS_HOLD_MS;
     setDedicatedFormationAttendanceFeedback_(successResult, FORMATION_QR_SUCCESS_HOLD_MS);
     playKioskSignal_("success");
-    scheduleFormationAttendanceContextRefresh_(
-      formationContext.offeringId,
-      formationContext.sessionNumber,
-      12000
-    );
+    speakFormationAttendanceWelcome_(successResult);
   } catch (error) {
     const failureResult = buildFormationQrFailureResult_(error, cleanPersonId);
     formationAttendanceScannerRuntime.requestPending = false;
     formationAttendanceScannerRuntime.requestPersonId = "";
     formationAttendanceScannerRuntime.requestStartedAt = 0;
     formationAttendanceScannerRuntime.suppressPersonId = cleanPersonId;
-    formationAttendanceScannerRuntime.suppressUntil = Date.now() + 2200;
+    formationAttendanceScannerRuntime.suppressUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
     formationAttendanceScannerRuntime.pausedUntil = Date.now() + FORMATION_QR_ERROR_HOLD_MS;
     setDedicatedFormationAttendanceFeedback_(failureResult, FORMATION_QR_ERROR_HOLD_MS);
     playKioskSignal_("error");
@@ -28850,8 +35041,21 @@ async function ensureQrScannerStarted_() {
     return;
   }
 
+  await waitForQrDecoderRuntime_(900);
+
   if (!qrScannerRuntime.detector) {
-    if ("BarcodeDetector" in window) {
+    if (isIOSLikeDevice_() && typeof window.jsQR === "function") {
+      qrScannerRuntime.detector = {
+        detect() {
+          return [];
+        }
+      };
+      qrScannerRuntime.engine = "jsqr";
+      qrScannerRuntime.canvas = document.createElement("canvas");
+      qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
+        willReadFrequently: true
+      });
+    } else if ("BarcodeDetector" in window) {
       qrScannerRuntime.detector = new window.BarcodeDetector({
         formats: ["qr_code"]
       });
@@ -28898,6 +35102,7 @@ async function ensureQrScannerStarted_() {
   video.autoplay = true;
   video.playsInline = true;
   video.setAttribute("playsinline", "true");
+  video.setAttribute("webkit-playsinline", "true");
 
   try {
     await video.play();
@@ -29540,11 +35745,13 @@ function detectQrWithJsQrFallback_(video) {
   const width = video.videoWidth || video.clientWidth;
   const height = video.videoHeight || video.clientHeight;
 
-  if (!width || !height || !qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+  if (!width || !height || typeof window.jsQR !== "function") {
     return "";
   }
 
-  const regions = buildPreferredQrScanRegions_(width, height, 1120);
+  const regions = isIOSLikeDevice_()
+    ? buildPreferredQrScanRegions_(width, height, 760).slice(0, 2)
+    : buildPreferredQrScanRegions_(width, height, 1120);
 
   for (const region of regions) {
     const decoded = decodeQrFromVideoRegion_(video, region);
@@ -29589,7 +35796,7 @@ function buildPreferredQrScanRegions_(width, height, targetMax = 960) {
   ];
 }
 
-function drawQrRegionToCanvas_(video, region) {
+function drawQrRegionToCanvas_(video, region, mirror = false) {
   if (!qrScannerRuntime.canvas || !qrScannerRuntime.context) {
     qrScannerRuntime.canvas = document.createElement("canvas");
     qrScannerRuntime.context = qrScannerRuntime.canvas.getContext("2d", {
@@ -29610,6 +35817,11 @@ function drawQrRegionToCanvas_(video, region) {
   }
 
   qrScannerRuntime.context.clearRect(0, 0, canvasWidth, canvasHeight);
+  qrScannerRuntime.context.save();
+  if (mirror) {
+    qrScannerRuntime.context.translate(canvasWidth, 0);
+    qrScannerRuntime.context.scale(-1, 1);
+  }
   qrScannerRuntime.context.drawImage(
     video,
     region.sx,
@@ -29621,12 +35833,13 @@ function drawQrRegionToCanvas_(video, region) {
     canvasWidth,
     canvasHeight
   );
+  qrScannerRuntime.context.restore();
 
   return qrScannerRuntime.canvas;
 }
 
 function decodeQrFromVideoRegion_(video, region) {
-  if (!qrScannerRuntime.canvas || !qrScannerRuntime.context || typeof window.jsQR !== "function") {
+  if (typeof window.jsQR !== "function") {
     return "";
   }
 
@@ -29637,8 +35850,28 @@ function decodeQrFromVideoRegion_(video, region) {
 
   const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
-  const imageData = qrScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
-  const decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+  let imageData = qrScannerRuntime.context.getImageData(0, 0, canvasWidth, canvasHeight);
+  let decoded = window.jsQR(imageData.data, canvasWidth, canvasHeight, {
+    inversionAttempts: "attemptBoth"
+  });
+
+  if (decoded?.data) {
+    return String(decoded.data).trim();
+  }
+
+  const shouldTryMirroredFrame = isIOSLikeDevice_()
+    || normalizeQrCameraFacing_(qrScannerRuntime.cameraFacing || state.filters.qr.cameraFacing) === "front";
+  if (!shouldTryMirroredFrame) {
+    return "";
+  }
+
+  const mirroredCanvas = drawQrRegionToCanvas_(video, region, true);
+  if (!mirroredCanvas) {
+    return "";
+  }
+
+  imageData = qrScannerRuntime.context.getImageData(0, 0, mirroredCanvas.width, mirroredCanvas.height);
+  decoded = window.jsQR(imageData.data, mirroredCanvas.width, mirroredCanvas.height, {
     inversionAttempts: "attemptBoth"
   });
 
@@ -29883,7 +36116,76 @@ function playKioskSignal_(tone) {
   }
 }
 
+function getFirstNameForWelcome_(fullName) {
+  return String(fullName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)[0] || "";
+}
+
+function inferWelcomeWord_(firstName) {
+  const cleanName = normalizeText_(firstName);
+  if (!cleanName) {
+    return "Bienvenido";
+  }
+
+  return cleanName.endsWith("A") ? "Bienvenida" : "Bienvenido";
+}
+
+function primeFormationAttendanceVoice_() {
+  if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+    return;
+  }
+
+  try {
+    const utterance = new window.SpeechSynthesisUtterance("listo");
+    utterance.lang = "es-MX";
+    utterance.volume = 0.01;
+    utterance.rate = 1.2;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  } catch (error) {
+    // Algunos navegadores bloquean voz automática; el kiosko sigue operando sin audio.
+  }
+}
+
+function speakFormationAttendanceWelcome_(result) {
+  if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+    return;
+  }
+
+  const firstName = getFirstNameForWelcome_(result?.name);
+  if (!firstName) {
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new window.SpeechSynthesisUtterance(`${inferWelcomeWord_(firstName)}, ${firstName}`);
+    utterance.lang = "es-MX";
+    utterance.rate = 1.04;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  } catch (error) {
+    // Si el navegador bloquea la voz, el registro visual y el sonido corto siguen funcionando.
+  }
+}
+
+function resolveConnectionQrGroupId_() {
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const scopedDefaultGroupId = scopedGroups.length ? String(scopedGroups[0]?.id || "").trim() : "";
+  return String(
+    state.filters.qr.groupId
+    || state.filters.attendance.groupId
+    || scopedDefaultGroupId
+    || ""
+  ).trim();
+}
+
 function resolveQrContext() {
+  const groupId = resolveConnectionQrGroupId_();
+
   if (state.filters.qr.mode === "manual") {
     if (!state.filters.qr.seasonId || !state.filters.qr.sessionId) {
       return null;
@@ -29891,14 +36193,16 @@ function resolveQrContext() {
 
     return {
       seasonId: state.filters.qr.seasonId,
-      sessionId: state.filters.qr.sessionId
+      sessionId: state.filters.qr.sessionId,
+      groupId
     };
   }
 
   if (state.activeSession && state.activeSession.found) {
     return {
       seasonId: state.activeSession.session.seasonId,
-      sessionId: state.activeSession.session.id
+      sessionId: state.activeSession.session.id,
+      groupId
     };
   }
 
@@ -29907,14 +36211,25 @@ function resolveQrContext() {
 
 function resolveFormationQrContext_() {
   const selectedOffering = getSelectedFormationOffering_();
-  const sessionNumber = String(state.filters.formationOps.sessionNumber || "1").trim();
+  const lockedOfferingId = String(formationAttendanceScannerRuntime.lockedOfferingId || "").trim();
+  const lockedSessionNumber = String(formationAttendanceScannerRuntime.lockedSessionNumber || "").trim();
+  const sessionNumber = String(
+    formationAttendanceScannerRuntime.enabled && lockedSessionNumber
+      ? lockedSessionNumber
+      : (state.filters.formationOps.sessionNumber || "1")
+  ).trim();
+  const effectiveOfferingId = String(
+    formationAttendanceScannerRuntime.enabled && lockedOfferingId
+      ? lockedOfferingId
+      : (selectedOffering?.id || "")
+  ).trim();
 
-  if (!selectedOffering?.id || !sessionNumber) {
+  if (!effectiveOfferingId || !sessionNumber) {
     return null;
   }
 
   return {
-    offeringId: String(selectedOffering.id || ""),
+    offeringId: effectiveOfferingId,
     offeringName: String(selectedOffering.name || "").trim(),
     levelName: String(selectedOffering.levelName || "").trim(),
     sessionNumber
@@ -30031,7 +36346,16 @@ function getParticipantSeasonAssignmentState_(personId, currentGroupId, currentS
 }
 
 function getSelectedBulkPeople_() {
-  const selectedMap = new Map(state.people.map((person) => [String(person.id), person]));
+  const selectedMap = new Map();
+
+  (Array.isArray(state.people) ? state.people : []).forEach((person) => {
+    selectedMap.set(String(person?.id || ""), person);
+  });
+  (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).forEach((person) => {
+    if (!selectedMap.has(String(person?.id || ""))) {
+      selectedMap.set(String(person?.id || ""), person);
+    }
+  });
 
   return state.selectedBulkPeople
     .map((personId) => selectedMap.get(String(personId)) || null)
@@ -30254,6 +36578,7 @@ function syncAttendanceContextIntoQr_() {
   state.filters.qr.mode = "manual";
   state.filters.qr.seasonId = attendanceFilter.seasonId;
   state.filters.qr.sessionId = attendanceFilter.sessionId;
+  state.filters.qr.groupId = attendanceFilter.groupId || "";
 }
 
 function buildQrSessionActivity_(records) {
@@ -31039,7 +37364,12 @@ function getFilteredFormationRecords_() {
 }
 
 function getSelectedFormationProcess_() {
-  const requestedId = String(state.filters.formationOps.processId || "");
+  const sectionKey = state.currentView === "formation" ? getActiveFormationSection_() : "";
+  const requestedId = sectionKey === "portal"
+    ? getSelectedFormationPortalProcessId_()
+    : (sectionKey === "operations"
+      ? getSelectedFormationJourneyProcessId_()
+      : String(state.filters.formationOps.processId || ""));
   const rows = Array.isArray(state.formationProcesses) ? state.formationProcesses : [];
 
   if (requestedId) {
@@ -31072,6 +37402,62 @@ function getFilteredFormationOfferings_() {
 
       return String(right.startDate || "").localeCompare(String(left.startDate || ""));
     });
+}
+
+function getFormationOperationalLevelsForSelectedProcess_() {
+  const processId = String(state.filters.formationOps.processId || "").trim();
+  const offerings = Array.isArray(state.formationOfferings) ? state.formationOfferings : [];
+  const allLevels = getFormationSortedLevels_();
+
+  const relevantOfferings = processId
+    ? offerings.filter((offering) => String(offering?.processId || "").trim() === processId)
+    : offerings.slice();
+
+  if (!relevantOfferings.length) {
+    return allLevels;
+  }
+
+  const availableLevelIds = new Set(
+    relevantOfferings
+      .map((offering) => String(offering?.levelId || "").trim())
+      .filter(Boolean)
+  );
+
+  const filteredLevels = allLevels.filter((level) => {
+    return availableLevelIds.has(String(level?.id || "").trim());
+  });
+
+  if (filteredLevels.length) {
+    return filteredLevels;
+  }
+
+  const synthesizedLevels = [];
+  const seenLevels = {};
+  relevantOfferings
+    .slice()
+    .sort((left, right) => {
+      if (Number(left?.levelOrder || 0) !== Number(right?.levelOrder || 0)) {
+        return Number(left?.levelOrder || 0) - Number(right?.levelOrder || 0);
+      }
+
+      return String(left?.levelName || "").localeCompare(String(right?.levelName || ""));
+    })
+    .forEach((offering) => {
+      const levelId = String(offering?.levelId || "").trim();
+
+      if (!levelId || seenLevels[levelId]) {
+        return;
+      }
+
+      seenLevels[levelId] = true;
+      synthesizedLevels.push({
+        id: levelId,
+        name: offering?.levelName || levelId,
+        order: Number(offering?.levelOrder || 0)
+      });
+    });
+
+  return synthesizedLevels;
 }
 
 function getSelectedFormationOffering_() {
@@ -31200,7 +37586,7 @@ function getFormationAttendanceParticipants_(attendanceContext, filteredEnrollme
 }
 
 function getFormationEnrollmentSearchResults_(selectedOffering) {
-  const search = normalizeText(state.filters.formationOps.personSearch);
+  const search = normalizeText(getFormationPortalFilters_().personSearch);
   const pendingCandidate = getFormationPendingEnrollmentCandidate_();
 
   if (!selectedOffering) {
@@ -31248,8 +37634,85 @@ function getFormationEnrollmentSearchResults_(selectedOffering) {
   return matchingPeople;
 }
 
+function getFormationManualEnrollmentCandidates_(selectedOffering) {
+  const cleanOfferingId = String(selectedOffering?.id || "").trim();
+  const cleanProcessId = String(selectedOffering?.processId || "").trim();
+  const search = normalizeText(getFormationPortalFilters_().personSearch);
+  const portalSectionActive = state.ui.formationSection === "portal";
+  const portalRoster = getFormationPortalSourceRows_();
+  const enrolledRosterSource = portalSectionActive ? portalRoster : (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []);
+  const sourceMap = new Map();
+  (Array.isArray(state.peopleDirectory) ? state.peopleDirectory : []).forEach((person) => {
+    const personId = String(person?.id || "").trim();
+    if (personId) {
+      sourceMap.set(personId, person);
+    }
+  });
+  (Array.isArray(state.people) ? state.people : []).forEach((person) => {
+    const personId = String(person?.id || "").trim();
+    if (personId && !sourceMap.has(personId)) {
+      sourceMap.set(personId, person);
+    }
+  });
+  const sourcePeople = Array.from(sourceMap.values());
+  const isFirstStep = Number(selectedOffering?.levelOrder || 0) <= 1;
+
+  if (!cleanOfferingId || !sourcePeople.length) {
+    return [];
+  }
+
+  const enrolledInOffering = new Set(
+    enrolledRosterSource
+      .filter((enrollment) => String(enrollment?.offeringId || "").trim() === cleanOfferingId)
+      .map((enrollment) => String(enrollment?.personId || "").trim())
+      .filter(Boolean)
+  );
+  const enrolledInProcess = new Set(
+    (getFormationJourneySourceRows_().length ? getFormationJourneySourceRows_() : portalRoster)
+      .filter((enrollment) => !cleanProcessId || String(enrollment?.processId || "").trim() === cleanProcessId)
+      .map((enrollment) => String(enrollment?.personId || "").trim())
+      .filter(Boolean)
+  );
+
+  return sourcePeople
+    .filter((person) => {
+      const personId = String(person?.id || "").trim();
+
+      if (!personId || enrolledInOffering.has(personId) || enrolledInProcess.has(personId)) {
+        return false;
+      }
+
+      if (!canAssignPersonToFormationOffering_(personId, selectedOffering)) {
+        return false;
+      }
+
+      if (!search) {
+        return isFirstStep;
+      }
+
+      const haystack = normalizeText([
+        person?.id,
+        person?.numero,
+        person?.nombreCompleto,
+        person?.nombre,
+        person?.name,
+        person?.telefono,
+        person?.email,
+        person?.tipoPersona,
+        person?.type
+      ].join(" "));
+
+      return haystack.includes(search);
+    })
+    .sort((left, right) => String(left?.name || left?.nombreCompleto || left?.nombre || "").localeCompare(String(right?.name || right?.nombreCompleto || right?.nombre || "")))
+    .slice(0, search ? 80 : 120);
+}
+
 function buildFormationOperationsSummary_() {
-  const enrollmentRows = Array.isArray(state.formationEnrollments) ? state.formationEnrollments : [];
+  const workspaceRows = getFormationJourneySourceRows_();
+  const enrollmentRows = workspaceRows.length
+    ? workspaceRows
+    : (Array.isArray(state.formationEnrollments) ? state.formationEnrollments : []);
   const summary = {
     processes: state.formationProcesses.length,
     offerings: state.formationOfferings.length,
@@ -31679,14 +38142,14 @@ function renderFormationEncounterRouteCard_(candidate) {
     : "Sin detalle de sesiones";
   const inviteLabel = candidate.invitedAt ? "Reenviar invitación WhatsApp" : "Enviar invitación WhatsApp";
   const encounterLabel = candidate.encounterRegisteredAt
-    ? "Encuentro registrado"
+    ? "Inscrito a Proceso de Formación"
     : (candidate.invitedAt ? "Continuar inscripción" : "Primero envía invitación");
   const inviteDisabled = candidate.personPhone ? "" : "disabled";
   const encounterDisabled = candidate.invitedAt && !candidate.encounterRegisteredAt ? "" : "disabled";
   const routeHelper = candidate.encounterRegisteredAt
-    ? `Registrado a Encuentro el ${formatDate(candidate.encounterRegisteredAt)}.`
+    ? `Inscrito a Proceso de Formación el ${formatDate(candidate.encounterRegisteredAt)}.`
     : (candidate.invitedAt
-      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, continúa la inscripción desde Discipulado.`
+      ? `Invitación enviada el ${formatDate(candidate.invitedAt)}. Si ya confirmó, continúa la inscripción al Proceso de Formación.`
       : (candidate.personPhone
         ? "Paso recomendado: envía la invitación por WhatsApp y, cuando confirme, continúa la inscripción."
         : "Falta teléfono del congregante para poder abrir la invitación por WhatsApp."));
@@ -31766,7 +38229,7 @@ function renderWorkflowStatusPill_(value) {
   }
 
   if (normalized === "CANDIDATO_ENCUENTRO") {
-    return `<span class="pill warning">Candidato a Encuentro</span>`;
+    return `<span class="pill warning">Candidato a Proceso de Formación</span>`;
   }
 
   if (normalized === "INVITACION_ENVIADA") {
@@ -31812,7 +38275,7 @@ function getWorkflowStatusLabel_(value) {
     NUEVO: "Nuevo",
     PROSPECTO: "Prospecto",
     "PROSPECTO GP": "Prospecto GC",
-    CANDIDATO_ENCUENTRO: "Candidato a Encuentro",
+    CANDIDATO_ENCUENTRO: "Candidato a Proceso de Formación",
     INVITACION_ENVIADA: "Invitación enviada",
     CONGREGANTE: "Congregante",
     PROSPECTO_FORMACION: "Prospecto para Encuentro",
@@ -32338,6 +38801,277 @@ async function downloadCredentialBatchZip_(people, title) {
   }, `Generando ${rows.length} credenciales para descarga masiva...`);
 
   showToast("Lote descargado", `Se genero un ZIP con ${rows.length} credenciales PNG y un CSV de apoyo para WhatsApp.`, "success");
+}
+
+async function getCredentialWhiteLogoDataUrl_() {
+  if (!credentialRenderRuntime.whiteLogoDataUrlPromise) {
+    credentialRenderRuntime.whiteLogoDataUrlPromise = getCredentialRenderAssets_().then(({ logo }) => {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new ApiError("No se pudo preparar el logo blanco para la credencial.", "WHITE_LOGO_CANVAS_NOT_AVAILABLE");
+      }
+
+      canvas.width = logo.naturalWidth || logo.width || 600;
+      canvas.height = logo.naturalHeight || logo.height || 220;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(logo, 0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "source-in";
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "source-over";
+      return canvas.toDataURL("image/png");
+    });
+  }
+
+  return credentialRenderRuntime.whiteLogoDataUrlPromise;
+}
+
+async function buildCredentialPrintCardPngBlob_(person) {
+  const width = 856;
+  const height = 540;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new ApiError("No se pudo crear la imagen de credencial.", "CARD_CANVAS_NOT_AVAILABLE");
+  }
+
+  const whiteLogo = await loadImageElement_(await getCredentialWhiteLogoDataUrl_());
+  const qrImage = await loadImageElement_(buildCredentialQrDataUrl_(person, 520));
+  const qrId = String(person.id || person.numero || "SIN ID");
+  const number = String(person.numero || "");
+  const name = String(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
+  const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+
+  canvas.width = width;
+  canvas.height = height;
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.setLineDash([12, 10]);
+  context.strokeStyle = "#777777";
+  context.lineWidth = 4;
+  drawRoundedRectPath_(context, 28, 18, width - 56, height - 36, 24);
+  context.stroke();
+  context.setLineDash([]);
+
+  context.fillStyle = "#111111";
+  drawRoundedRectPath_(context, 60, 42, width - 120, 94, 20);
+  context.fill();
+
+  const logoWidth = 228;
+  const logoHeight = Math.min(60, logoWidth * (whiteLogo.naturalHeight / Math.max(whiteLogo.naturalWidth, 1)));
+  context.drawImage(whiteLogo, 82, 58, logoWidth, logoHeight);
+
+  context.fillStyle = "#ffffff";
+  context.font = "800 26px Manrope, Arial, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  context.fillText("CREDENCIAL QR", width - 82, 90);
+
+  context.fillStyle = "#ffffff";
+  context.strokeStyle = "#e1e1e1";
+  context.lineWidth = 2;
+  drawRoundedRectPath_(context, 64, 142, 296, 296, 18);
+  context.fill();
+  context.stroke();
+  context.drawImage(qrImage, 80, 158, 264, 264);
+
+  context.textAlign = "left";
+  context.textBaseline = "alphabetic";
+  context.fillStyle = "#111111";
+  const nameBlock = fitCanvasTextBlock_(context, name, 420, {
+    maxLines: 2,
+    maxFontSize: 34,
+    minFontSize: 22,
+    fontWeight: 800
+  });
+  context.font = `800 ${nameBlock.fontSize}px Manrope, Arial, sans-serif`;
+  let textY = 200;
+  nameBlock.lines.forEach((line) => {
+    context.fillText(line, 392, textY);
+    textY += Math.round(nameBlock.fontSize * 1.1);
+  });
+
+  context.fillStyle = "#6d6d6d";
+  context.font = "500 23px Manrope, Arial, sans-serif";
+  context.fillText("QR ID", 392, 304);
+  context.fillStyle = "#111111";
+  context.font = "800 35px Manrope, Arial, sans-serif";
+  context.fillText(qrId, 392, 348);
+
+  context.fillStyle = "#6d6d6d";
+  context.font = "500 23px Manrope, Arial, sans-serif";
+  context.fillText("FOLIO / GRUPO", 392, 416);
+  context.fillStyle = "#111111";
+  context.font = "800 27px Manrope, Arial, sans-serif";
+  wrapCanvasText_(context, [number, groupName].filter(Boolean).join(" | "), 390).slice(0, 2).forEach((line, index) => {
+    context.fillText(line, 392, 462 + (index * 31));
+  });
+
+  return canvasToBlob_(canvas, "image/png");
+}
+
+async function downloadCredentialPrintCardImageBatchZip_(people, title) {
+  const rows = Array.isArray(people) ? people.filter(Boolean) : [];
+
+  if (!rows.length) {
+    showToast("Sin credenciales", "No hay personas disponibles para generar imagenes con los filtros actuales.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const JSZipLibrary = window.JSZip;
+
+    if (!JSZipLibrary) {
+      throw new ApiError("No se encontro la libreria para generar el ZIP. Recarga la pagina y vuelve a intentar.", "ZIP_LIBRARY_NOT_AVAILABLE");
+    }
+
+    const zip = new JSZipLibrary();
+    const folder = zip.folder("credenciales_qr_tarjeta");
+    const manifestCsv = buildCredentialManifestCsv_(rows);
+
+    for (const person of rows) {
+      const fileName = `${buildCredentialFileName_(person)}_TARJETA.png`;
+      const blob = await buildCredentialPrintCardPngBlob_(person);
+      folder.file(fileName, blob);
+    }
+
+    zip.file("MANIFIESTO_CREDENCIALES.csv", manifestCsv);
+    zip.file("README_IMPRESION.txt", [
+      title || "Credenciales QR - Tarjetas",
+      `Total de credenciales: ${rows.length}`,
+      "Cada PNG usa formato horizontal tipo tarjeta de credito con linea punteada de recorte."
+    ].join("\n"));
+
+    const zipBlob = await zip.generateAsync({
+      type: "blob",
+      compression: "DEFLATE",
+      compressionOptions: {
+        level: 6
+      }
+    });
+
+    downloadBlob_(zipBlob, `CREDENCIALES_QR_TARJETAS_${formatTimestampToken_()}_${String(rows.length).padStart(3, "0")}.zip`);
+  }, `Generando ${rows.length} imagenes tipo tarjeta...`);
+
+  showToast("Imagenes listas", "Se genero el ZIP con credenciales tipo tarjeta en PNG.", "success");
+}
+async function downloadCredentialPrintPdf_(people, title) {
+  const rows = Array.isArray(people) ? people.filter(Boolean) : [];
+
+  if (!rows.length) {
+    showToast("Sin credenciales", "No hay personas disponibles para generar credenciales con los filtros actuales.", "warning");
+    return;
+  }
+
+  const JsPdf = getDashboardPdfConstructor_();
+
+  if (!JsPdf) {
+    showToast("PDF no disponible", "No se encontro la libreria PDF. Recarga la pagina e intenta nuevamente.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const doc = new JsPdf({
+      orientation: "portrait",
+      unit: "pt",
+      format: "letter",
+      compress: true
+    });
+    const pageWidth = 612;
+    const pageHeight = 792;
+    const cardWidth = 242.6;
+    const cardHeight = 153.1;
+    const marginX = 44;
+    const marginY = 36;
+    const gapX = 38;
+    const gapY = 18;
+    const columns = 2;
+    const rowsPerPage = 4;
+    const cardsPerPage = columns * rowsPerPage;
+    const whiteLogoDataUrl = await getCredentialWhiteLogoDataUrl_();
+
+    rows.forEach((person, index) => {
+      if (index > 0 && index % cardsPerPage === 0) {
+        doc.addPage("letter", "portrait");
+      }
+
+      const slot = index % cardsPerPage;
+      const column = slot % columns;
+      const row = Math.floor(slot / columns);
+      const x = marginX + (column * (cardWidth + gapX));
+      const y = marginY + (row * (cardHeight + gapY));
+      const qrId = String(person.id || person.numero || "SIN ID");
+      const number = String(person.numero || "");
+      const name = String(person.nombreCompleto || [person.nombre, person.apellidos].join(" ").trim() || "Sin nombre").toUpperCase();
+      const groupName = resolveGroupName_(person.grupo) || person.grupo || "Sin grupo";
+      const qrDataUrl = buildCredentialQrDataUrl_(person, 280);
+      const qrSize = 82;
+      const qrX = x + 15;
+      const qrY = y + 43;
+      const textX = x + 110;
+      const textWidth = cardWidth - 124;
+      const nameLines = doc.splitTextToSize(name, textWidth).slice(0, 2);
+
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x, y, cardWidth, cardHeight, 8, 8, "F");
+      if (typeof doc.setLineDashPattern === "function") {
+        doc.setLineDashPattern([4, 3], 0);
+      }
+      doc.setDrawColor(120, 120, 120);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(x, y, cardWidth, cardHeight, 8, 8, "S");
+      if (typeof doc.setLineDashPattern === "function") {
+        doc.setLineDashPattern([], 0);
+      }
+
+      doc.setFillColor(17, 17, 17);
+      doc.roundedRect(x + 10, y + 8, cardWidth - 20, 32, 8, 8, "F");
+      doc.addImage(whiteLogoDataUrl, "PNG", x + 18, y + 13, 88, 24);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.text("CREDENCIAL QR", x + cardWidth - 18, y + 28, { align: "right" });
+
+      doc.setDrawColor(230, 230, 230);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 7, 7, "S");
+      doc.addImage(qrDataUrl, "PNG", qrX, qrY, qrSize, qrSize);
+
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(nameLines.length > 1 ? 10 : 11);
+      doc.text(nameLines, textX, y + 55, { maxWidth: textWidth });
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(96, 96, 96);
+      doc.setFontSize(7.5);
+      doc.text("QR ID", textX, y + 88);
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(qrId, textX, y + 101, { maxWidth: textWidth });
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(96, 96, 96);
+      doc.setFontSize(7.5);
+      doc.text("FOLIO / GRUPO", textX, y + 122);
+      doc.setTextColor(17, 17, 17);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text(doc.splitTextToSize([number, groupName].filter(Boolean).join(" | "), textWidth).slice(0, 2), textX, y + 135);
+    });
+
+    doc.setProperties({
+      title: title || "Credenciales QR",
+      subject: "Credenciales QR listas para imprimir y recortar"
+    });
+    doc.save(`CREDENCIALES_QR_IMPRESION_${formatTimestampToken_()}_${String(rows.length).padStart(3, "0")}.pdf`);
+  }, `Generando PDF imprimible con ${rows.length} credenciales...`);
+
+  showToast("PDF listo", "Se genero la hoja carta con credenciales tamaño tarjeta y linea punteada de recorte.", "success");
 }
 
 async function buildCredentialPngBlob_(person, options = {}) {
@@ -32951,6 +39685,7 @@ function getPermissionLabel_(permission) {
     catalogs: "Catalogos",
     seasons: "Temporadas",
     participants: "Asignacion",
+    "connection-reports": "Reportes Grupos Conexión",
     attendance: "Asistencias",
     formation: "Formación",
     "admin-settings": "Configuracion",
@@ -32971,6 +39706,7 @@ function getPermissionDescription_(permission) {
     catalogs: "Catalogos de grupos y ministerios.",
     seasons: "Temporadas, sesiones y estados operativos.",
     participants: "Asignacion individual y masiva a grupos.",
+    "connection-reports": "Reportes por grupo y ministerio con exportacion Excel/PDF.",
     attendance: "Captura manual, QR asistido y kiosko.",
     formation: "Prospectos, validaciones, catálogo de niveles e historial formativo.",
     "admin-settings": "URL de API y conexion del sistema.",
@@ -33096,6 +39832,26 @@ function rerenderPreservingInput_(target) {
   restoreInputFocusSnapshot_(focusSnapshot);
 }
 
+function rerenderPreservingInputDebounced_(target, timerKey, delayMs = 220) {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    renderApp();
+    return;
+  }
+
+  const resolvedKey = String(timerKey || target.id || "generic");
+  const focusSnapshot = captureInputFocusSnapshot_(target);
+
+  if (inputRerenderTimers[resolvedKey]) {
+    window.clearTimeout(inputRerenderTimers[resolvedKey]);
+  }
+
+  inputRerenderTimers[resolvedKey] = window.setTimeout(() => {
+    delete inputRerenderTimers[resolvedKey];
+    renderApp();
+    restoreInputFocusSnapshot_(focusSnapshot);
+  }, Math.max(120, Number(delayMs) || 220));
+}
+
 function captureInputFocusSnapshot_(target) {
   if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
     return null;
@@ -33121,7 +39877,7 @@ function restoreInputFocusSnapshot_(snapshot) {
       return;
     }
 
-    target.focus({ preventScroll: true });
+    safeFocusInput_(target);
 
     if (snapshot.selectionStart === null || snapshot.selectionEnd === null) {
       return;
@@ -33147,7 +39903,7 @@ function focusInputById_(inputId) {
       return;
     }
 
-    target.focus({ preventScroll: true });
+    safeFocusInput_(target);
 
     try {
       const endPosition = target.value.length;
@@ -33156,6 +39912,25 @@ function focusInputById_(inputId) {
       // Some input types do not support cursor positioning.
     }
   });
+}
+
+function safeFocusInput_(target) {
+  if (!target || typeof target.focus !== "function") {
+    return;
+  }
+
+  try {
+    target.focus({ preventScroll: true });
+    return;
+  } catch (error) {
+    void error;
+  }
+
+  try {
+    target.focus();
+  } catch (error) {
+    void error;
+  }
 }
 
 function toOptionalNumber_(value) {
@@ -33639,6 +40414,8 @@ function resetRuntimeState() {
     window.clearTimeout(backgroundWarmersTimer);
     backgroundWarmersTimer = 0;
   }
+  state.ui.attendanceFormationHydrating = false;
+  state.ui.attendanceFormationHydratingMessage = "";
   state.ui.dashboardHydrating = false;
   state.ui.dashboardHydratingMessage = "";
   state.ui.welcomeNewRefreshing = false;
@@ -33652,12 +40429,26 @@ function resetRuntimeState() {
   state.formationProfilesByKey = {};
   state.formationOfferings = [];
   state.formationEnrollments = [];
+  state.formationPortalOfferings = [];
+  state.formationPortalRoster = [];
   state.formationProcessRoster = [];
+  state.formationWorkspace = {
+    portal: {
+      processId: "",
+      rows: []
+    },
+    journey: {
+      processId: "",
+      rows: []
+    }
+  };
   state.formationAttendanceContext = null;
   state.connectionEncounterCandidates = [];
+  state.selectedFormationRoutePeople = [];
   state.studentPortal = null;
   state.studentPortalByPerson = {};
   state.telegramConfig = null;
+  state.ui.adminLeaderAccessPreview = null;
   state.adminUsers = [];
   state.adminUsersSupport = {
     available: true,
@@ -33667,6 +40458,11 @@ function resetRuntimeState() {
     dashboardSeasonMatrixRoute: null
   };
   state.viewLoadToken = 0;
+  state.ui.formationRouteBulkBusy = false;
+  state.ui.formationRouteBulkAction = "";
+  state.ui.formationRouteBulkProgressPercent = 0;
+  state.ui.formationRouteBulkProgressMessage = "";
+  state.ui.formationRouteBulkProgressDetail = "";
   state.cacheKeys = {
     participants: "",
     participantSeasonAssignments: "",
@@ -33680,7 +40476,11 @@ function resetRuntimeState() {
     formationCandidates: "",
     formationOfferings: "",
     formationEnrollments: "",
+    formationPortalOfferings: "",
+    formationPortalRoster: "",
     formationProcessRoster: "",
+    formationWorkspacePortal: "",
+    formationWorkspaceJourney: "",
     formationAttendanceContext: "",
     connectionEncounterCandidates: ""
   };
@@ -33701,7 +40501,11 @@ function resetRuntimeState() {
     formationCandidates: false,
     formationOfferings: false,
     formationEnrollments: false,
+    formationPortalOfferings: false,
+    formationPortalRoster: false,
     formationProcessRoster: false,
+    formationWorkspacePortal: false,
+    formationWorkspaceJourney: false,
     formationAttendanceContext: false,
     connectionEncounterCandidates: false,
     studentPortal: false
@@ -33740,6 +40544,8 @@ function resetRuntimeState() {
   state.ui = {
     mobileNavOpen: false,
     attendanceCenterSection: "home",
+    attendanceFormationHydrating: false,
+    attendanceFormationHydratingMessage: "",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
     editingGroupId: "",
@@ -33771,6 +40577,13 @@ function resetRuntimeState() {
     formationPortalModal: null,
     formationProfileLoading: false,
     formationProfileLoadingPersonId: "",
+    formationSectionLoading: {
+      active: false,
+      section: "",
+      percent: 0,
+      title: "",
+      detail: ""
+    },
     formationFilterBusy: false,
     formationFilterMessage: "",
     formationFilterDraft: null,
@@ -33781,9 +40594,10 @@ function resetRuntimeState() {
     scrapSeasonPreview: null,
     selectedScrapFormationProcessId: "",
     scrapFormationProcessPreview: null,
-    studentPortalTab: "home",
+    studentPortalTab: "profile",
     studentPortalProfileTab: "summary",
     studentPortalMenuOpen: false,
+    studentPortalConnectionSeasonId: "",
     loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
     confirmation: null
   };
@@ -33869,18 +40683,41 @@ function resetRuntimeState() {
   });
 }
 
-function detectPreferredQrCameraFacing_() {
+function isIOSLikeDevice_() {
   if (typeof navigator === "undefined") {
-    return "rear";
+    return false;
   }
 
   const userAgent = navigator.userAgent || "";
   const platform = navigator.platform || "";
   const touchPoints = Number(navigator.maxTouchPoints || 0);
   const isTouchMac = platform === "MacIntel" && touchPoints > 1;
-  const isIOSLike = /iPad|iPhone|iPod/i.test(userAgent) || isTouchMac;
 
-  return isIOSLike ? "front" : "rear";
+  return /iPad|iPhone|iPod/i.test(userAgent) || isTouchMac;
+}
+
+async function waitForQrDecoderRuntime_(timeoutMs = 700) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  if ("BarcodeDetector" in window || typeof window.jsQR === "function") {
+    return true;
+  }
+
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    await waitMs_(80);
+    if ("BarcodeDetector" in window || typeof window.jsQR === "function") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function detectPreferredQrCameraFacing_() {
+  return isIOSLikeDevice_() ? "front" : "rear";
 }
 
 function normalizeQrCameraFacing_(value, fallback = "rear") {
@@ -34172,4 +41009,37 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
