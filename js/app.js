@@ -24588,11 +24588,23 @@ async function handleClick(event) {
       }
 
       await withLoading(async () => {
+        try {
+          await apiPost("seasons.applyThirdConnectionCalendar", {
+            seasonId
+          });
+        } catch (error) {
+          if (!isUnknownActionError_(error, "seasons.applyThirdConnectionCalendar")) {
+            throw error;
+          }
+        }
         const sessions = await ensureSessionsForSeason(seasonId);
+        sessions.forEach((session) => {
+          delete state.sessionGroupsByKey[`${seasonId}::${session.id}`];
+        });
         await Promise.all(sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id)));
-      }, "Cargando calendario por grupo...");
+      }, "Actualizando calendario por grupo...");
       renderApp();
-      showToast("Calendario cargado", "Ya puedes revisar las fechas por grupo dentro del sistema.", "success");
+      showToast("Calendario actualizado", "Corazón Sabio queda en miércoles y los demás grupos en viernes.", "success");
       return;
     }
 
@@ -41069,6 +41081,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
