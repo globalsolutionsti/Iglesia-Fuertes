@@ -19161,8 +19161,22 @@ function renderAssistantsView() {
   `;
 }
 
-function buildSeasonGroupCalendarRows_(seasonId, sessions) {
+function subtractDaysFromInputDate_(value, days) {
+  const date = coerceClientDate_(value);
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  date.setDate(date.getDate() - Number(days || 0));
+  return formatDateForInput_(date);
+}
+
+function buildSeasonGroupCalendarRows_(seasonId, sessions, season) {
   const cleanSeasonId = String(seasonId || "").trim();
+  const isThirdSeason = normalizeText(season?.name || "").includes("tercera temporada")
+    || normalizeText(season?.name || "").includes("3 temporada")
+    || normalizeText(season?.name || "").includes("tercer temporada");
 
   return (sessions || []).map((session) => {
     const groups = getSessionGroups(cleanSeasonId, session.id);
@@ -19170,15 +19184,18 @@ function buildSeasonGroupCalendarRows_(seasonId, sessions) {
     const otherGroups = groups.filter((group) => normalizeText(group?.groupName || "") !== "corazon sabio");
     const firstCorazon = corazonGroups[0] || null;
     const firstOther = otherGroups.find((group) => group?.groupDate || group?.date) || null;
+    const otherDate = firstOther?.groupDate || firstOther?.date || session.date || "";
+    const storedCorazonDate = firstCorazon?.groupDate || firstCorazon?.date || "";
+    const calculatedCorazonDate = isThirdSeason ? subtractDaysFromInputDate_(otherDate || session.date, 2) : "";
 
     return {
       sessionId: session.id,
       sessionName: session.name || "Sesion",
       sessionNumber: session.number || "",
       generalDate: session.date || "",
-      corazonDate: firstCorazon?.groupDate || firstCorazon?.date || "",
+      corazonDate: calculatedCorazonDate || storedCorazonDate,
       corazonGroups: corazonGroups.map((group) => group.groupName || "CORAZÓN SABIO"),
-      otherDate: firstOther?.groupDate || firstOther?.date || session.date || "",
+      otherDate,
       otherGroupsCount: otherGroups.length
     };
   });
@@ -19187,7 +19204,7 @@ function renderSeasonsView() {
   const selectedSeason = state.seasons.find((item) => item.id === state.filters.seasons.seasonId) || getLatestSeason();
   const sessions = selectedSeason ? getSessions(selectedSeason.id) : [];
   const sessionGroups = selectedSeason && sessions.length ? getSessionGroups(selectedSeason.id, sessions[0].id) : [];
-  const groupCalendarRows = selectedSeason ? buildSeasonGroupCalendarRows_(selectedSeason.id, sessions) : [];
+  const groupCalendarRows = selectedSeason ? buildSeasonGroupCalendarRows_(selectedSeason.id, sessions, selectedSeason) : [];
   const calendarFullyLoaded = selectedSeason && sessions.length
     ? sessions.every((session) => Object.prototype.hasOwnProperty.call(state.sessionGroupsByKey, `${selectedSeason.id}::${session.id}`))
     : false;
@@ -24587,15 +24604,19 @@ async function handleClick(event) {
         return;
       }
 
+      let backendCalendarRepaired = false;
+      let backendCalendarUnavailable = false;
       await withLoading(async () => {
         try {
           await apiPost("seasons.applyThirdConnectionCalendar", {
             seasonId
           });
+          backendCalendarRepaired = true;
         } catch (error) {
           if (!isUnknownActionError_(error, "seasons.applyThirdConnectionCalendar")) {
             throw error;
           }
+          backendCalendarUnavailable = true;
         }
         const sessions = await ensureSessionsForSeason(seasonId);
         sessions.forEach((session) => {
@@ -24604,7 +24625,13 @@ async function handleClick(event) {
         await Promise.all(sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id)));
       }, "Actualizando calendario por grupo...");
       renderApp();
-      showToast("Calendario actualizado", "Corazón Sabio queda en miércoles y los demás grupos en viernes.", "success");
+      if (backendCalendarRepaired) {
+        showToast("Calendario actualizado", "Corazón Sabio queda en miércoles y los demás grupos en viernes.", "success");
+      } else if (backendCalendarUnavailable) {
+        showToast("Calendario visible actualizado", "La tabla ya muestra Corazón Sabio en miércoles. Falta actualizar el backend para reparar la hoja automáticamente.", "warning");
+      } else {
+        showToast("Calendario cargado", "Ya puedes revisar las fechas por grupo dentro del sistema.", "success");
+      }
       return;
     }
 
@@ -41081,6 +41108,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
 
 
 
