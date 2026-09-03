@@ -20881,7 +20881,10 @@ function renderAttendanceView() {
 function renderQrView() {
   const filter = state.filters.qr;
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
-  const qrSearchResults = filterPeople(state.people, filter.peopleSearch).slice(0, 8);
+  const qrSearchText = String(filter.peopleSearch || "").trim();
+  const qrSearchResults = state.loaded.people && qrSearchText.length >= 2
+    ? filterPeople(state.people, filter.peopleSearch).slice(0, 8)
+    : [];
   const summary = state.realtimeSummary;
   const activity = state.qrSessionActivity || [];
   const kioskResult = getQrKioskResult_();
@@ -21108,7 +21111,7 @@ function renderQrView() {
               </div>
             </div>
           ` : `
-            <div class="empty-state">No hay un resumen disponible todavia para el contexto seleccionado.</div>
+            <div class="empty-state">Resumen diferido para carga rapida. Presiona Actualizar resumen cuando necesites revisar avance.</div>
           `}
         </article>
       </div>
@@ -21199,7 +21202,7 @@ function renderQrView() {
               </div>
             </article>
           `).join("") : `
-            <div class="empty-state">No hay personas para la busqueda actual.</div>
+            <div class="empty-state">${state.loaded.people ? "No hay personas para la busqueda actual." : "Escribe al menos 2 caracteres para cargar el padron solo cuando lo necesites."}</div>
           `}
         </div>
       </article>
@@ -24956,7 +24959,10 @@ async function handleClick(event) {
       state.filters.attendance.mode = "qr";
       state.currentView = "attendance";
       state.ui.attendanceCenterSection = "connection";
-      await loadQrSummary();
+      await ensureQrViewData_({
+        force: false,
+        includeSummary: false
+      });
       renderApp();
       scrollViewportToTop_();
       return;
@@ -24969,7 +24975,8 @@ async function handleClick(event) {
       state.currentView = "attendance";
       state.ui.attendanceCenterSection = "connection";
       await ensureQrViewData_({
-        force: true
+        force: true,
+        includeSummary: false
       });
       renderApp();
       scrollViewportToTop_();
@@ -24990,12 +24997,13 @@ async function handleClick(event) {
           force: true,
           groupId: resolveConnectionQrGroupId_()
         });
-        await loadAttendanceData();
+        await syncAttendanceFilterState_();
       } else {
         state.currentView = "attendance";
         state.filters.qr.surface = nextMode === "kiosk" ? "kiosk" : "scanner";
         await ensureQrViewData_({
-          force: true
+          force: true,
+          includeSummary: false
         });
       }
 
@@ -25069,9 +25077,9 @@ async function handleClick(event) {
 
     if (action === "set-qr-mode") {
       state.filters.qr.mode = button.dataset.mode || "active";
-      await loadQrSummary({
-        force: true
-      });
+      state.realtimeSummary = null;
+      state.qrSessionActivity = [];
+      state.cacheKeys.qrSummary = "";
       renderApp();
       return;
     }
@@ -26309,15 +26317,19 @@ async function handleChange(event) {
     if (target.id === "qr-season") {
       state.filters.qr.seasonId = target.value;
       state.filters.qr.sessionId = "";
+      state.realtimeSummary = null;
+      state.qrSessionActivity = [];
+      state.cacheKeys.qrSummary = "";
       await syncFilterState("qr");
-      await loadQrSummary();
       renderApp();
       return;
     }
 
     if (target.id === "qr-session") {
       state.filters.qr.sessionId = target.value;
-      await loadQrSummary();
+      state.realtimeSummary = null;
+      state.qrSessionActivity = [];
+      state.cacheKeys.qrSummary = "";
       renderApp();
       return;
     }
@@ -26769,6 +26781,16 @@ function handleInput(event) {
 
   if (target.id === "qr-people-search") {
     state.filters.qr.peopleSearch = target.value;
+    const qrSearchText = String(target.value || "").trim();
+    if (!state.loaded.people && qrSearchText.length >= 2) {
+      loadPeople()
+        .then(() => {
+          if (state.currentView === "attendance" && getActiveAttendanceCenterSection_() === "connection") {
+            renderApp();
+          }
+        })
+        .catch((error) => console.error("No se pudo cargar el padron para busqueda QR", error));
+    }
     rerenderPreservingInput_(target);
     return;
   }
@@ -29374,7 +29396,7 @@ async function ensureAdminViewData_() {
 }
 
 async function ensureQrViewData_(options = {}) {
-  if (!state.loaded.people) {
+  if (options.includePeople === true && !state.loaded.people) {
     await loadPeople();
   }
 
@@ -29382,7 +29404,10 @@ async function ensureQrViewData_(options = {}) {
     force: Boolean(options.force),
     groupId: resolveConnectionQrGroupId_()
   });
-  await loadQrSummary(options);
+
+  if (options.includeSummary === true) {
+    await loadQrSummary(options);
+  }
 }
 
 async function ensureAttendanceHubViewData_(options = {}) {
@@ -29397,7 +29422,10 @@ async function ensureAttendanceHubViewData_(options = {}) {
       await loadActiveSession({
         groupId: resolveConnectionQrGroupId_()
       });
-      await loadAttendanceData(options);
+      await syncAttendanceFilterState_();
+      if (options.loadAttendanceList === true) {
+        await loadAttendanceData(options);
+      }
     } else {
       await ensureQrViewData_(options);
     }
@@ -34378,7 +34406,7 @@ async function loadQrSummary(options = {}) {
     return;
   }
 
-  const requestKey = `${context.seasonId}::${context.sessionId}`;
+  const requestKey = `${context.seasonId}::${context.sessionId}::${context.groupId || "ALL"}`;
 
   if (!options.force && state.cacheKeys.qrSummary === requestKey && state.realtimeSummary) {
     return;
@@ -34388,11 +34416,13 @@ async function loadQrSummary(options = {}) {
     const [summary, attendances] = await Promise.all([
       apiGet("attendances.realtimeSummary", {
         seasonId: context.seasonId,
-        sessionId: context.sessionId
+        sessionId: context.sessionId,
+        groupId: context.groupId || ""
       }),
       apiGet("attendances.list", {
         seasonId: context.seasonId,
-        sessionId: context.sessionId
+        sessionId: context.sessionId,
+        groupId: context.groupId || ""
       })
     ]);
 
@@ -34533,10 +34563,13 @@ async function registerQrAttendance(personId, options = {}) {
       force: true,
       groupId: context?.groupId || ""
     });
-    await loadQrSummary({
-      showLoading: options.showLoading !== false,
-      force: true
-    });
+    state.cacheKeys.qrSummary = "";
+    if (options.refreshSummary === true) {
+      await loadQrSummary({
+        showLoading: options.showLoading !== false,
+        force: true
+      });
+    }
   };
 
   try {
