@@ -1087,7 +1087,44 @@ function getFirstAccessibleView_(views) {
   return allowed || "attendance";
 }
 
-function m currentLevelId
+function syncFormationPortalSelectionFromRows_(rows, options = {}) {
+  const portalFilters = getFormationPortalFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  const cleanProcessId = String(options.processId || portalFilters.processId || "").trim();
+  const preferredOfferingId = String(options.preferredOfferingId || "").trim();
+  let changed = false;
+
+  if (cleanProcessId && portalFilters.processId !== cleanProcessId) {
+    portalFilters.processId = cleanProcessId;
+    changed = true;
+  }
+
+  if (preferredOfferingId && cleanRows.some((row) => String(row?.offeringId || "").trim() === preferredOfferingId)) {
+    if (portalFilters.offeringId !== preferredOfferingId) {
+      portalFilters.offeringId = preferredOfferingId;
+      changed = true;
+    }
+  }
+
+  if (portalFilters.offeringId && !cleanRows.some((row) => String(row?.offeringId || "").trim() === String(portalFilters.offeringId || "").trim())) {
+    portalFilters.offeringId = "";
+    changed = true;
+  }
+
+  if (portalFilters.levelId && !cleanRows.some((row) => String(row?.levelId || "").trim() === String(portalFilters.levelId || "").trim())) {
+    portalFilters.levelId = "";
+    changed = true;
+  }
+
+  return changed;
+}
+
+function syncFormationJourneySelectionFromRows_(rows, options = {}) {
+  const journeyFilters = getFormationJourneyFilters_();
+  const sortedRows = buildFormationJourneyRows_(Array.isArray(rows) ? rows : []);
+  const cleanProcessId = String(options.processId || journeyFilters.processId || "").trim();
+  const currentLevelId = String(journeyFilters.levelId || "").trim();
+  const levelStillExists = currentLevelId
     ? sortedRows.some((row) => String(row?.levelId || "").trim() === currentLevelId)
     : false;
 
@@ -1116,7 +1153,6 @@ function m currentLevelId
     state.ui.selectedFormationPersonId = "";
   }
 }
-
 function countVisibleFormationPortalRows_(rows) {
   const portalFilters = getFormationPortalFilters_();
   const offeringId = String(portalFilters.offeringId || "").trim();
@@ -40744,6 +40780,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
