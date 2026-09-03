@@ -18147,7 +18147,6 @@ function renderSeasonsView() {
               <div class="field">
                 <label for="season-start">Fecha de inicio</label>
                 <input id="season-start" name="startDate" type="date" required>
-                <small class="field-hint">Para Tercera Temporada: captura cualquier cantidad de sesiones. Usa 2026-09-04 como inicio general; Corazón Sabio se programa automáticamente los miércoles desde 2026-09-02.</small>
               </div>
             </div>
 
