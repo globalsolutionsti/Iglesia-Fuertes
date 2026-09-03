@@ -20484,6 +20484,7 @@ function renderAttendanceView() {
   const pickerSession = pickerSessions.find((session) => String(session.id) === String(pickerSessionId)) || null;
   const selectedGroup = groups.find((group) => String(group.groupId) === String(filter.groupId)) || null;
   const selectedGroupName = context ? context.group.name : (selectedGroup ? selectedGroup.groupName : "Pendiente");
+  const attendanceGroupDateChipHtml = renderAttendanceGroupDateChip_(workingSession, filter.groupId, "Fecha donde se registra");
   const visiblePresent = filteredParticipants.filter((participant) => state.attendanceForm[participant.personId] === "SI").length;
   const visibleAbsent = Math.max(filteredParticipants.length - visiblePresent, 0);
   const draftLabel = summary.changed
@@ -20613,7 +20614,8 @@ function renderAttendanceView() {
                 <span class="context-item"><strong>Fuente:</strong> ${escapeHtml(workingSessionSource === "manual" ? "Sesion historica activada" : "Sesion de hoy")}</span>
                 <span class="context-item"><strong>Temporada:</strong> ${escapeHtml(workingSeasonName || workingSession.seasonId)}</span>
                 <span class="context-item"><strong>Sesion:</strong> ${escapeHtml(workingSession.name)}</span>
-                <span class="context-item"><strong>Fecha:</strong> ${escapeHtml(formatDate(workingSession.date))}</span>
+                <span class="context-item"><strong>Fecha sesión:</strong> ${escapeHtml(formatDate(workingSession.date))}</span>
+                ${attendanceGroupDateChipHtml}
                 <span class="context-item"><strong>Estado:</strong> ${escapeHtml(workingSession.status || "ABIERTA")}</span>
               </div>
               <span class="field-help">${workingSessionSource === "manual" ? "Esta sesion quedo activada para trabajo manual en esta pantalla." : "Esta es la sesion detectada automaticamente para hoy."}</span>
@@ -20898,6 +20900,12 @@ function renderQrView() {
   const kioskSessionLabel = kioskContext
     ? `${kioskContext.sessionId} | ${filter.mode === "manual" ? "Sesion forzada" : "Sesion activa"}`
     : "Sin sesion seleccionada";
+  const kioskWorkingSession = kioskContext?.sessionId
+    ? (getSessions(kioskContext.seasonId).find((session) => String(session.id) === String(kioskContext.sessionId)) || activeSession)
+    : activeSession;
+  const kioskGroupDateLabel = kioskWorkingSession && kioskContext?.groupId
+    ? getAttendanceGroupDateLabel_(kioskWorkingSession, kioskContext.groupId)
+    : "";
   const surfaceEyebrow = isKioskSurface ? "Kiosko de asistencia" : "Escaneo QR del equipo";
   const surfaceTitle = isKioskSurface ? "Registro Kiosko" : "Escaneo QR asistido";
   const surfaceCopy = isKioskSurface
@@ -20960,6 +20968,7 @@ function renderQrView() {
           <span class="kiosk-chip">${escapeHtml(filter.mode === "manual" ? "Modo manual" : "Modo automatico")}</span>
           <span class="kiosk-chip">${escapeHtml(kioskSessionLabel)}</span>
           <span class="kiosk-chip">${escapeHtml(activeSession ? activeSession.name : "Sin sesion abierta hoy")}</span>
+          ${kioskGroupDateLabel ? `<span class="kiosk-chip">Fecha registro: ${escapeHtml(kioskGroupDateLabel)}</span>` : ""}
           <span class="kiosk-chip">Camara seleccionada: ${escapeHtml(selectedCameraLabel)}</span>
         </div>
 
@@ -21697,6 +21706,28 @@ function getAttendanceWorkingSession_() {
   return state.filters.attendance.scope === "selected"
     ? getSelectedAttendanceSession_()
     : getActiveAttendanceSession_();
+}
+
+function getAttendanceGroupDateLabel_(session, groupId) {
+  const cleanGroupId = String(groupId || "").trim();
+
+  if (!session || !cleanGroupId) {
+    return "Selecciona grupo";
+  }
+
+  const groupRecord = getSessionGroups(session.seasonId, session.id)
+    .find((group) => String(group?.groupId || "").trim() === cleanGroupId);
+  const effectiveDate = groupRecord?.groupDate || groupRecord?.date || session.date || "";
+
+  return effectiveDate ? formatDate(effectiveDate) : "Sin fecha";
+}
+
+function renderAttendanceGroupDateChip_(session, groupId, label = "Fecha del grupo") {
+  if (!session || !groupId) {
+    return "";
+  }
+
+  return `<span class="context-item"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(getAttendanceGroupDateLabel_(session, groupId))}</span>`;
 }
 
 function getDefaultViewForModule_(moduleId) {
@@ -41009,6 +41040,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
 
 
 
