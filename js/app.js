@@ -26882,7 +26882,7 @@ async function loadActiveSession(options = {}) {
   }
 
   return runSharedLoad_("activeSession", async () => {
-    state.activeSession = await apiGet("sessions.active", groupId ? { groupId } : undefined);
+    state.activeSession = await apiGet("sessions.active", groupId ? { groupId } : {});
     state.loaded.activeSession = true;
     state.cacheKeys.activeSession = cacheKey;
     return state.activeSession;
