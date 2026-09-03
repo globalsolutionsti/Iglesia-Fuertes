@@ -803,6 +803,20 @@ function canAccessView_(view) {
   return hasUserPermission_(view);
 }
 
+function ensureAccessibleCurrentView_() {
+  if (!state.user || isStudentSession_()) {
+    return;
+  }
+
+  if (VIEW_META[state.currentView] && canAccessView_(state.currentView)) {
+    return;
+  }
+
+  state.currentView = canAccessView_("attendance")
+    ? "attendance"
+    : getFirstAccessibleView_(ACCESSIBLE_VIEWS);
+}
+
 function canUseScrapDelete_() {
   const roleKey = normalizeText(state.user?.role || "");
   return (roleKey === "admin" || roleKey === "administrador") && hasUserPermission_(DELETE_SCRAP_PERMISSION);
@@ -40780,6 +40794,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
