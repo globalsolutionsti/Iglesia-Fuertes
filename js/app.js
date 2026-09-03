@@ -764,6 +764,183 @@ function initializeDateFilters_() {
   }
 }
 
+function normalizeText_(value) {
+  return normalizeText(value);
+}
+
+function clampPercentage_(value) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function waitForAnimationDelay_(ms = 0) {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function normalizeAttendanceCenterSection_(section) {
+  const clean = String(section || "").trim();
+  return ["home", "connection", "formation"].includes(clean) ? clean : "home";
+}
+
+function getActiveAttendanceCenterSection_() {
+  state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(state.ui.attendanceCenterSection);
+  return state.ui.attendanceCenterSection;
+}
+
+function normalizeFormationSection_(section) {
+  const clean = String(section || "").trim();
+  return ["route", "report", "portal", "journey", "catalog", "levels", "operations", "attendance"].includes(clean) ? clean : "route";
+}
+
+function getActiveFormationSection_() {
+  state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
+  return state.ui.formationSection;
+}
+
+function getFormationSectionLabel_(section) {
+  const labels = {
+    route: "Ruta a Encuentro",
+    report: "Reporte Pre-Encuentro",
+    portal: "Inscritos y portal",
+    journey: "Camino Proceso de Formación",
+    catalog: "Catálogos",
+    levels: "Niveles",
+    operations: "Operación",
+    attendance: "Asistencia"
+  };
+
+  return labels[normalizeFormationSection_(section)] || "Proceso de Formación";
+}
+
+function getFormationPortalFilters_() {
+  state.filters.formationPortal = state.filters.formationPortal || {
+    processId: "",
+    levelId: "",
+    offeringId: "",
+    enrollmentStatus: "ALL",
+    search: "",
+    personSearch: ""
+  };
+
+  return state.filters.formationPortal;
+}
+
+function getFormationJourneyFilters_() {
+  state.filters.formationJourney = state.filters.formationJourney || {
+    processId: "",
+    levelId: "",
+    enrollmentStatus: "ALL",
+    search: ""
+  };
+
+  return state.filters.formationJourney;
+}
+
+function getFormationPortalDefaultOffering_(processId = "") {
+  const cleanProcessId = String(processId || getFormationPortalFilters_().processId || state.filters.formationOps.processId || "").trim();
+  const offerings = Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [];
+
+  return offerings.find((offering) => !cleanProcessId || String(offering?.processId || "").trim() === cleanProcessId) || offerings[0] || null;
+}
+
+function getSelectedFormationPortalProcessId_() {
+  return String(getFormationPortalFilters_().processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || "").trim();
+}
+
+function getSelectedFormationJourneyProcessId_() {
+  return String(getFormationJourneyFilters_().processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || "").trim();
+}
+
+function normalizeFormationStatusToken_(value) {
+  return String(value || "").trim().toUpperCase() || "PENDIENTE";
+}
+
+function clearFormationProfileSelection_() {
+  state.formationProfile = null;
+  state.ui.formationProfileLoading = false;
+  state.ui.formationProfileLoadingPersonId = "";
+  state.ui.selectedFormationPersonId = "";
+}
+
+function clearFormationSectionLoading_() {
+  state.ui.formationSectionLoading = {
+    active: false,
+    section: "",
+    percent: 0,
+    title: "",
+    detail: ""
+  };
+}
+
+async function withFormationSectionLoading_(section, task, options = {}) {
+  state.ui.formationSectionLoading = {
+    active: true,
+    section: normalizeFormationSection_(section),
+    percent: clampPercentage_(options.percent || 12),
+    title: options.title || `Cargando ${getFormationSectionLabel_(section)}...`,
+    detail: options.detail || "Preparando información."
+  };
+  renderApp();
+
+  try {
+    return await task();
+  } finally {
+    clearFormationSectionLoading_();
+    renderApp();
+  }
+}
+
+function clearStudentPortalByPersonCache_(personId = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (cleanPersonId) {
+    delete state.studentPortalByPerson[cleanPersonId];
+    return;
+  }
+
+  state.studentPortalByPerson = {};
+}
+
+function applyStudentPortalSnapshot_(portal) {
+  if (!portal) {
+    return;
+  }
+
+  state.studentPortal = portal;
+  state.loaded.studentPortal = true;
+
+  const personId = String(portal?.person?.id || "").trim();
+  if (personId) {
+    state.studentPortalByPerson[personId] = portal;
+  }
+
+  if (!state.ui.studentPortalConnectionSeasonId && Array.isArray(portal?.connectionSeasons) && portal.connectionSeasons.length) {
+    state.ui.studentPortalConnectionSeasonId = String(portal.connectionSeasons[0]?.seasonId || "").trim();
+  }
+}
+
+function applyPortalAccountToStudentPortal_(personId, account) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId || !account) {
+    return;
+  }
+
+  [state.studentPortal, state.studentPortalByPerson[cleanPersonId]].forEach((portal) => {
+    if (portal?.person && String(portal.person.id || "").trim() === cleanPersonId) {
+      portal.account = {
+        ...(portal.account || {}),
+        ...account
+      };
+    }
+  });
+}
+
 function getCurrentModule_() {
   const view = VIEW_META[state.currentView];
   return view?.module || "dashboard";
@@ -21522,6 +21699,41 @@ function getAttendanceWorkingSession_() {
     : getActiveAttendanceSession_();
 }
 
+function getDefaultViewForModule_(moduleId) {
+  const tabs = getModuleTabs_(moduleId);
+  const configuredDefault = MODULE_META[moduleId]?.defaultView || "";
+
+  if (configuredDefault && tabs.some((tab) => tab.view === configuredDefault)) {
+    return configuredDefault;
+  }
+
+  return tabs[0]?.view || configuredDefault || "attendance";
+}
+
+function renderModuleTabs_(moduleId) {
+  const tabs = getModuleTabs_(moduleId);
+
+  if (tabs.length <= 1) {
+    return "";
+  }
+
+  return `
+    <nav class="module-tabs" aria-label="Subfichas">
+      ${tabs.map((tab) => `
+        <button
+          class="module-tab ${state.currentView === tab.view ? "active" : ""}"
+          type="button"
+          data-action="navigate"
+          data-view="${escapeHtml(tab.view)}"
+        >
+          <strong>${escapeHtml(tab.label)}</strong>
+          <span>${escapeHtml(tab.description || "")}</span>
+        </button>
+      `).join("")}
+    </nav>
+  `;
+}
+
 function renderNavButton(moduleId) {
   const meta = MODULE_META[moduleId];
   const targetView = getDefaultViewForModule_(moduleId);
@@ -40794,6 +41006,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
 
 
 
