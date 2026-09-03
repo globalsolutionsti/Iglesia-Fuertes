@@ -1087,406 +1087,7 @@ function getFirstAccessibleView_(views) {
   return allowed || "attendance";
 }
 
-function getDefaultViewForModule_(moduleId) {
-  const meta = MODULE_META[moduleId];
-  const tabs = getModuleTabs_(moduleId);
-
-  if (tabs.length) {
-    return tabs[0].view;
-  }
-
-  return meta?.defaultView || "dashboard";
-}
-
-function ensureAccessibleCurrentView_() {
-  if (!state.user || isStudentSession_()) {
-    return;
-  }
-
-  if (!VIEW_META[state.currentView] || !canAccessView_(state.currentView)) {
-    state.currentView = getFirstAccessibleView_(ACCESSIBLE_VIEWS);
-  }
-}
-
-function renderModuleTabs_(moduleId) {
-  const tabs = getModuleTabs_(moduleId);
-
-  if (tabs.length <= 1) {
-    return "";
-  }
-
-  return `
-    <div class="module-tabs" role="tablist" aria-label="Fichas del modulo">
-      ${tabs.map((tab) => renderModuleTabButton_(tab)).join("")}
-    </div>
-  `;
-}
-
-function renderModuleTabButton_(tab) {
-  const isActive = state.currentView === tab.view || (tab.view === "attendance" && state.currentView === "qr");
-
-  return `
-    <button
-      class="module-tab-button ${isActive ? "active" : ""}"
-      data-action="navigate"
-      data-view="${escapeHtml(tab.view)}"
-      role="tab"
-      aria-selected="${isActive ? "true" : "false"}"
-    >
-      <strong>${escapeHtml(tab.label)}</strong>
-      <small>${escapeHtml(tab.description || "")}</small>
-    </button>
-  `;
-}
-
-function normalizeAttendanceCenterSection_(value) {
-  const cleanValue = String(value || "").trim().toLowerCase();
-  return ["home", "connection", "formation"].includes(cleanValue) ? cleanValue : "home";
-}
-
-function getActiveAttendanceCenterSection_() {
-  state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(state.ui.attendanceCenterSection);
-  return state.ui.attendanceCenterSection;
-}
-
-function normalizeFormationSection_(value) {
-  const cleanValue = String(value || "").trim().toLowerCase();
-  return ["route", "report", "portal", "operations", "levels"].includes(cleanValue) ? cleanValue : "route";
-}
-
-function getActiveFormationSection_() {
-  state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
-  return state.ui.formationSection;
-}
-
-function getFormationSectionLabel_(sectionKey) {
-  switch (normalizeFormationSection_(sectionKey)) {
-    case "route":
-      return "Ruta a Encuentro";
-    case "report":
-      return "Reporte Pre-Encuentro";
-    case "portal":
-      return "Inscritos y portal";
-    case "operations":
-      return "Camino Proceso de Formación";
-    case "levels":
-      return "Catálogos";
-    default:
-      return "Proceso de Formación";
-  }
-}
-
-function clampPercentage_(value, fallback = 0) {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) {
-    return fallback;
-  }
-  return Math.max(0, Math.min(100, Math.round(numericValue)));
-}
-
-function clearFormationSectionLoading_(shouldRender = true) {
-  state.ui.formationSectionLoading = {
-    active: false,
-    section: "",
-    percent: 0,
-    title: "",
-    detail: ""
-  };
-
-  if (shouldRender && state.currentView === "formation") {
-    renderApp();
-  }
-}
-
-function updateFormationSectionLoading_(payload = {}, shouldRender = true) {
-  const previous = state.ui.formationSectionLoading || {};
-  state.ui.formationSectionLoading = {
-    active: payload.active !== undefined ? Boolean(payload.active) : Boolean(previous.active),
-    section: payload.section !== undefined ? normalizeFormationSection_(payload.section) : String(previous.section || ""),
-    percent: clampPercentage_(payload.percent, previous.percent || 0),
-    title: payload.title !== undefined ? String(payload.title || "") : String(previous.title || ""),
-    detail: payload.detail !== undefined ? String(payload.detail || "") : String(previous.detail || "")
-  };
-
-  if (shouldRender && state.currentView === "formation") {
-    renderApp();
-  }
-}
-
-async function withFormationSectionLoading_(sectionKey, config, task) {
-  const normalizedSection = normalizeFormationSection_(sectionKey);
-  const shouldRenderProgress = state.currentView === "formation";
-
-  if (!shouldRenderProgress) {
-    return task(() => {});
-  }
-
-  updateFormationSectionLoading_({
-    active: true,
-    section: normalizedSection,
-    percent: clampPercentage_(config?.initialPercent, 8),
-    title: String(config?.title || `Abriendo ${getFormationSectionLabel_(normalizedSection)}...`),
-    detail: String(config?.detail || "Preparando la información de esta subficha.")
-  });
-
-  const setProgress = (percent, title, detail) => {
-    updateFormationSectionLoading_({
-      active: true,
-      section: normalizedSection,
-      percent,
-      title,
-      detail
-    });
-  };
-
-  try {
-    const result = await task(setProgress);
-    setProgress(100, config?.doneTitle || "Listo", config?.doneDetail || "La información ya quedó preparada.");
-    return result;
-  } finally {
-    clearFormationSectionLoading_();
-  }
-}
-
-function clearFormationProfileSelection_(options = {}) {
-  state.ui.selectedFormationPersonId = "";
-  state.formationProfile = null;
-  state.ui.formationProfileLoading = false;
-  state.ui.formationProfileLoadingPersonId = "";
-
-  if (!options.keepRecord) {
-    state.ui.editingFormationRecordId = "";
-  }
-}
-
-function cacheStudentPortalByPerson_(personId, portal) {
-  const cleanPersonId = String(personId || "").trim();
-
-  if (!cleanPersonId || !portal) {
-    return;
-  }
-
-  state.studentPortalByPerson[cleanPersonId] = portal;
-}
-
-function clearStudentPortalByPersonCache_(personId = "") {
-  const cleanPersonId = String(personId || "").trim();
-
-  if (!cleanPersonId) {
-    state.studentPortalByPerson = {};
-    return;
-  }
-
-  delete state.studentPortalByPerson[cleanPersonId];
-}
-
-function applyStudentPortalSnapshot_(portal) {
-  const cleanPersonId = String(portal?.person?.id || "").trim();
-
-  if (!cleanPersonId || !portal) {
-    return;
-  }
-
-  state.studentPortal = portal;
-  state.loaded.studentPortal = true;
-  state.ui.selectedFormationPortalPersonId = cleanPersonId;
-  cacheStudentPortalByPerson_(cleanPersonId, portal);
-}
-
-function applyPortalAccountToStudentPortal_(personId, account) {
-  const cleanPersonId = String(personId || "").trim();
-
-  if (!cleanPersonId || !account) {
-    return;
-  }
-
-  if (String(state.studentPortal?.person?.id || "") === cleanPersonId) {
-    state.studentPortal = {
-      ...(state.studentPortal || {}),
-      account: {
-        ...(state.studentPortal?.account || {}),
-        ...account
-      }
-    };
-    cacheStudentPortalByPerson_(cleanPersonId, state.studentPortal);
-    return;
-  }
-
-  if (state.studentPortalByPerson[cleanPersonId]) {
-    state.studentPortalByPerson[cleanPersonId] = {
-      ...(state.studentPortalByPerson[cleanPersonId] || {}),
-      account: {
-        ...(state.studentPortalByPerson[cleanPersonId]?.account || {}),
-        ...account
-      }
-    };
-  }
-}
-
-function getFormationPortalDefaultOffering_() {
-  const processId = getSelectedFormationPortalProcessId_();
-  const offerings = (Array.isArray(state.formationOfferings) ? state.formationOfferings : [])
-    .filter((item) => !processId || String(item?.processId || "").trim() === processId)
-    .slice()
-    .sort((left, right) => {
-      const leftOrder = Number(left?.levelOrder || 0);
-      const rightOrder = Number(right?.levelOrder || 0);
-
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
-      }
-
-      return String(left?.startDate || "").localeCompare(String(right?.startDate || ""));
-    });
-
-  return offerings[0] || null;
-}
-
-function getFormationPortalFilters_() {
-  if (!state.filters.formationPortal || typeof state.filters.formationPortal !== "object") {
-    state.filters.formationPortal = {
-      processId: "",
-      levelId: "",
-      offeringId: "",
-      enrollmentStatus: "ALL",
-      search: "",
-      personSearch: ""
-    };
-  }
-
-  return state.filters.formationPortal;
-}
-
-function getFormationJourneyFilters_() {
-  if (!state.filters.formationJourney || typeof state.filters.formationJourney !== "object") {
-    state.filters.formationJourney = {
-      processId: "",
-      levelId: "",
-      enrollmentStatus: "ALL",
-      search: ""
-    };
-  }
-
-  return state.filters.formationJourney;
-}
-
-function getSelectedFormationPortalProcessId_() {
-  const filters = getFormationPortalFilters_();
-  return String(filters.processId || state.filters.formationOps.processId || "").trim();
-}
-
-function getSelectedFormationJourneyProcessId_() {
-  const filters = getFormationJourneyFilters_();
-  return String(filters.processId || state.filters.formationOps.processId || "").trim();
-}
-
-function sortFormationEnrollmentRowsForView_(rows) {
-  return (Array.isArray(rows) ? rows : [])
-    .slice()
-    .sort((left, right) => {
-      const leftOrder = Number(left?.levelOrder || 0);
-      const rightOrder = Number(right?.levelOrder || 0);
-
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
-      }
-
-      const leftStart = parseDateToTimestamp_(left?.startDate || left?.enrolledAt || "", true);
-      const rightStart = parseDateToTimestamp_(right?.startDate || right?.enrolledAt || "", true);
-
-      if (leftStart !== rightStart) {
-        return leftStart - rightStart;
-      }
-
-      return String(left?.personName || "").localeCompare(String(right?.personName || ""));
-    });
-}
-
-function syncFormationPortalSelectionFromRows_(rows, options = {}) {
-  const portalFilters = getFormationPortalFilters_();
-  const sortedRows = sortFormationEnrollmentRowsForView_(rows);
-  const cleanProcessId = String(
-    portalFilters.processId
-    || options.processId
-    || sortedRows[0]?.processId
-    || state.filters.formationOps.processId
-    || ""
-  ).trim();
-  const currentOfferingId = String(portalFilters.offeringId || state.ui.selectedFormationOfferingId || "").trim();
-  const preferredOfferingId = String(options.preferredOfferingId || state.ui.lastFormationEnrolledOfferingId || "").trim();
-  const availableOfferings = (Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : []).filter((offering) => {
-    return !cleanProcessId || String(offering?.processId || "").trim() === cleanProcessId;
-  });
-
-  if (cleanProcessId) {
-    portalFilters.processId = cleanProcessId;
-  }
-
-  if (!sortedRows.length) {
-    return ensureFormationPortalSelection_({
-      preferredOfferingId
-    });
-  }
-
-  const rowsByOffering = new Map();
-  sortedRows.forEach((row) => {
-    const offeringId = String(row?.offeringId || "").trim();
-    if (!offeringId || rowsByOffering.has(offeringId)) {
-      return;
-    }
-    rowsByOffering.set(offeringId, row);
-  });
-
-  const chooseOfferingById = (offeringId) => {
-    const cleanOfferingId = String(offeringId || "").trim();
-    if (!cleanOfferingId || !rowsByOffering.has(cleanOfferingId)) {
-      return null;
-    }
-
-    return availableOfferings.find((offering) => String(offering?.id || "").trim() === cleanOfferingId)
-      || {
-        id: cleanOfferingId,
-        levelId: String(rowsByOffering.get(cleanOfferingId)?.levelId || "").trim()
-      };
-  };
-
-  const nextOffering = chooseOfferingById(currentOfferingId)
-    || chooseOfferingById(preferredOfferingId)
-    || chooseOfferingById(sortedRows[0]?.offeringId || "")
-    || null;
-
-  if (!nextOffering?.id) {
-    portalFilters.levelId = "";
-    portalFilters.offeringId = "";
-    state.ui.selectedFormationOfferingId = "";
-    return false;
-  }
-
-  const nextOfferingId = String(nextOffering.id || "").trim();
-  const fallbackRow = rowsByOffering.get(nextOfferingId) || sortedRows[0] || null;
-  const nextLevelId = String(nextOffering.levelId || fallbackRow?.levelId || "").trim();
-  const changed = nextOfferingId !== currentOfferingId || nextLevelId !== String(portalFilters.levelId || "").trim();
-
-  portalFilters.levelId = nextLevelId;
-  portalFilters.offeringId = nextOfferingId;
-  state.ui.selectedFormationOfferingId = nextOfferingId;
-  state.ui.lastFormationEnrolledOfferingId = nextOfferingId;
-
-  return changed;
-}
-
-function syncFormationJourneySelectionFromRows_(rows, options = {}) {
-  const journeyFilters = getFormationJourneyFilters_();
-  const sortedRows = sortFormationEnrollmentRowsForView_(rows);
-  const cleanProcessId = String(
-    journeyFilters.processId
-    || options.processId
-    || sortedRows[0]?.processId
-    || state.filters.formationOps.processId
-    || ""
-  ).trim();
-  const currentLevelId = String(journeyFilters.levelId || "").trim();
-  const levelStillExists = currentLevelId
+function m currentLevelId
     ? sortedRows.some((row) => String(row?.levelId || "").trim() === currentLevelId)
     : false;
 
@@ -24940,7 +24541,8 @@ async function handleClick(event) {
     if (action === "load-attendance") {
       if (state.filters.attendance.scope !== "selected") {
         await loadActiveSession({
-          force: true
+          force: true,
+          groupId: resolveConnectionQrGroupId_()
         });
       }
       await loadAttendanceData({
@@ -25003,6 +24605,12 @@ async function handleClick(event) {
 
       state.filters.attendance.groupId = nextGroupId;
       state.filters.attendance.search = "";
+      if (state.filters.attendance.scope !== "selected") {
+        await loadActiveSession({
+          force: true,
+          groupId: nextGroupId
+        });
+      }
       await loadAttendanceData();
       renderApp();
       scrollToSection_("attendance-list");
@@ -25064,7 +24672,9 @@ async function handleClick(event) {
       state.filters.attendance.mode = "kiosk";
       state.currentView = "attendance";
       state.ui.attendanceCenterSection = "connection";
-      await loadQrSummary();
+      await ensureQrViewData_({
+        force: true
+      });
       renderApp();
       scrollViewportToTop_();
       return;
@@ -25081,13 +24691,16 @@ async function handleClick(event) {
       if (nextMode === "manual") {
         state.currentView = "attendance";
         await loadActiveSession({
-          force: true
+          force: true,
+          groupId: resolveConnectionQrGroupId_()
         });
         await loadAttendanceData();
       } else {
         state.currentView = "attendance";
         state.filters.qr.surface = nextMode === "kiosk" ? "kiosk" : "scanner";
-        await loadQrSummary();
+        await ensureQrViewData_({
+          force: true
+        });
       }
 
       renderApp();
@@ -26357,6 +25970,12 @@ async function handleChange(event) {
     if (target.id === "attendance-group") {
       state.filters.attendance.groupId = target.value;
       state.filters.attendance.search = "";
+      if (state.filters.attendance.scope !== "selected") {
+        await loadActiveSession({
+          force: true,
+          groupId: target.value
+        });
+      }
       await loadAttendanceData();
       renderApp();
       focusInputById_("attendance-search");
@@ -27219,13 +26838,17 @@ async function loadPeopleDirectory(options = {}) {
 }
 
 async function loadActiveSession(options = {}) {
-  if (!options.force && state.loaded.activeSession) {
+  const groupId = String(options.groupId || "").trim();
+  const cacheKey = groupId ? `group:${groupId}` : "global";
+
+  if (!options.force && state.loaded.activeSession && state.cacheKeys.activeSession === cacheKey) {
     return state.activeSession;
   }
 
   return runSharedLoad_("activeSession", async () => {
-    state.activeSession = await apiGet("sessions.active");
+    state.activeSession = await apiGet("sessions.active", groupId ? { groupId } : undefined);
     state.loaded.activeSession = true;
+    state.cacheKeys.activeSession = cacheKey;
     return state.activeSession;
   });
 }
@@ -29459,6 +29082,10 @@ async function ensureQrViewData_(options = {}) {
     await loadPeople();
   }
 
+  await loadActiveSession({
+    force: Boolean(options.force),
+    groupId: resolveConnectionQrGroupId_()
+  });
   await loadQrSummary(options);
 }
 
@@ -29471,7 +29098,9 @@ async function ensureAttendanceHubViewData_(options = {}) {
 
   if (activeSection === "connection") {
     if (resolveConnectionAttendanceMode_() === "manual") {
-      await loadActiveSession();
+      await loadActiveSession({
+        groupId: resolveConnectionQrGroupId_()
+      });
       await loadAttendanceData(options);
     } else {
       await ensureQrViewData_(options);
@@ -34604,7 +34233,10 @@ async function registerQrAttendance(personId, options = {}) {
     state.qrScanner.status = "success";
     state.qrScanner.message = state.qrScanner.result.message;
     state.filters.qr.personId = "";
-    await loadActiveSession();
+    await loadActiveSession({
+      force: true,
+      groupId: context?.groupId || ""
+    });
     await loadQrSummary({
       showLoading: options.showLoading !== false,
       force: true
@@ -36275,15 +35907,19 @@ function speakFormationAttendanceWelcome_(result) {
   }
 }
 
-function resolveQrContext() {
+function resolveConnectionQrGroupId_() {
   const scopedGroups = getUserScopedConnectionGroups_();
   const scopedDefaultGroupId = scopedGroups.length ? String(scopedGroups[0]?.id || "").trim() : "";
-  const groupId = String(
+  return String(
     state.filters.qr.groupId
     || state.filters.attendance.groupId
     || scopedDefaultGroupId
     || ""
   ).trim();
+}
+
+function resolveQrContext() {
+  const groupId = resolveConnectionQrGroupId_();
 
   if (state.filters.qr.mode === "manual") {
     if (!state.filters.qr.seasonId || !state.filters.qr.sessionId) {
