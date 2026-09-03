@@ -196,7 +196,1101 @@ const MODULE_TABS = {
     { view: "connection-reports", label: "Reportes", description: "Excel y PDF" }
   ],
   formation: [
-    { view: "formation", label: "Formaciói {
+    { view: "formation", label: "Formación", description: "Prospectos, niveles e historial" }
+  ],
+  admin: [
+    { view: "admin-settings", label: "Configuracion", description: "API y conexion" },
+    { view: "admin-users", label: "Usuarios", description: "Perfiles y accesos" }
+  ]
+};
+
+const ACCESSIBLE_VIEWS = [
+  "attendance",
+  "dashboard",
+  "assistants",
+  "congregants-new",
+  "welcome-followup",
+  "welcome-prospects",
+  "catalogs",
+  "seasons",
+  "participants",
+  "connection-reports",
+  "formation",
+  "admin-settings",
+  "admin-users"
+];
+const DELETE_SCRAP_PERMISSION = "delete-scrap";
+const USER_PERMISSION_OPTIONS = [...ACCESSIBLE_VIEWS, DELETE_SCRAP_PERMISSION];
+
+const DEFAULT_QR_CAMERA_FACING = detectPreferredQrCameraFacing_();
+const PERSON_TYPE_OPTIONS = ["NUEVO", "PROSPECTO GP", "CONGREGANTE", "PROSPECTO GF", "VOLUNTARIOS", "LIDER", "COORDINADOR"];
+const CREDENTIAL_PREVIEW_LIMIT = 8;
+const MOBILE_NAV_ITEMS = [
+  { module: "attendanceHub", view: "attendance", label: "Asistencia", description: "Captura" },
+  { module: "dashboard", view: "dashboard", label: "Inicio", description: "Pastor" },
+  { module: "welcome", view: "congregants-new", label: "Bienvenida", description: "Nuevos" },
+  { module: "directory", view: "assistants", label: "Congregantes", description: "Padron" },
+  { module: "connection", view: "catalogs", label: "Grupos", description: "Operacion" },
+  { module: "formation", view: "formation", label: "Formacion", description: "Proceso" },
+  { module: "admin", view: "admin-settings", label: "Admin", description: "Accesos" }
+];
+const WELCOME_NEW_SNAPSHOT_KEY = `${APP_CONFIG.storagePrefix}.welcomeNewSnapshot`;
+const WELCOME_NEW_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+const state = {
+  user: initialStoredUser,
+  apiUrl: getStoredApiUrl(),
+  globalApiUrl: APP_CONFIG.defaultApiUrl,
+  globalWebUrl: "",
+  currentView: initialLaunchContext.forceStudentPortal
+    ? "login"
+    : initialStoredUser
+    ? (initialStoredUser.sessionType === "student" ? "student-portal" : "attendance")
+    : "login",
+  connectionStatus: null,
+  metrics: {
+    peopleCount: null,
+    directoryCount: null
+  },
+  dashboardExecutive: null,
+  dashboardLeaderDetail: null,
+  dashboardSessionInsights: null,
+  dashboardSeasonMatrix: null,
+  welcomePeople: [],
+  welcomeProfile: null,
+  formationProcesses: [],
+  formationCatalog: [],
+  formationRecords: [],
+  formationCandidates: [],
+  formationProfile: null,
+  formationProfilesByKey: {},
+  formationOfferings: [],
+  formationEnrollments: [],
+  formationPortalOfferings: [],
+  formationPortalRoster: [],
+  formationProcessRoster: [],
+  formationWorkspace: {
+    portal: {
+      processId: "",
+      rows: []
+    },
+    journey: {
+      processId: "",
+      rows: []
+    }
+  },
+  formationAttendanceContext: null,
+  connectionEncounterCandidates: [],
+  studentPortal: null,
+  studentPortalByPerson: {},
+  telegramConfig: null,
+  adminUsers: [],
+  adminUsersSupport: {
+    available: true,
+    message: ""
+  },
+  backendSupport: {
+    dashboardSeasonMatrixRoute: null
+  },
+  viewLoadToken: 0,
+  cacheKeys: {
+    participants: "",
+    participantSeasonAssignments: "",
+    attendance: "",
+    attendanceDetail: "",
+    qrSummary: "",
+    dashboardSeasonMatrix: "",
+    welcomePeople: "",
+    formationProcesses: "",
+    formationRecords: "",
+    formationCandidates: "",
+    formationOfferings: "",
+    formationEnrollments: "",
+    formationPortalOfferings: "",
+    formationPortalRoster: "",
+    formationProcessRoster: "",
+    formationWorkspacePortal: "",
+    formationWorkspaceJourney: "",
+    formationAttendanceContext: "",
+    connectionEncounterCandidates: ""
+  },
+  loaded: {
+    bootstrap: false,
+    groups: false,
+    ministries: false,
+    seasons: false,
+    people: false,
+    peopleDirectory: false,
+    activeSession: false,
+    users: false,
+    telegramConfig: false,
+    welcome: false,
+    formationProcesses: false,
+    formationCatalog: false,
+    formationRecords: false,
+    formationCandidates: false,
+    formationOfferings: false,
+    formationEnrollments: false,
+    formationPortalOfferings: false,
+    formationPortalRoster: false,
+    formationProcessRoster: false,
+    formationWorkspacePortal: false,
+    formationWorkspaceJourney: false,
+    formationAttendanceContext: false,
+    connectionEncounterCandidates: false,
+    studentPortal: false
+  },
+  catalogs: {
+    groups: [],
+    ministries: []
+  },
+  seasons: [],
+  sessionsBySeason: {},
+  sessionGroupsByKey: {},
+  people: [],
+  peopleDirectory: [],
+  activeSession: null,
+  participants: [],
+  participantContext: null,
+  participantSeasonAssignments: {},
+  attendanceContext: null,
+  attendanceForm: {},
+  attendanceBaseline: {},
+  attendanceDetail: null,
+  realtimeSummary: null,
+  qrSessionActivity: [],
+  formationQrActivity: [],
+  peopleImport: {
+    fileName: "",
+    rows: [],
+    summary: null,
+    progress: null
+  },
+  qrLastResult: null,
+  qrScanner: {
+    enabled: false,
+    status: "idle",
+    message: "Activa la camara para comenzar el registro automatico.",
+    result: null,
+    displayResult: null,
+    cameraFacing: ""
+  },
+  selectedBulkPeople: [],
+  selectedFormationRoutePeople: [],
+  ui: {
+    mobileNavOpen: false,
+    attendanceCenterSection: "home",
+    attendanceFormationHydrating: false,
+    attendanceFormationHydratingMessage: "",
+    dashboardHydrating: false,
+    dashboardHydratingMessage: "",
+    editingGroupId: "",
+    editingMinistryId: "",
+    editingUserEmail: "",
+    editingWelcomeNewId: "",
+    editingFormationProcessId: "",
+    editingFormationLevelId: "",
+    editingFormationRecordId: "",
+    editingFormationOfferingId: "",
+    formationProcessSaving: false,
+    formationProcessSavingMessage: "",
+    formationAttendanceActivating: false,
+    formationSection: "route",
+    formationStructureDrafts: {},
+    formationStructureExpanded: {},
+    formationProfileLoading: false,
+    formationProfileLoadingPersonId: "",
+    welcomeNewRefreshing: false,
+    welcomeNewSnapshotSource: "",
+    selectedWelcomePersonId: "",
+    selectedWelcomeFollowupId: "",
+    welcomeWorkbenchMode: "",
+    welcomeModal: null,
+    connectionEncounterModal: null,
+    selectedFormationPersonId: "",
+    pendingFormationEnrollmentPersonId: "",
+    selectedFormationOfferingId: "",
+    selectedFormationEnrollmentId: "",
+    selectedFormationPortalPersonId: "",
+    formationPortalModal: null,
+    lastFormationEnrolledOfferingId: "",
+    formationRouteEnrollmentBusyPersonId: "",
+    formationRouteEnrollmentProgressPercent: 0,
+    formationRouteEnrollmentProgressMessage: "",
+    formationRouteEnrollmentProgressDetail: "",
+    formationRouteBulkBusy: false,
+    formationRouteBulkAction: "",
+    formationRouteBulkProgressPercent: 0,
+    formationRouteBulkProgressMessage: "",
+    formationRouteBulkProgressDetail: "",
+    formationSectionLoading: {
+      active: false,
+      section: "",
+      percent: 0,
+      title: "",
+      detail: ""
+    },
+    formationAttendanceManualDraft: {},
+    formationFilterBusy: false,
+    formationFilterMessage: "",
+    formationFilterDraft: null,
+    pendingProspectDrafts: {},
+    selectedScrapPersonId: "",
+    scrapPreview: null,
+    selectedScrapSeasonId: "",
+    scrapSeasonPreview: null,
+    selectedScrapFormationProcessId: "",
+    scrapFormationProcessPreview: null,
+    studentPortalTab: "profile",
+    studentPortalProfileTab: "summary",
+    studentPortalMenuOpen: false,
+    studentPortalConnectionSeasonId: "",
+    adminLeaderAccountEmail: "",
+    adminLeaderAccessPreview: null,
+    loginMode: initialLaunchContext.forceStudentPortal ? "student" : "admin",
+    confirmation: null
+  },
+  filters: {
+    dashboard: {
+      seasonId: "",
+      sessionId: "",
+      groupId: "",
+      reportGroupId: "",
+      recentFrom: "",
+      recentTo: ""
+    },
+    assistants: {
+      search: "",
+      status: "ACTIVO",
+      type: "ALL"
+    },
+    congregants: {
+      recentFrom: "",
+      recentTo: ""
+    },
+    welcome: {
+      search: "",
+      status: "SIN_SEGUIMIENTO",
+      groupId: ""
+    },
+    seasons: {
+      seasonId: ""
+    },
+    participants: {
+      seasonId: "",
+      sessionId: "",
+      groupId: "",
+      peopleSearch: "",
+      bulkSearch: "",
+      moveTargets: {}
+    },
+    connectionReports: {
+      seasonId: "",
+      type: "group",
+      groupId: "",
+      ministryId: ""
+    },
+    attendance: {
+      seasonId: "",
+      sessionId: "",
+      groupId: "",
+      search: "",
+      mode: "manual",
+      scope: "today",
+      pickerSeasonId: "",
+      pickerSessionId: ""
+    },
+    qr: {
+      mode: "active",
+      surface: "scanner",
+      seasonId: "",
+      sessionId: "",
+      groupId: "",
+      personId: "",
+      peopleSearch: "",
+      cameraFacing: DEFAULT_QR_CAMERA_FACING
+    },
+    formation: {
+      seasonId: "",
+      groupId: "",
+      levelId: "",
+      status: "ALL",
+      search: ""
+    },
+    formationOps: {
+      processId: "",
+      levelId: "",
+      offeringId: "",
+      enrollmentStatus: "ALL",
+      search: "",
+      sessionNumber: "1",
+      personSearch: "",
+      captureMode: "manual"
+    },
+    formationPortal: {
+      processId: "",
+      levelId: "",
+      offeringId: "",
+      enrollmentStatus: "ALL",
+      search: "",
+      personSearch: ""
+    },
+    formationJourney: {
+      processId: "",
+      levelId: "",
+      enrollmentStatus: "ALL",
+      search: ""
+    },
+    admin: {
+      userSearch: "",
+      groupSearch: "",
+      ministrySearch: "",
+      scrapSearch: ""
+    }
+  }
+};
+
+const pendingResourceLoads = {
+  bootstrap: null,
+  groups: null,
+  ministries: null,
+  seasons: null,
+  people: null,
+  peopleDirectory: null,
+  activeSession: null,
+  users: null,
+  telegramConfig: null,
+  welcome: null,
+  welcomeProfile: null,
+  formationProcesses: null,
+  formationCatalog: null,
+  formationRecords: null,
+  formationCandidates: null,
+  formationOfferings: null,
+  formationEnrollments: null,
+  formationAttendanceContext: null,
+  formationProfile: null,
+  connectionEncounterCandidates: null,
+  studentPortal: null
+};
+
+let peopleSourcesResyncTimer = 0;
+let backgroundWarmersTimer = 0;
+let welcomePeopleLoadVersion = 0;
+let formationManualAttendanceHydrationToken = 0;
+const inputRerenderTimers = Object.create(null);
+const optimisticWelcomePeople = new Map();
+
+const qrScannerRuntime = {
+  stream: null,
+  detector: null,
+  engine: "",
+  canvas: null,
+  context: null,
+  animationFrameId: 0,
+  busy: false,
+  lastScanAt: 0,
+  pausedUntil: 0,
+  lastValue: "",
+  lastValueAt: 0,
+  resetResultTimeoutId: 0,
+  contextRefreshTimeoutId: 0,
+  retryStartTimeoutId: 0,
+  awaitingFrameClear: false,
+  clearFrameCount: 0,
+  feedbackResult: null,
+  feedbackUntil: 0,
+  fixedCardResult: null,
+  fixedCardUntil: 0,
+  visualLockResult: null,
+  visualLockUntil: 0,
+  requestPending: false,
+  requestPersonId: "",
+  requestStartedAt: 0,
+  duplicateSuppressValue: "",
+  duplicateSuppressUntil: 0,
+  localAttendanceLocks: Object.create(null)
+};
+
+const FORMATION_QR_PROCESSING_MIN_MS = 0;
+const FORMATION_QR_SUCCESS_HOLD_MS = 1500;
+const FORMATION_QR_ERROR_HOLD_MS = 900;
+
+const formationAttendanceScannerRuntime = {
+  enabled: false,
+  stream: null,
+  detector: null,
+  engine: "",
+  canvas: null,
+  context: null,
+  animationFrameId: 0,
+  busy: false,
+  requestPending: false,
+  pausedUntil: 0,
+  lastScanAt: 0,
+  lastValue: "",
+  lastValueAt: 0,
+  suppressPersonId: "",
+  suppressUntil: 0,
+  feedback: null,
+  feedbackTimeoutId: 0,
+  activeToken: "",
+  cameraFacing: "",
+  status: "idle",
+  message: "Activa la cámara para comenzar el registro automático.",
+  requestPersonId: "",
+  requestStartedAt: 0,
+  fastRouteSupported: null,
+  lockedOfferingId: "",
+  lockedSessionNumber: "",
+  localAttendanceLocks: Object.create(null)
+};
+
+const credentialRenderRuntime = {
+  logoPromise: null,
+  whiteLogoDataUrlPromise: null
+};
+
+document.addEventListener("click", handleClick);
+document.addEventListener("submit", handleSubmit);
+document.addEventListener("change", handleChange);
+document.addEventListener("input", handleInput);
+window.addEventListener("resize", () => {
+  syncAppShellAfterRender_();
+});
+window.addEventListener("beforeunload", () => {
+  stopQrScannerRuntime_();
+  stopFormationAttendanceScanner_();
+});
+
+init();
+
+async function init() {
+  initializeDateFilters_();
+  renderApp();
+  const apiConfigWarmup = warmupApiConfiguration_();
+
+  if (state.user) {
+    if (isStudentSession_()) {
+      void apiConfigWarmup.finally(() => {
+        void bootstrapStudentPortal_().catch(handleError);
+      });
+    } else {
+      void apiConfigWarmup.finally(() => {
+        bootstrapApplicationInBackground_({
+          message: state.currentView === "dashboard"
+            ? "Preparando Dashboard Iglesia..."
+            : (state.currentView === "attendance"
+              ? "Preparando Centro de Asistencias..."
+              : "Preparando tu grupo de conexión...")
+        });
+      });
+    }
+  }
+}
+
+async function warmupApiConfiguration_() {
+  const configTask = resolveApiUrlConfiguration_()
+    .then(() => {
+      renderApp();
+    })
+    .catch(() => {
+      renderApp();
+    });
+
+  try {
+    await Promise.race([configTask, waitForAnimationDelay_(1200)]);
+  } catch (error) {
+    void error;
+  }
+
+  return configTask;
+}
+
+async function resolveApiUrlConfiguration_() {
+  const localOverrideActive = hasStoredApiUrlOverride();
+
+  if (localOverrideActive) {
+    state.apiUrl = getStoredApiUrl();
+  }
+
+  try {
+    const config = await apiGet("app.config.get", {}, {
+      apiUrl: APP_CONFIG.defaultApiUrl
+    });
+    const configuredGlobalUrl = normalizeApiUrlForComparison_(config?.apiUrl);
+    const resolvedGlobalUrl = configuredGlobalUrl || APP_CONFIG.defaultApiUrl;
+
+    state.globalApiUrl = resolvedGlobalUrl;
+    state.globalWebUrl = String(config?.webUrl || "").trim();
+    setRuntimeApiUrl(resolvedGlobalUrl);
+
+    if (!localOverrideActive) {
+      state.apiUrl = resolvedGlobalUrl;
+    }
+  } catch (error) {
+    state.globalApiUrl = APP_CONFIG.defaultApiUrl;
+    state.globalWebUrl = "";
+    setRuntimeApiUrl(APP_CONFIG.defaultApiUrl);
+
+    if (!localOverrideActive) {
+      state.apiUrl = APP_CONFIG.defaultApiUrl;
+    }
+  }
+}
+
+function isStudentSession_() {
+  return state.user?.sessionType === "student";
+}
+
+function initializeDateFilters_() {
+  const dashboardRange = getDefaultRecentRange_(90);
+  const congregantsRange = getDefaultRecentRange_(30);
+
+  if (!state.filters.dashboard.recentFrom) {
+    state.filters.dashboard.recentFrom = dashboardRange.from;
+  }
+
+  if (!state.filters.dashboard.recentTo) {
+    state.filters.dashboard.recentTo = dashboardRange.to;
+  }
+
+  if (!state.filters.congregants.recentFrom) {
+    state.filters.congregants.recentFrom = congregantsRange.from;
+  }
+
+  if (!state.filters.congregants.recentTo) {
+    state.filters.congregants.recentTo = congregantsRange.to;
+  }
+}
+
+function normalizeText_(value) {
+  return normalizeText(value);
+}
+
+function clampPercentage_(value) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function waitForAnimationDelay_(ms = 0) {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function normalizeAttendanceCenterSection_(section) {
+  const clean = String(section || "").trim();
+  return ["home", "connection", "formation"].includes(clean) ? clean : "home";
+}
+
+function getActiveAttendanceCenterSection_() {
+  state.ui.attendanceCenterSection = normalizeAttendanceCenterSection_(state.ui.attendanceCenterSection);
+  return state.ui.attendanceCenterSection;
+}
+
+function normalizeFormationSection_(section) {
+  const clean = String(section || "").trim();
+  return ["route", "report", "portal", "journey", "catalog", "levels", "operations", "attendance"].includes(clean) ? clean : "route";
+}
+
+function getActiveFormationSection_() {
+  state.ui.formationSection = normalizeFormationSection_(state.ui.formationSection);
+  return state.ui.formationSection;
+}
+
+function getFormationSectionLabel_(section) {
+  const labels = {
+    route: "Ruta a Encuentro",
+    report: "Reporte Pre-Encuentro",
+    portal: "Inscritos y portal",
+    journey: "Camino Proceso de Formación",
+    catalog: "Catálogos",
+    levels: "Niveles",
+    operations: "Operación",
+    attendance: "Asistencia"
+  };
+
+  return labels[normalizeFormationSection_(section)] || "Proceso de Formación";
+}
+
+function getFormationPortalFilters_() {
+  state.filters.formationPortal = state.filters.formationPortal || {
+    processId: "",
+    levelId: "",
+    offeringId: "",
+    enrollmentStatus: "ALL",
+    search: "",
+    personSearch: ""
+  };
+
+  return state.filters.formationPortal;
+}
+
+function getFormationJourneyFilters_() {
+  state.filters.formationJourney = state.filters.formationJourney || {
+    processId: "",
+    levelId: "",
+    enrollmentStatus: "ALL",
+    search: ""
+  };
+
+  return state.filters.formationJourney;
+}
+
+function getFormationPortalDefaultOffering_(processId = "") {
+  const cleanProcessId = String(processId || getFormationPortalFilters_().processId || state.filters.formationOps.processId || "").trim();
+  const offerings = Array.isArray(state.formationPortalOfferings) ? state.formationPortalOfferings : [];
+
+  return offerings.find((offering) => !cleanProcessId || String(offering?.processId || "").trim() === cleanProcessId) || offerings[0] || null;
+}
+
+function getSelectedFormationPortalProcessId_() {
+  return String(getFormationPortalFilters_().processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || "").trim();
+}
+
+function getSelectedFormationJourneyProcessId_() {
+  return String(getFormationJourneyFilters_().processId || state.filters.formationOps.processId || getPreferredActiveFormationProcess_()?.id || "").trim();
+}
+
+function normalizeFormationStatusToken_(value) {
+  return String(value || "").trim().toUpperCase() || "PENDIENTE";
+}
+
+function clearFormationProfileSelection_() {
+  state.formationProfile = null;
+  state.ui.formationProfileLoading = false;
+  state.ui.formationProfileLoadingPersonId = "";
+  state.ui.selectedFormationPersonId = "";
+}
+
+function clearFormationSectionLoading_() {
+  state.ui.formationSectionLoading = {
+    active: false,
+    section: "",
+    percent: 0,
+    title: "",
+    detail: ""
+  };
+}
+
+async function withFormationSectionLoading_(section, task, options = {}) {
+  state.ui.formationSectionLoading = {
+    active: true,
+    section: normalizeFormationSection_(section),
+    percent: clampPercentage_(options.percent || 12),
+    title: options.title || `Cargando ${getFormationSectionLabel_(section)}...`,
+    detail: options.detail || "Preparando información."
+  };
+  renderApp();
+
+  try {
+    return await task();
+  } finally {
+    clearFormationSectionLoading_();
+    renderApp();
+  }
+}
+
+function clearStudentPortalByPersonCache_(personId = "") {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (cleanPersonId) {
+    delete state.studentPortalByPerson[cleanPersonId];
+    return;
+  }
+
+  state.studentPortalByPerson = {};
+}
+
+function applyStudentPortalSnapshot_(portal) {
+  if (!portal) {
+    return;
+  }
+
+  state.studentPortal = portal;
+  state.loaded.studentPortal = true;
+
+  const personId = String(portal?.person?.id || "").trim();
+  if (personId) {
+    state.studentPortalByPerson[personId] = portal;
+  }
+
+  if (!state.ui.studentPortalConnectionSeasonId && Array.isArray(portal?.connectionSeasons) && portal.connectionSeasons.length) {
+    state.ui.studentPortalConnectionSeasonId = String(portal.connectionSeasons[0]?.seasonId || "").trim();
+  }
+}
+
+function applyPortalAccountToStudentPortal_(personId, account) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId || !account) {
+    return;
+  }
+
+  [state.studentPortal, state.studentPortalByPerson[cleanPersonId]].forEach((portal) => {
+    if (portal?.person && String(portal.person.id || "").trim() === cleanPersonId) {
+      portal.account = {
+        ...(portal.account || {}),
+        ...account
+      };
+    }
+  });
+}
+
+function getCurrentModule_() {
+  const view = VIEW_META[state.currentView];
+  return view?.module || "dashboard";
+}
+
+function getModuleTabs_(moduleId) {
+  return (MODULE_TABS[moduleId] || []).filter((item) => canAccessView_(item.view));
+}
+
+function getUserPermissions_() {
+  const basePermissions = Array.isArray(state.user?.permissions) && state.user.permissions.length
+    ? state.user.permissions.slice()
+    : ACCESSIBLE_VIEWS.slice();
+
+  if (
+    (basePermissions.includes("congregants-new") || basePermissions.includes("welcome-followup"))
+    && !basePermissions.includes("welcome-prospects")
+  ) {
+    basePermissions.push("welcome-prospects");
+  }
+
+  if (
+    (basePermissions.includes("catalogs") || basePermissions.includes("participants") || basePermissions.includes("seasons"))
+    && !basePermissions.includes("connection-reports")
+  ) {
+    basePermissions.push("connection-reports");
+  }
+
+  return basePermissions;
+}
+
+function hasUserPermission_(permission) {
+  return getUserPermissions_().includes(permission);
+}
+
+function canAccessView_(view) {
+  return hasUserPermission_(view);
+}
+
+function ensureAccessibleCurrentView_() {
+  if (!state.user || isStudentSession_()) {
+    return;
+  }
+
+  if (VIEW_META[state.currentView] && canAccessView_(state.currentView)) {
+    return;
+  }
+
+  state.currentView = canAccessView_("attendance")
+    ? "attendance"
+    : getFirstAccessibleView_(ACCESSIBLE_VIEWS);
+}
+
+function canUseScrapDelete_() {
+  const roleKey = normalizeText(state.user?.role || "");
+  return (roleKey === "admin" || roleKey === "administrador") && hasUserPermission_(DELETE_SCRAP_PERMISSION);
+}
+
+function canAdminCorrectFormationEnrollment_() {
+  const roleKey = normalizeText(state.user?.role || "");
+  return roleKey === "admin" || roleKey === "administrador";
+}
+
+function getNormalizedUserRole_() {
+  return normalizeText(state.user?.role || "");
+}
+
+function canUseDashboardPastorReports_() {
+  return !["lider", "coordinador"].includes(getNormalizedUserRole_());
+}
+
+function getUserScopedDashboardGroups_() {
+  const roleKey = getNormalizedUserRole_();
+  const userName = normalizeText(state.user?.name || "");
+
+  if (!["lider", "coordinador"].includes(roleKey) || !userName) {
+    return [];
+  }
+
+  return (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : []).filter((group) => {
+    return [group?.leader1Name, group?.leader2Name].some((leaderName) => normalizeText(leaderName || "") === userName);
+  });
+}
+
+function isLeaderScopedUser_() {
+  return ["lider", "coordinador"].includes(getNormalizedUserRole_());
+}
+
+function getUserScopedConnectionGroups_() {
+  if (!isLeaderScopedUser_()) {
+    return [];
+  }
+
+  if (Array.isArray(state.user?.scopedGroups) && state.user.scopedGroups.length) {
+    const allowedIds = new Set(
+      state.user.scopedGroups
+        .map((group) => String(group?.id || group?.groupId || "").trim())
+        .filter(Boolean)
+    );
+
+    return (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : []).filter((group) => {
+      return allowedIds.has(String(group?.id || "").trim());
+    });
+  }
+
+  return getUserScopedDashboardGroups_();
+}
+
+function formatConnectionGroupDisplayName_(value) {
+  const text = String(value || "").trim();
+  const key = normalizeText(text).replace(/\s+/g, " ").toUpperCase();
+  const descriptions = {
+    "INSEPARABLES A": "Recién casados y con hijos hasta 8 años",
+    "INSEPARABLES B": "Matrimonios con hijos de 9 a 23 años",
+    "INSEPARABLES C": "Matrimonios con hijos 24+"
+  };
+
+  return descriptions[key] ? `${text} - ${descriptions[key]}` : text;
+}
+function getLeaderScopeLabel_() {
+  const scopedGroups = getUserScopedConnectionGroups_();
+  const names = scopedGroups
+    .map((group) => formatConnectionGroupDisplayName_(group?.name || group?.nombre || group?.id || ""))
+    .filter(Boolean);
+
+  if (!names.length && Array.isArray(state.user?.scopedGroups)) {
+    state.user.scopedGroups.forEach((group) => {
+      const name = formatConnectionGroupDisplayName_(group?.name || group?.groupName || group?.id || group?.groupId || "");
+      if (name) {
+        names.push(name);
+      }
+    });
+  }
+
+  return names.length ? names.join(" / ") : "Grupo de Conexión asignado";
+}
+
+function renderLeaderScopeBanner_() {
+  if (!isLeaderScopedUser_()) {
+    return "";
+  }
+
+  const groupLabel = getLeaderScopeLabel_();
+
+  return `
+    <section class="panel-card leader-scope-banner" aria-label="Alcance del coordinador">
+      <div class="panel-head">
+        <div>
+          <span class="status-chip success">Operando como coordinador</span>
+          <h2>${escapeHtml(groupLabel)}</h2>
+          <p>Solo estás trabajando información y asistencias de este Grupo de Conexión.</p>
+        </div>
+        <span class="pill success">Alcance limitado</span>
+      </div>
+    </section>
+  `;
+}
+function isSeasonDemo_(season) {
+  const name = normalizeText(season?.name || "");
+  return name.includes("demo") || name.includes("demostracion");
+}
+
+function isSeasonOperational_(season) {
+  const status = normalizeText(season?.status || "");
+  return status === "activa" || isSeasonDemo_(season);
+}
+
+function getOperationalSeasonList_() {
+  const seasons = Array.isArray(state.seasons) ? state.seasons : [];
+  const operational = seasons.filter((season) => isSeasonOperational_(season));
+  return operational.length ? operational : seasons;
+}
+
+function ensureValidSeasonIdFromList_(currentSeasonId, seasons) {
+  const availableSeasons = Array.isArray(seasons) ? seasons : [];
+
+  if (!availableSeasons.length) {
+    return "";
+  }
+
+  const currentId = String(currentSeasonId || "").trim();
+  if (availableSeasons.some((season) => String(season?.id || "") === currentId)) {
+    return currentId;
+  }
+
+  return String(availableSeasons[availableSeasons.length - 1]?.id || availableSeasons[0]?.id || "");
+}
+
+function getEncounterCandidateByPersonId_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return null;
+  }
+
+  return (
+    state.connectionEncounterCandidates.find((item) => String(item?.personId || "") === cleanPersonId)
+    || state.formationCandidates.find((item) => String(item?.personId || "") === cleanPersonId)
+    || null
+  );
+}
+
+function getSelectedFormationRoutePersonIds_() {
+  return (Array.isArray(state.selectedFormationRoutePeople) ? state.selectedFormationRoutePeople : [])
+    .map((personId) => String(personId || "").trim())
+    .filter(Boolean);
+}
+
+function isFormationRoutePersonSelected_(personId) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return false;
+  }
+
+  return getSelectedFormationRoutePersonIds_().includes(cleanPersonId);
+}
+
+function toggleFormationRouteSelection_(personId, checked) {
+  const cleanPersonId = String(personId || "").trim();
+
+  if (!cleanPersonId) {
+    return;
+  }
+
+  if (!Array.isArray(state.selectedFormationRoutePeople)) {
+    state.selectedFormationRoutePeople = [];
+  }
+
+  if (checked) {
+    if (!state.selectedFormationRoutePeople.includes(cleanPersonId)) {
+      state.selectedFormationRoutePeople.push(cleanPersonId);
+    }
+    return;
+  }
+
+  state.selectedFormationRoutePeople = state.selectedFormationRoutePeople.filter((item) => String(item || "").trim() !== cleanPersonId);
+}
+
+function getSelectedFormationRouteCandidates_() {
+  const selectedIds = new Set(getSelectedFormationRoutePersonIds_());
+
+  return (Array.isArray(state.formationCandidates) ? state.formationCandidates : []).filter((candidate) => (
+    selectedIds.has(String(candidate?.personId || "").trim())
+  ));
+}
+
+function getDashboardSelectableGroups_(preferredGroups) {
+  const rawGroups = Array.isArray(preferredGroups) && preferredGroups.length
+    ? preferredGroups
+    : (Array.isArray(state.dashboardSeasonMatrix?.groups) && state.dashboardSeasonMatrix.groups.length
+      ? state.dashboardSeasonMatrix.groups
+      : (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : []));
+  const seen = new Set();
+
+  return rawGroups
+    .map((group) => {
+      const id = String(group?.id ?? group?.groupId ?? "").trim();
+      const name = String(group?.name || group?.groupName || resolveGroupName_(id) || "").trim();
+
+      if (!id || seen.has(id)) {
+        return null;
+      }
+
+      seen.add(id);
+
+      return {
+        id,
+        name: name || `Grupo ${id}`
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => normalizeText(left.name).localeCompare(normalizeText(right.name), "es"));
+}
+
+function resolveDashboardGroupReportScope_() {
+  const selectedGroupId = String(state.filters.dashboard.groupId || "");
+  const selectedReportGroupId = String(state.filters.dashboard.reportGroupId || selectedGroupId || "");
+  const scopedGroups = getUserScopedDashboardGroups_();
+  const scopedIds = scopedGroups.map((group) => String(group?.id || ""));
+
+  if (scopedIds.length) {
+    if (selectedReportGroupId && scopedIds.includes(selectedReportGroupId)) {
+      return {
+        ok: true,
+        groupId: selectedReportGroupId,
+        groupName: resolveGroupName_(selectedReportGroupId) || selectedReportGroupId,
+        source: "selected",
+        scopedGroups
+      };
+    }
+
+    if (scopedIds.length === 1) {
+      return {
+        ok: true,
+        groupId: scopedIds[0],
+        groupName: resolveGroupName_(scopedIds[0]) || scopedIds[0],
+        source: "role",
+        scopedGroups
+      };
+    }
+
+    return {
+      ok: false,
+      groupId: "",
+      groupName: "",
+      source: "role",
+      scopedGroups,
+      reason: "Selecciona uno de tus grupos para generar el reporte."
+    };
+  }
+
+  if (selectedReportGroupId) {
+    return {
+      ok: true,
+      groupId: selectedReportGroupId,
+      groupName: resolveGroupName_(selectedReportGroupId) || selectedReportGroupId,
+      source: "selected",
+      scopedGroups
+    };
+  }
+
+  return {
+    ok: false,
+    groupId: "",
+    groupName: "",
+    source: "manual",
+    scopedGroups,
+    reason: "Selecciona un grupo para generar el reporte."
+  };
+}
+
+function getFirstAccessibleView_(views) {
+  const allowed = views.find((view) => canAccessView_(view));
+  return allowed || "attendance";
+}
+
+function syncFormationPortalSelectionFromRows_(rows, options = {}) {
+  const portalFilters = getFormationPortalFilters_();
+  const cleanRows = Array.isArray(rows) ? rows : [];
+  const cleanProcessId = String(options.processId || portalFilters.processId || "").trim();
+  const preferredOfferingId = String(options.preferredOfferingId || "").trim();
+  let changed = false;
+
+  if (cleanProcessId && portalFilters.processId !== cleanProcessId) {
+    portalFilters.processId = cleanProcessId;
+    changed = true;
+  }
+
+  if (preferredOfferingId && cleanRows.some((row) => String(row?.offeringId || "").trim() === preferredOfferingId)) {
     if (portalFilters.offeringId !== preferredOfferingId) {
       portalFilters.offeringId = preferredOfferingId;
       changed = true;
