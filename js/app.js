@@ -24818,7 +24818,10 @@ async function handleClick(event) {
       state.filters.attendance.scope = "today";
       state.filters.attendance.groupId = "";
       state.filters.attendance.search = "";
-      await loadActiveSession();
+      await loadActiveSession({
+        force: true,
+        groupId: resolveConnectionQrGroupId_()
+      });
       await loadAttendanceData({
         force: true
       });
@@ -27107,7 +27110,7 @@ async function loadActiveSession(options = {}) {
     return state.activeSession;
   }
 
-  return runSharedLoad_("activeSession", async () => {
+  return runSharedLoad_(`activeSession::${cacheKey}`, async () => {
     state.activeSession = await apiGet("sessions.active", groupId ? { groupId } : {});
     state.loaded.activeSession = true;
     state.cacheKeys.activeSession = cacheKey;
