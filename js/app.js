@@ -19161,10 +19161,36 @@ function renderAssistantsView() {
   `;
 }
 
+function buildSeasonGroupCalendarRows_(seasonId, sessions) {
+  const cleanSeasonId = String(seasonId || "").trim();
+
+  return (sessions || []).map((session) => {
+    const groups = getSessionGroups(cleanSeasonId, session.id);
+    const corazonGroups = groups.filter((group) => normalizeText(group?.groupName || "") === "corazon sabio");
+    const otherGroups = groups.filter((group) => normalizeText(group?.groupName || "") !== "corazon sabio");
+    const firstCorazon = corazonGroups[0] || null;
+    const firstOther = otherGroups.find((group) => group?.groupDate || group?.date) || null;
+
+    return {
+      sessionId: session.id,
+      sessionName: session.name || "Sesion",
+      sessionNumber: session.number || "",
+      generalDate: session.date || "",
+      corazonDate: firstCorazon?.groupDate || firstCorazon?.date || "",
+      corazonGroups: corazonGroups.map((group) => group.groupName || "CORAZÓN SABIO"),
+      otherDate: firstOther?.groupDate || firstOther?.date || session.date || "",
+      otherGroupsCount: otherGroups.length
+    };
+  });
+}
 function renderSeasonsView() {
   const selectedSeason = state.seasons.find((item) => item.id === state.filters.seasons.seasonId) || getLatestSeason();
   const sessions = selectedSeason ? getSessions(selectedSeason.id) : [];
   const sessionGroups = selectedSeason && sessions.length ? getSessionGroups(selectedSeason.id, sessions[0].id) : [];
+  const groupCalendarRows = selectedSeason ? buildSeasonGroupCalendarRows_(selectedSeason.id, sessions) : [];
+  const calendarFullyLoaded = selectedSeason && sessions.length
+    ? sessions.every((session) => Object.prototype.hasOwnProperty.call(state.sessionGroupsByKey, `${selectedSeason.id}::${session.id}`))
+    : false;
   const activeSession = state.activeSession && state.activeSession.found ? state.activeSession.session : null;
   const buildSessionStatusActions = (session) => {
     const actions = [];
@@ -19388,6 +19414,52 @@ function renderSeasonsView() {
               </tbody>
             </table>
           </div>
+
+          <article class="summary-card" style="margin-top: 18px;">
+            <div class="panel-head">
+              <div>
+                <h3>Calendario por grupo</h3>
+                <p>Confirma aquí las fechas reales por grupo antes de inscribir o tomar asistencias.</p>
+              </div>
+              <button class="btn btn-secondary" type="button" data-action="refresh-season-group-calendar" data-season-id="${escapeHtml(selectedSeason.id)}">Actualizar calendario</button>
+            </div>
+
+            ${calendarFullyLoaded ? `
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Sesión</th>
+                      <th>Corazón Sabio</th>
+                      <th>Demás grupos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${groupCalendarRows.map((row) => `
+                      <tr>
+                        <td>
+                          <span class="row-title">${escapeHtml(row.sessionName)}</span>
+                          <span class="row-meta">${escapeHtml(row.sessionId)} | Número ${escapeHtml(String(row.sessionNumber || ""))}</span>
+                        </td>
+                        <td>
+                          <span class="row-title">${escapeHtml(row.corazonDate ? formatDate(row.corazonDate) : "Sin fecha especial")}</span>
+                          <span class="row-meta">${escapeHtml(row.corazonGroups.join(", ") || "No ligado")}</span>
+                        </td>
+                        <td>
+                          <span class="row-title">${escapeHtml(row.otherDate ? formatDate(row.otherDate) : formatDate(row.generalDate))}</span>
+                          <span class="row-meta">${escapeHtml(`${row.otherGroupsCount} grupo(s)`)}</span>
+                        </td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `
+              <div class="empty-state">
+                Calendario por grupo pendiente de cargar. Presiona “Actualizar calendario” para traer las fechas específicas de todos los grupos.
+              </div>
+            `}
+          </article>
 
           <article class="summary-card session-create-inline-card">
             <div class="panel-head">
@@ -24502,8 +24574,25 @@ async function handleClick(event) {
 
     if (action === "select-season") {
       state.filters.seasons.seasonId = button.dataset.seasonId || "";
-      await ensureSessionsForSeason(state.filters.seasons.seasonId);
+      const sessions = await ensureSessionsForSeason(state.filters.seasons.seasonId);
+      await Promise.all(sessions.map((session) => ensureSessionGroupsFor(state.filters.seasons.seasonId, session.id)));
       renderApp();
+      return;
+    }
+
+    if (action === "refresh-season-group-calendar") {
+      const seasonId = String(button.dataset.seasonId || state.filters.seasons.seasonId || "").trim();
+      if (!seasonId) {
+        showToast("Temporada no seleccionada", "Selecciona una temporada para cargar su calendario por grupo.", "warning");
+        return;
+      }
+
+      await withLoading(async () => {
+        const sessions = await ensureSessionsForSeason(seasonId);
+        await Promise.all(sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id)));
+      }, "Cargando calendario por grupo...");
+      renderApp();
+      showToast("Calendario cargado", "Ya puedes revisar las fechas por grupo dentro del sistema.", "success");
       return;
     }
 
@@ -29896,7 +29985,7 @@ async function ensureSeasonViewData() {
   const sessions = await ensureSessionsForSeason(seasonId);
 
   if (seasonId && sessions.length) {
-    await ensureSessionGroupsFor(seasonId, sessions[0].id);
+    await Promise.all(sessions.map((session) => ensureSessionGroupsFor(seasonId, session.id)));
   }
 }
 
@@ -40980,6 +41069,11 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
+
+
 
 
 
