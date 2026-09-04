@@ -7720,7 +7720,7 @@ function renderSpecialAttendanceView_() {
   const scannerTone = lastResult ? lastResult.tone : (state.qrScanner.enabled ? "live" : "idle");
 
   return `
-    <article class="kiosk-stage kiosk-surface-kiosk kiosk-tone-${escapeHtml(scannerTone)}" id="special-attendance-workspace">
+    <article class="kiosk-stage kiosk-surface-kiosk kiosk-tone-${escapeHtml(scannerTone)}" id="special-attendance-workspace" data-qr-scanner-root="special">
       <div class="kiosk-stage-head">
         <div>
           <span class="eyebrow kiosk-eyebrow">Asistencia especial</span>
@@ -7775,16 +7775,16 @@ function renderSpecialAttendanceView_() {
               <span class="kiosk-corner kiosk-corner-tr"></span>
               <span class="kiosk-corner kiosk-corner-bl"></span>
               <span class="kiosk-corner kiosk-corner-br"></span>
-              <span class="kiosk-scan-line ${state.qrScanner.enabled ? "" : "hidden"}"></span>
               <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
             </div>
           </div>
         </div>
 
         <aside class="kiosk-result-card kiosk-tone-${escapeHtml(scannerTone)}">
-          <span class="kiosk-result-badge">${escapeHtml(lastResult?.badge || (state.qrScanner.enabled ? "Escaneo activo" : "Especial en espera"))}</span>
-          <h3>${escapeHtml(lastResult?.title || "Escanea asistencia especial")}</h3>
-          <p>${escapeHtml(lastResult?.message || "Este registro no inscribe al grupo ni modifica asistencias normales.")}</p>
+          <span class="kiosk-result-badge" data-qr-feedback="badge">${escapeHtml(lastResult?.badge || (state.qrScanner.enabled ? "Escaneo activo" : "Especial en espera"))}</span>
+          <h3 data-qr-feedback="name">${escapeHtml(lastResult?.title || "Escanea asistencia especial")}</h3>
+          <p data-qr-feedback="message">${escapeHtml(lastResult?.message || "Este registro no inscribe al grupo ni modifica asistencias normales.")}</p>
+          <small data-qr-feedback="meta">${escapeHtml(lastResult?.timestampLabel || formatDate(eventDate))}</small>
           <div class="kiosk-result-grid">
             <div class="kiosk-result-item"><label>Nombre</label><strong>${escapeHtml(lastResult?.name || "Esperando QR")}</strong></div>
             <div class="kiosk-result-item"><label>QR ID</label><strong>${escapeHtml(lastResult?.personId || "Pendiente")}</strong></div>
@@ -34690,7 +34690,7 @@ function buildSpecialAttendanceFailureResult_(error, personId) {
   const duplicate = code === "DUPLICATE_SPECIAL_ATTENDANCE";
   const details = error?.details || {};
   return {
-    tone: duplicate ? "warning" : "error",
+    tone: "error",
     badge: duplicate ? "Ya registrado" : "Registro rechazado",
     title: duplicate ? "Asistencia ya registrada" : "No se pudo registrar",
     message: error instanceof Error ? error.message : "Ocurrió un problema con la asistencia especial.",
@@ -34721,14 +34721,16 @@ async function registerSpecialAttendance_(personId, options = {}) {
     const response = await apiPost("specialAttendance.registerQr", payload);
     const result = buildSpecialAttendanceSuccessResult_(response, cleanPersonId);
     state.specialAttendanceLastResult = result;
-    state.qrScanner.result = result;
+    setQrScannerFeedbackResult_(result, 1800);
     state.qrScanner.status = "success";
     state.qrScanner.message = result.message;
     state.filters.specialAttendance.personId = "";
     pendingResourceLoads.specialAttendance = null;
     await loadSpecialAttendanceRecords_({ force: true, showLoading: false });
-    qrScannerRuntime.duplicateSuppressValue = cleanPersonId;
-    qrScannerRuntime.duplicateSuppressUntil = Date.now() + 2400;
+    qrScannerRuntime.duplicateSuppressValue = "";
+    qrScannerRuntime.duplicateSuppressUntil = 0;
+    qrScannerRuntime.awaitingFrameClear = true;
+    qrScannerRuntime.clearFrameCount = 0;
     qrScannerRuntime.pausedUntil = Date.now() + 900;
     scheduleQrScannerResultReset_(1600);
     playKioskSignal_("success");
@@ -34748,14 +34750,16 @@ async function registerSpecialAttendance_(personId, options = {}) {
   } catch (error) {
     const result = buildSpecialAttendanceFailureResult_(error, cleanPersonId);
     state.specialAttendanceLastResult = result;
-    state.qrScanner.result = result;
-    state.qrScanner.status = result.tone === "warning" ? "warning" : "error";
+    setQrScannerFeedbackResult_(result, 2000);
+    state.qrScanner.status = "error";
     state.qrScanner.message = result.message;
-    qrScannerRuntime.duplicateSuppressValue = cleanPersonId;
-    qrScannerRuntime.duplicateSuppressUntil = Date.now() + 2400;
+    qrScannerRuntime.duplicateSuppressValue = "";
+    qrScannerRuntime.duplicateSuppressUntil = 0;
+    qrScannerRuntime.awaitingFrameClear = true;
+    qrScannerRuntime.clearFrameCount = 0;
     qrScannerRuntime.pausedUntil = Date.now() + 1100;
     scheduleQrScannerResultReset_(1800);
-    playKioskSignal_(result.tone === "warning" ? "warning" : "error");
+    playKioskSignal_("error");
 
     if (!options.suppressToast) {
       throw error;
@@ -35749,6 +35753,11 @@ function clearQrScannerFeedbackResult_(options = {}) {
 }
 
 function getActiveQrScannerRoot_() {
+  if (isSpecialAttendanceSectionActive_()) {
+    return document.querySelector('[data-qr-scanner-root="special"]')
+      || document.querySelector("#special-attendance-workspace");
+  }
+
   return getFormationAttendanceScannerRoot_()
     || document.querySelector('[data-qr-scanner-root="formation"]')
     || document.querySelector("#formation-operations-attendance");
@@ -35928,6 +35937,19 @@ function renderQrScannerFeedback_() {
 
 function getQrScannerLiveState_() {
   const feedbackResult = getQrScannerFeedbackResult_();
+
+  if (isSpecialAttendanceSectionActive_()) {
+    const tone = feedbackResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
+    return {
+      tone,
+      badge: feedbackResult?.badge || (state.qrScanner.enabled ? "Escaneo activo" : "Especial en espera"),
+      name: feedbackResult?.title || feedbackResult?.name || (state.qrScanner.enabled ? "Esperando QR" : "Escanea asistencia especial"),
+      message: feedbackResult?.message || (state.qrScanner.enabled
+        ? "La cámara está lista. Si registra se pintará verde; si ya existe se pintará rojo."
+        : "Activa la cámara para comenzar a registrar asistencia especial."),
+      meta: feedbackResult?.timestampLabel || formatDate(getSpecialAttendanceEventDate_())
+    };
+  }
   const tone = feedbackResult?.tone || (state.qrScanner.enabled ? "live" : "idle");
   const badge = feedbackResult?.badge || (state.qrScanner.enabled
     ? (resolveFormationAttendanceMode_() === "kiosk" ? "Kiosko activo" : "Escaneo activo")
@@ -36013,9 +36035,10 @@ function scanQrFrame_() {
   const connectionScannerActive = state.currentView === "qr"
     || (isAttendanceConnectionSectionActive_() && resolveConnectionAttendanceMode_() !== "manual");
   const formationScannerActive = isFormationOperationsQrActive_();
+  const specialScannerActive = isSpecialAttendanceSectionActive_();
   const requiresFrameClear = !formationScannerActive;
 
-  if (!state.qrScanner.enabled || (!connectionScannerActive && !formationScannerActive)) {
+  if (!state.qrScanner.enabled || (!connectionScannerActive && !formationScannerActive && !specialScannerActive)) {
     qrScannerRuntime.animationFrameId = 0;
     return;
   }
@@ -36301,14 +36324,14 @@ function processQrRawValue_(rawValue) {
 
   const isDuplicateRead = qrScannerRuntime.lastValue === extractedPersonId && (now - qrScannerRuntime.lastValueAt) < 3000;
 
-  if (isDuplicateRead) {
+  if (isDuplicateRead && !isSpecialAttendanceSectionActive_()) {
     return;
   }
 
   if (isSpecialAttendanceSectionActive_()) {
     qrScannerRuntime.lastValue = extractedPersonId;
     qrScannerRuntime.lastValueAt = now;
-    qrScannerRuntime.awaitingFrameClear = false;
+    qrScannerRuntime.awaitingFrameClear = true;
     qrScannerRuntime.clearFrameCount = 0;
     qrScannerRuntime.duplicateSuppressValue = "";
     qrScannerRuntime.duplicateSuppressUntil = 0;
