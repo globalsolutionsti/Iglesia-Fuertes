@@ -36358,8 +36358,21 @@ function processQrRawValue_(rawValue) {
     qrScannerRuntime.duplicateSuppressValue = "";
     qrScannerRuntime.duplicateSuppressUntil = 0;
     qrScannerRuntime.pausedUntil = now + 2200;
+    const pendingSpecialResult = {
+      tone: "live",
+      badge: "QR detectado",
+      title: "ESPERA CONFIRMACION",
+      name: "ESPERA CONFIRMACION",
+      personId: extractedPersonId,
+      groupName: "Validando registro",
+      message: "Validando si esta asistencia ya existe...",
+      timestampLabel: "Confirmando con la API"
+    };
+    state.specialAttendanceLastResult = pendingSpecialResult;
     state.qrScanner.status = "processing";
-    state.qrScanner.message = "Registrando asistencia especial...";
+    state.qrScanner.message = "Espera confirmacion...";
+    setQrScannerFeedbackResult_(pendingSpecialResult, 2200);
+    applyQrScannerLiveStateToDom_(getQrScannerLiveState_());
     void registerSpecialAttendance_(extractedPersonId, {
       source: "scanner",
       showLoading: false,
@@ -41475,6 +41488,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
 
 
 
