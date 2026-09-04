@@ -359,6 +359,8 @@ const state = {
   attendanceDetail: null,
   realtimeSummary: null,
   qrSessionActivity: [],
+  specialAttendanceRecords: [],
+  specialAttendanceLastResult: null,
   formationQrActivity: [],
   peopleImport: {
     fileName: "",
@@ -510,6 +512,12 @@ const state = {
       peopleSearch: "",
       cameraFacing: DEFAULT_QR_CAMERA_FACING
     },
+    specialAttendance: {
+      eventName: "Inicio de temporada",
+      eventDate: "",
+      personId: "",
+      search: ""
+    },
     formation: {
       seasonId: "",
       groupId: "",
@@ -571,7 +579,8 @@ const pendingResourceLoads = {
   formationAttendanceContext: null,
   formationProfile: null,
   connectionEncounterCandidates: null,
-  studentPortal: null
+  studentPortal: null,
+  specialAttendance: null
 };
 
 let peopleSourcesResyncTimer = 0;
@@ -784,7 +793,7 @@ function waitForAnimationDelay_(ms = 0) {
 
 function normalizeAttendanceCenterSection_(section) {
   const clean = String(section || "").trim();
-  return ["home", "connection", "formation"].includes(clean) ? clean : "home";
+  return ["home", "connection", "formation", "special"].includes(clean) ? clean : "home";
 }
 
 function getActiveAttendanceCenterSection_() {
@@ -5535,6 +5544,7 @@ async function syncRuntimeAfterRender_() {
 
   const attendanceMode = resolveConnectionAttendanceMode_();
   const shouldKeepQrRuntime = state.currentView === "qr"
+    || isSpecialAttendanceSectionActive_()
     || (isAttendanceConnectionSectionActive_() && attendanceMode !== "manual")
     || isFormationOperationsQrActive_();
 
@@ -7634,6 +7644,7 @@ function renderAttendanceHubView_() {
   const isHome = section === "home";
   const isFormation = section === "formation";
   const isConnection = section === "connection";
+  const isSpecial = section === "special";
 
   return `
     <section class="view-grid attendance-hub-view">
@@ -7643,7 +7654,7 @@ function renderAttendanceHubView_() {
             <h2>Centro de asistencias</h2>
             <p>Entra rápido a la operación. Primero eliges el flujo y después capturas en manual, QR asistido o kiosko.</p>
           </div>
-          <span class="pill ${isFormation ? "success" : (isConnection ? "warning" : "dark")}">${escapeHtml(isFormation ? "Proceso de Formación" : (isConnection ? "Grupos de Conexión" : "Selecciona flujo"))}</span>
+          <span class="pill ${isFormation ? "success" : (isSpecial ? "warning" : (isConnection ? "warning" : "dark"))}">${escapeHtml(isFormation ? "Proceso de Formación" : (isSpecial ? "Asistencia especial" : (isConnection ? "Grupos de Conexión" : "Selecciona flujo")))}</span>
         </div>
 
         <div class="mode-card-grid attendance-hub-card-grid">
@@ -7657,6 +7668,15 @@ function renderAttendanceHubView_() {
           </button>
 
           ${leaderScoped ? "" : `
+            <button
+              class="mode-card attendance-hub-card ${isSpecial ? "active" : ""}"
+              data-action="set-attendance-center-section"
+              data-section-key="special"
+            >
+              <strong>Asistencia especial por inicio de temporada</strong>
+              <span>Escanea QR sin inscribir al grupo; guarda todo en ASISTENCIA_ESPECIAL.</span>
+            </button>
+
             <button
               class="mode-card attendance-hub-card ${isFormation ? "active" : ""}"
               data-action="set-attendance-center-section"
@@ -7677,8 +7697,129 @@ function renderAttendanceHubView_() {
       </article>
 
       ${isFormation ? renderAttendanceFormationWorkspace_() : ""}
+      ${isSpecial ? renderSpecialAttendanceView_() : ""}
       ${isConnection ? renderConnectionAttendanceView_() : ""}
     </section>
+  `;
+}
+
+function getSpecialAttendanceEventDate_() {
+  return String(state.filters.specialAttendance?.eventDate || formatDateForInput_(new Date()) || "").trim();
+}
+
+function isSpecialAttendanceSectionActive_() {
+  return state.currentView === "attendance" && getActiveAttendanceCenterSection_() === "special";
+}
+
+function renderSpecialAttendanceView_() {
+  const filter = state.filters.specialAttendance || {};
+  const eventName = String(filter.eventName || "Inicio de temporada").trim() || "Inicio de temporada";
+  const eventDate = getSpecialAttendanceEventDate_();
+  const records = Array.isArray(state.specialAttendanceRecords) ? state.specialAttendanceRecords : [];
+  const lastResult = state.specialAttendanceLastResult || state.qrScanner.result || null;
+  const scannerTone = lastResult ? lastResult.tone : (state.qrScanner.enabled ? "live" : "idle");
+
+  return `
+    <article class="kiosk-stage kiosk-surface-kiosk kiosk-tone-${escapeHtml(scannerTone)}" id="special-attendance-workspace">
+      <div class="kiosk-stage-head">
+        <div>
+          <span class="eyebrow kiosk-eyebrow">Asistencia especial</span>
+          <h2 class="kiosk-title">Inicio de temporada</h2>
+          <p class="kiosk-copy">Escanea QR sin validar inscripción a grupo. El registro se guarda únicamente en la hoja ASISTENCIA_ESPECIAL para conciliación posterior.</p>
+        </div>
+        <div class="kiosk-head-actions">
+          <button class="btn ${state.qrScanner.enabled ? "btn-danger" : "btn-primary"}" data-action="${state.qrScanner.enabled ? "stop-kiosk-camera" : "start-kiosk-camera"}">
+            ${state.qrScanner.enabled ? "Detener cámara" : "Activar cámara"}
+          </button>
+          <button class="btn btn-secondary" data-action="refresh-special-attendance">Actualizar listado</button>
+          <button class="btn btn-ghost" data-action="clear-kiosk-result">Limpiar resultado</button>
+        </div>
+      </div>
+
+      <div class="field-grid two" style="margin-bottom: 18px;">
+        <div class="field">
+          <label for="special-attendance-event-name">Nombre del evento</label>
+          <input id="special-attendance-event-name" value="${escapeHtml(eventName)}" placeholder="Inicio Tercera Temporada">
+        </div>
+        <div class="field">
+          <label for="special-attendance-event-date">Fecha del evento</label>
+          <input id="special-attendance-event-date" type="date" value="${escapeHtml(eventDate)}">
+        </div>
+      </div>
+
+      <div class="kiosk-strip">
+        <span class="kiosk-chip">Hoja: ASISTENCIA_ESPECIAL</span>
+        <span class="kiosk-chip">Evento: ${escapeHtml(eventName)}</span>
+        <span class="kiosk-chip">Fecha: ${escapeHtml(formatDate(eventDate))}</span>
+        <span class="kiosk-chip">Registros visibles: ${records.length}</span>
+      </div>
+
+      <div class="kiosk-camera-row">
+        <span class="kiosk-camera-label">Cámara para asistencia especial</span>
+        <div class="toggle-group kiosk-toggle-group">
+          <button class="toggle-button ${state.filters.qr.cameraFacing === "front" ? "active" : ""}" data-action="set-kiosk-camera" data-camera-facing="front">Frontal</button>
+          <button class="toggle-button ${state.filters.qr.cameraFacing === "rear" ? "active" : ""}" data-action="set-kiosk-camera" data-camera-facing="rear">Trasera</button>
+        </div>
+      </div>
+
+      <div class="kiosk-grid">
+        <div class="kiosk-scanner-shell">
+          <div class="kiosk-scanner-frame">
+            <video id="qr-kiosk-video" class="kiosk-video" autoplay muted playsinline></video>
+            <div class="kiosk-video-placeholder ${state.qrScanner.enabled ? "hidden" : ""}">
+              <strong>Cámara en espera</strong>
+              <span>Activa la cámara y escanea cualquier QR del padrón.</span>
+            </div>
+            <div class="kiosk-scan-overlay">
+              <span class="kiosk-corner kiosk-corner-tl"></span>
+              <span class="kiosk-corner kiosk-corner-tr"></span>
+              <span class="kiosk-corner kiosk-corner-bl"></span>
+              <span class="kiosk-corner kiosk-corner-br"></span>
+              <span class="kiosk-scan-line ${state.qrScanner.enabled ? "" : "hidden"}"></span>
+              <div class="kiosk-scan-copy">Alinea el QR dentro del marco</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="kiosk-result-card kiosk-tone-${escapeHtml(scannerTone)}">
+          <span class="kiosk-result-badge">${escapeHtml(lastResult?.badge || (state.qrScanner.enabled ? "Escaneo activo" : "Especial en espera"))}</span>
+          <h3>${escapeHtml(lastResult?.title || "Escanea asistencia especial")}</h3>
+          <p>${escapeHtml(lastResult?.message || "Este registro no inscribe al grupo ni modifica asistencias normales.")}</p>
+          <div class="kiosk-result-grid">
+            <div class="kiosk-result-item"><label>Nombre</label><strong>${escapeHtml(lastResult?.name || "Esperando QR")}</strong></div>
+            <div class="kiosk-result-item"><label>QR ID</label><strong>${escapeHtml(lastResult?.personId || "Pendiente")}</strong></div>
+            <div class="kiosk-result-item"><label>Grupo actual</label><strong>${escapeHtml(lastResult?.groupName || "No requerido")}</strong></div>
+            <div class="kiosk-result-item"><label>Evento</label><strong>${escapeHtml(eventName)}</strong></div>
+          </div>
+        </aside>
+      </div>
+    </article>
+
+    <article class="panel-card" id="special-attendance-manual">
+      <div class="panel-head"><div><h2>Registro manual por QR ID</h2><p>Respaldo por si necesitas teclear el código sin usar cámara.</p></div></div>
+      <form id="special-attendance-form">
+        <div class="field-grid two">
+          <div class="field"><label for="special-attendance-person-id">QR ID</label><input id="special-attendance-person-id" name="personId" value="${escapeHtml(filter.personId || "")}" placeholder="Ejemplo: 8154920637" required></div>
+          <div class="field"><label for="special-attendance-search">Filtrar listado</label><input id="special-attendance-search" value="${escapeHtml(filter.search || "")}" placeholder="Nombre, QR o teléfono"></div>
+        </div>
+        <div class="actions-row"><button class="btn btn-primary" type="submit">Registrar asistencia especial</button></div>
+      </form>
+    </article>
+
+    <article class="detail-card">
+      <div class="panel-head"><div><h2>Registros en ASISTENCIA_ESPECIAL</h2><p>Listado independiente para revisar quién llegó y después asignarlo manualmente al grupo que corresponda.</p></div><span class="pill dark">${records.length} registros</span></div>
+      <div class="table-wrap"><table><thead><tr><th>Persona</th><th>QR ID</th><th>Grupo actual</th><th>Fecha registro</th><th>Capturó</th></tr></thead><tbody>
+        ${records.length ? records.map((record) => `
+          <tr>
+            <td><span class="row-title">${escapeHtml(record.name || "Sin nombre")}</span><span class="row-meta">${escapeHtml(record.phone || record.email || "")}</span></td>
+            <td>${escapeHtml(record.personId || "")}</td>
+            <td>${escapeHtml(resolveGroupName_(record.groupId) || record.groupId || "Sin grupo")}</td>
+            <td>${escapeHtml(record.registeredAt || "")}</td>
+            <td>${escapeHtml(record.capturedBy || "")}</td>
+          </tr>
+        `).join("") : `<tr><td colspan="5"><div class="empty-state">Todavía no hay registros para este evento y fecha.</div></td></tr>`}
+      </tbody></table></div>
+    </article>
   `;
 }
 
@@ -25038,6 +25179,9 @@ async function handleClick(event) {
       clearQrScannerResultReset_();
       clearQrScannerFeedbackResult_();
       clearFormationAttendanceRuntimeLocks_();
+      if (isSpecialAttendanceSectionActive_()) {
+        state.specialAttendanceLastResult = null;
+      }
       if (state.qrScanner.enabled) {
         state.qrScanner.status = "scanning";
         state.qrScanner.message = buildQrScannerReadyMessage_();
@@ -25099,6 +25243,14 @@ async function handleClick(event) {
 
     if (action === "refresh-realtime") {
       await loadQrSummary({
+        force: true
+      });
+      renderApp();
+      return;
+    }
+
+    if (action === "refresh-special-attendance") {
+      await loadSpecialAttendanceRecords_({
         force: true
       });
       renderApp();
@@ -26001,6 +26153,12 @@ async function handleSubmit(event) {
       await registerQrAttendance(personId);
       return;
     }
+
+    if (form.id === "special-attendance-form") {
+      const personId = form.personId.value.trim();
+      await registerSpecialAttendance_(personId);
+      return;
+    }
   } catch (error) {
     handleError(error);
   }
@@ -26792,6 +26950,39 @@ function handleInput(event) {
         .catch((error) => console.error("No se pudo cargar el padron para busqueda QR", error));
     }
     rerenderPreservingInput_(target);
+    return;
+  }
+
+  if (target.id === "special-attendance-event-name") {
+    state.filters.specialAttendance.eventName = target.value;
+    pendingResourceLoads.specialAttendance = null;
+    loadSpecialAttendanceRecords_({ force: true, showLoading: false })
+      .then(() => renderApp())
+      .catch((error) => console.error("No se pudo recargar asistencia especial", error));
+    return;
+  }
+
+  if (target.id === "special-attendance-event-date") {
+    state.filters.specialAttendance.eventDate = target.value;
+    pendingResourceLoads.specialAttendance = null;
+    loadSpecialAttendanceRecords_({ force: true, showLoading: false })
+      .then(() => renderApp())
+      .catch((error) => console.error("No se pudo recargar asistencia especial", error));
+    return;
+  }
+
+  if (target.id === "special-attendance-person-id") {
+    state.filters.specialAttendance.personId = target.value;
+    return;
+  }
+
+  if (target.id === "special-attendance-search") {
+    state.filters.specialAttendance.search = target.value;
+    pendingResourceLoads.specialAttendance = null;
+    rerenderPreservingInput_(target);
+    loadSpecialAttendanceRecords_({ force: true, showLoading: false })
+      .then(() => renderApp())
+      .catch((error) => console.error("No se pudo filtrar asistencia especial", error));
     return;
   }
 
@@ -29414,6 +29605,11 @@ async function ensureAttendanceHubViewData_(options = {}) {
   const activeSection = getActiveAttendanceCenterSection_();
 
   if (activeSection === "home") {
+    return;
+  }
+
+  if (activeSection === "special") {
+    await ensureSpecialAttendanceViewData_(options);
     return;
   }
 
@@ -34439,6 +34635,135 @@ async function loadQrSummary(options = {}) {
   await withLoading(task, "Consultando resumen...");
 }
 
+async function ensureSpecialAttendanceViewData_(options = {}) {
+  if (!state.filters.specialAttendance.eventDate) {
+    state.filters.specialAttendance.eventDate = formatDateForInput_(new Date()) || "";
+  }
+
+  await loadSpecialAttendanceRecords_(options);
+}
+
+async function loadSpecialAttendanceRecords_(options = {}) {
+  const filter = state.filters.specialAttendance || {};
+  const requestKey = [filter.eventDate || getSpecialAttendanceEventDate_(), filter.eventName || "Inicio de temporada", filter.search || ""].join("::");
+
+  if (!options.force && pendingResourceLoads.specialAttendance === requestKey) {
+    return;
+  }
+
+  const task = async () => {
+    state.specialAttendanceRecords = await apiGet("specialAttendance.list", {
+      eventDate: filter.eventDate || getSpecialAttendanceEventDate_(),
+      eventName: filter.eventName || "Inicio de temporada",
+      search: filter.search || ""
+    });
+    pendingResourceLoads.specialAttendance = requestKey;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, "Consultando asistencia especial...");
+}
+
+function buildSpecialAttendanceSuccessResult_(response, personId) {
+  const person = response?.person || {};
+  const attendance = response?.attendance || {};
+  return {
+    tone: "success",
+    badge: "Asistencia especial registrada",
+    title: "Registro recibido",
+    message: "La asistencia se guardó en ASISTENCIA_ESPECIAL sin modificar grupos ni sesiones.",
+    name: person.name || attendance.name || "Sin nombre",
+    groupName: person.groupName || resolveGroupName_(person.groupId || attendance.groupId) || "Sin grupo",
+    participantId: attendance.id || "Especial",
+    personId: person.id || attendance.personId || personId,
+    sessionName: attendance.eventName || state.filters.specialAttendance.eventName || "Inicio de temporada",
+    timestampLabel: attendance.registeredAt || formatDateTime_(new Date())
+  };
+}
+
+function buildSpecialAttendanceFailureResult_(error, personId) {
+  const code = error instanceof ApiError ? String(error.code || "").toUpperCase() : "UNEXPECTED_ERROR";
+  const duplicate = code === "DUPLICATE_SPECIAL_ATTENDANCE";
+  const details = error?.details || {};
+  return {
+    tone: duplicate ? "warning" : "error",
+    badge: duplicate ? "Ya registrado" : "Registro rechazado",
+    title: duplicate ? "Asistencia ya registrada" : "No se pudo registrar",
+    message: error instanceof Error ? error.message : "Ocurrió un problema con la asistencia especial.",
+    name: duplicate ? (details.name || "Registro existente") : "Sin registro",
+    groupName: duplicate ? (resolveGroupName_(details.groupId) || details.groupId || "Sin grupo") : "No requerido",
+    participantId: details.id || "Especial",
+    personId: personId || details.personId || "Sin dato",
+    sessionName: state.filters.specialAttendance.eventName || "Inicio de temporada",
+    timestampLabel: formatDateTime_(new Date())
+  };
+}
+
+async function registerSpecialAttendance_(personId, options = {}) {
+  const cleanPersonId = extractPersonIdFromScan_(personId) || String(personId || "").trim();
+  if (!cleanPersonId) {
+    throw new ApiError("El código QR no contiene un QR ID reconocible.", "INVALID_QR_VALUE");
+  }
+
+  const payload = {
+    personId: cleanPersonId,
+    eventName: state.filters.specialAttendance.eventName || "Inicio de temporada",
+    eventDate: state.filters.specialAttendance.eventDate || getSpecialAttendanceEventDate_(),
+    capturedBy: state.user?.name || "",
+    userEmail: state.user?.email || ""
+  };
+
+  const task = async () => {
+    const response = await apiPost("specialAttendance.registerQr", payload);
+    const result = buildSpecialAttendanceSuccessResult_(response, cleanPersonId);
+    state.specialAttendanceLastResult = result;
+    state.qrScanner.result = result;
+    state.qrScanner.status = "success";
+    state.qrScanner.message = result.message;
+    state.filters.specialAttendance.personId = "";
+    pendingResourceLoads.specialAttendance = null;
+    await loadSpecialAttendanceRecords_({ force: true, showLoading: false });
+    qrScannerRuntime.duplicateSuppressValue = cleanPersonId;
+    qrScannerRuntime.duplicateSuppressUntil = Date.now() + 2400;
+    qrScannerRuntime.pausedUntil = Date.now() + 900;
+    scheduleQrScannerResultReset_(1600);
+    playKioskSignal_("success");
+  };
+
+  try {
+    if (options.showLoading === false) {
+      await task();
+    } else {
+      await withLoading(task, "Registrando asistencia especial...");
+    }
+
+    if (!options.suppressToast) {
+      showToast("Asistencia especial", "Registro guardado correctamente en ASISTENCIA_ESPECIAL.", "success");
+    }
+    renderApp();
+  } catch (error) {
+    const result = buildSpecialAttendanceFailureResult_(error, cleanPersonId);
+    state.specialAttendanceLastResult = result;
+    state.qrScanner.result = result;
+    state.qrScanner.status = result.tone === "warning" ? "warning" : "error";
+    state.qrScanner.message = result.message;
+    qrScannerRuntime.duplicateSuppressValue = cleanPersonId;
+    qrScannerRuntime.duplicateSuppressUntil = Date.now() + 2400;
+    qrScannerRuntime.pausedUntil = Date.now() + 1100;
+    scheduleQrScannerResultReset_(1800);
+    playKioskSignal_(result.tone === "warning" ? "warning" : "error");
+
+    if (!options.suppressToast) {
+      throw error;
+    }
+    renderApp();
+  }
+}
+
 async function registerQrAttendance(personId, options = {}) {
   const cleanPersonId = extractPersonIdFromScan_(personId) || String(personId || "").trim();
   if (!cleanPersonId) {
@@ -35327,6 +35652,10 @@ function setFormationScannerVisualLock_(result, durationMs = 3000) {
 function buildQrScannerReadyMessage_() {
   const cameraLabel = getQrCameraLabel_(state.qrScanner.cameraFacing || state.filters.qr.cameraFacing);
 
+  if (isSpecialAttendanceSectionActive_()) {
+    return `Lector listo con cámara ${cameraLabel}. Escanea QR para guardar asistencia especial.`;
+  }
+
   if (isFormationOperationsQrActive_()) {
     const mode = resolveFormationAttendanceMode_();
     return mode === "kiosk"
@@ -35976,6 +36305,24 @@ function processQrRawValue_(rawValue) {
     return;
   }
 
+  if (isSpecialAttendanceSectionActive_()) {
+    qrScannerRuntime.lastValue = extractedPersonId;
+    qrScannerRuntime.lastValueAt = now;
+    qrScannerRuntime.awaitingFrameClear = false;
+    qrScannerRuntime.clearFrameCount = 0;
+    qrScannerRuntime.duplicateSuppressValue = "";
+    qrScannerRuntime.duplicateSuppressUntil = 0;
+    qrScannerRuntime.pausedUntil = now + 2200;
+    state.qrScanner.status = "processing";
+    state.qrScanner.message = "Registrando asistencia especial...";
+    void registerSpecialAttendance_(extractedPersonId, {
+      source: "scanner",
+      showLoading: false,
+      suppressToast: true
+    });
+    return;
+  }
+
   if (isFormationOperationsQrActive_() && isFormationAttendanceAlreadyRegisteredLocally_(extractedPersonId, state.filters.formationOps.sessionNumber)) {
     qrScannerRuntime.awaitingFrameClear = false;
     qrScannerRuntime.clearFrameCount = 0;
@@ -36301,6 +36648,10 @@ function resolveFormationQrContext_() {
 }
 
 function getCurrentQrScannerSurfaceLabel_() {
+  if (isSpecialAttendanceSectionActive_()) {
+    return "asistencia especial";
+  }
+
   if (isFormationOperationsQrActive_()) {
     return resolveFormationAttendanceMode_() === "kiosk" ? "kiosko de formación" : "escaneo QR de formación";
   }
@@ -40716,6 +41067,12 @@ function resetRuntimeState() {
     personId: "",
     peopleSearch: "",
     cameraFacing: DEFAULT_QR_CAMERA_FACING
+  };
+  state.filters.specialAttendance = {
+    eventName: "Inicio de temporada",
+    eventDate: "",
+    personId: "",
+    search: ""
   };
   state.filters.formation = {
     seasonId: "",
