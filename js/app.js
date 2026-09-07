@@ -15868,18 +15868,12 @@ function renderDashboardView() {
   const section = String(state.ui.dashboardSection || "");
 
   if (section === "connection") {
-    return `
-      <section class="view-grid dashboard-section-flow">
-        ${renderDashboardSectionTabs_()}
-        ${renderDashboardConnectionView_()}
-      </section>
-    `;
+    return renderDashboardConnectionView_();
   }
 
   if (section === "formation") {
     return `
       <section class="view-grid dashboard-section-flow">
-        ${renderDashboardSectionTabs_()}
         ${renderDashboardFormationView_()}
       </section>
     `;
@@ -15913,6 +15907,7 @@ function renderDashboardFormationView_() {
   const loading = Boolean(state.ui.dashboardHydrating);
 
   return `
+    ${renderDashboardSectionTabs_()}
     <article class="panel-card dashboard-toolbar-card module-section-anchor" id="dashboard-formation-toolbar">
       <div class="panel-head">
         <div>
@@ -16107,6 +16102,7 @@ function renderDashboardConnectionView_() {
 
   return `
     <section class="view-grid dashboard-executive-flow">
+      ${renderDashboardSectionTabs_()}
       <article class="panel-card dashboard-toolbar-card dashboard-season-selector-card module-section-anchor" id="dashboard-season-selector">
         <div class="panel-head">
           <div>
@@ -41966,6 +41962,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
 
 
 
