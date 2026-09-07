@@ -256,6 +256,7 @@ const state = {
   dashboardLeaderDetail: null,
   dashboardSessionInsights: null,
   dashboardSeasonMatrix: null,
+  dashboardFormationMatrix: null,
   welcomePeople: [],
   welcomeProfile: null,
   formationProcesses: [],
@@ -290,7 +291,8 @@ const state = {
     message: ""
   },
   backendSupport: {
-    dashboardSeasonMatrixRoute: null
+    dashboardSeasonMatrixRoute: null,
+    dashboardFormationMatrixRoute: null
   },
   viewLoadToken: 0,
   cacheKeys: {
@@ -300,6 +302,7 @@ const state = {
     attendanceDetail: "",
     qrSummary: "",
     dashboardSeasonMatrix: "",
+    dashboardFormationMatrix: "",
     welcomePeople: "",
     formationProcesses: "",
     formationRecords: "",
@@ -386,6 +389,7 @@ const state = {
     attendanceFormationHydratingMessage: "",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
+    dashboardSection: "",
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
@@ -459,7 +463,9 @@ const state = {
       groupId: "",
       reportGroupId: "",
       recentFrom: "",
-      recentTo: ""
+      recentTo: "",
+      formationProcessId: "",
+      formationOfferingId: ""
     },
     assistants: {
       search: "",
@@ -6103,7 +6109,7 @@ function renderStudentPortalQuickMenu_(context) {
   const items = [
     { id: "profile", label: "Perfil", note: "Tus datos y ministerios", icon: "profile" },
     { id: "connection", label: "Grupos de Conexión", note: "Temporadas, grupo y asistencias", icon: "team" },
-    { id: "formation", label: "Proceso de Formación", note: "Pasos aprobados, en curso y siguiente", icon: "growth" }
+    { id: "formation", label: "Procesos de Formación", note: "Pasos aprobados, en curso y siguiente", icon: "growth" }
   ];
 
   return `
@@ -15822,7 +15828,191 @@ function buildDashboardExportFileName_(prefix, label) {
   return `${prefix}_${formatTimestampToken_()}${safeLabel}.csv`;
 }
 
+function renderDashboardSectionTabs_() {
+  const section = String(state.ui.dashboardSection || "");
+  const tabs = [
+    {
+      id: "connection",
+      label: "Grupos de Conexión",
+      copy: "Vista actual de grupos, sesiones e indicadores pastorales."
+    },
+    {
+      id: "formation",
+      label: "Procesos de Formación",
+      copy: "Asistencia de participantes por 12 sesiones, con exportación Excel y PDF."
+    }
+  ];
+
+  return `
+    <article class="panel-card dashboard-section-switch-card module-section-anchor" id="dashboard-section-switch">
+      <div class="panel-head">
+        <div>
+          <h2>Dashboard Iglesia</h2>
+          <p>Elige qué tablero quieres consultar. Los datos se cargan hasta seleccionar una subficha para que el sistema se sienta más rápido.</p>
+        </div>
+        <span class="pill dark">Carga bajo demanda</span>
+      </div>
+      <div class="dashboard-mobile-shortcuts dashboard-section-switch-grid">
+        ${tabs.map((tab) => `
+          <button type="button" class="dashboard-mobile-shortcut ${section === tab.id ? "active" : ""}" data-action="set-dashboard-section" data-dashboard-section="${escapeHtml(tab.id)}">
+            <strong>${escapeHtml(tab.label)}</strong>
+            <span>${escapeHtml(tab.copy)}</span>
+          </button>
+        `).join("")}
+      </div>
+    </article>
+  `;
+}
+
 function renderDashboardView() {
+  const section = String(state.ui.dashboardSection || "");
+
+  if (section === "connection") {
+    return `
+      <section class="view-grid dashboard-section-flow">
+        ${renderDashboardSectionTabs_()}
+        ${renderDashboardConnectionView_()}
+      </section>
+    `;
+  }
+
+  if (section === "formation") {
+    return `
+      <section class="view-grid dashboard-section-flow">
+        ${renderDashboardSectionTabs_()}
+        ${renderDashboardFormationView_()}
+      </section>
+    `;
+  }
+
+  return `
+    <section class="view-grid dashboard-section-flow">
+      ${renderDashboardSectionTabs_()}
+      <article class="panel-card dashboard-section-empty-card">
+        <div class="empty-state">Selecciona Grupos de Conexión o Proceso de Formación para cargar únicamente esa información.</div>
+      </article>
+    </section>
+  `;
+}
+
+function renderDashboardFormationView_() {
+  const matrix = state.dashboardFormationMatrix;
+  const filters = state.filters.dashboard || {};
+  const processOptions = (matrix?.processes || state.formationProcesses || []).map((process) => ({
+    value: String(process.id || process.ID_PROCESO || ""),
+    label: String(process.name || process.NOMBRE || process.id || process.ID_PROCESO || "Proceso")
+  })).filter((option) => option.value);
+  const offeringOptions = (matrix?.offerings || []).map((offering) => ({
+    value: String(offering.id || ""),
+    label: `${offering.levelName || offering.name || offering.id || "Paso"}${offering.totalSessions ? ` · ${offering.totalSessions} sesiones` : ""}`
+  })).filter((option) => option.value);
+  const rows = Array.isArray(matrix?.rows) ? matrix.rows : [];
+  const sessions = Array.isArray(matrix?.sessions) && matrix.sessions.length
+    ? matrix.sessions.slice(0, 12)
+    : Array.from({ length: 12 }, (_, index) => ({ key: `S${index + 1}`, label: `S${index + 1}`, number: index + 1 }));
+  const loading = Boolean(state.ui.dashboardHydrating);
+
+  return `
+    <article class="panel-card dashboard-toolbar-card module-section-anchor" id="dashboard-formation-toolbar">
+      <div class="panel-head">
+        <div>
+          <h2>Proceso de Formación</h2>
+          <p>Consulta la asistencia de los participantes en 12 sesiones. La información se solicita a la API solo dentro de esta subficha.</p>
+        </div>
+        <div class="dashboard-toolbar-actions">
+          <button class="btn btn-secondary" data-action="refresh-dashboard-formation">Actualizar Formación</button>
+          <button class="btn btn-ghost" data-action="export-dashboard-formation-excel" ${rows.length ? "" : "disabled"}>Excel</button>
+          <button class="btn btn-primary" data-action="export-dashboard-formation-pdf" ${rows.length ? "" : "disabled"}>PDF</button>
+        </div>
+      </div>
+      <div class="field-grid two">
+        <div class="field">
+          <label for="dashboard-formation-process">Proceso</label>
+          <select id="dashboard-formation-process">
+            ${renderOptions(processOptions, filters.formationProcessId || matrix?.processId || "", "Proceso activo")}
+          </select>
+        </div>
+        <div class="field">
+          <label for="dashboard-formation-offering">Paso / grupo de formación</label>
+          <select id="dashboard-formation-offering">
+            <option value="">Todos los pasos actuales</option>
+            ${renderOptions(offeringOptions, filters.formationOfferingId || matrix?.offeringId || "")}
+          </select>
+          <span class="field-help">Si lo dejas en todos, se muestra la inscripción más reciente de cada participante.</span>
+        </div>
+      </div>
+      <div class="summary-strip">
+        <span class="context-item"><strong>Proceso:</strong> ${escapeHtml(matrix?.processName || "Pendiente")}</span>
+        <span class="context-item"><strong>Participantes:</strong> ${escapeHtml(String(matrix?.totals?.participants || rows.length || 0))}</span>
+        <span class="context-item"><strong>Asistencias SI:</strong> ${escapeHtml(String(matrix?.totals?.presentMarks || 0))}</span>
+        <span class="context-item"><strong>Capturas:</strong> ${escapeHtml(String(matrix?.totals?.capturedMarks || 0))}</span>
+        <span class="context-item"><strong>Actualizado:</strong> ${escapeHtml(matrix?.generatedAt ? formatDateTime_(matrix.generatedAt) : "Sin cargar")}</span>
+      </div>
+    </article>
+
+    ${loading ? `
+      <article class="panel-card dashboard-inline-loading-card" aria-live="polite">
+        <div class="dashboard-inline-loading-head">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <div>
+            <h3>${escapeHtml(state.ui.dashboardHydratingMessage || "Cargando Proceso de Formación...")}</h3>
+            <p>Estamos preparando solo la matriz de Formación, sin cargar el tablero completo de grupos.</p>
+          </div>
+        </div>
+      </article>
+    ` : ""}
+
+    <article class="detail-card dashboard-group-detail-card module-section-anchor" id="dashboard-formation-matrix">
+      <div class="panel-head">
+        <div>
+          <h2>Asistencia por participante</h2>
+          <p>Paloma verde si asistió, cruz roja si no asistió y guion cuando todavía no existe captura en esa sesión.</p>
+        </div>
+        <span class="pill dark">${escapeHtml(String(sessions.length))} sesiones</span>
+      </div>
+      ${rows.length ? `
+        <div class="table-wrap dashboard-group-roster-wrap">
+          <table class="dashboard-group-roster-table dashboard-formation-matrix-table">
+            <thead>
+              <tr>
+                <th>Participante</th>
+                <th>Paso actual</th>
+                <th>Total</th>
+                ${sessions.map((session) => `<th>${escapeHtml(session.label || session.key || `S${session.number}`)}</th>`).join("")}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.name || row.personId || "Participante")}</span>
+                    <span class="row-meta">${escapeHtml(row.personNumber || row.personId || "")}${row.phone ? ` | ${escapeHtml(row.phone)}` : ""}</span>
+                  </td>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.levelName || row.offeringName || "Sin paso")}</span>
+                    <span class="row-meta">${escapeHtml(row.status || "")}</span>
+                  </td>
+                  <td>
+                    <div class="dashboard-person-total">
+                      <strong>${escapeHtml(`${row.totalPresent || 0}/${sessions.length}`)}</strong>
+                      <span>${escapeHtml(String(row.attendanceRate || 0))}%</span>
+                    </div>
+                  </td>
+                  ${sessions.map((session) => `
+                    <td><div class="dashboard-attendance-cell">${renderDashboardAttendanceMark_(row.attendances?.[session.key] || "")}</div></td>
+                  `).join("")}
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `
+        <div class="empty-state">${loading ? "Cargando matriz de Proceso de Formación..." : "Aún no se ha cargado la matriz o no hay participantes inscritos en el proceso seleccionado."}</div>
+      `}
+    </article>
+  `;
+}
+function renderDashboardConnectionView_() {
   const executive = state.dashboardExecutive;
   const latestSeason = getLatestSeason();
   const focusSeason = executive?.seasonFocus || (latestSeason ? {
@@ -16421,6 +16611,182 @@ function downloadExcelHtmlFile_(htmlText, fileName) {
   downloadBlob_(blob, fileName);
 }
 
+function buildDashboardFormationReportModel_() {
+  const matrix = state.dashboardFormationMatrix;
+
+  if (!matrix) {
+    return null;
+  }
+
+  const sessions = Array.isArray(matrix.sessions) && matrix.sessions.length
+    ? matrix.sessions.slice(0, 12)
+    : Array.from({ length: 12 }, (_, index) => ({ key: `S${index + 1}`, label: `S${index + 1}`, number: index + 1 }));
+  const rows = Array.isArray(matrix.rows) ? matrix.rows : [];
+
+  return {
+    title: "Dashboard Proceso de Formación",
+    processName: matrix.processName || "Proceso de Formación",
+    generatedAt: matrix.generatedAt || "",
+    sessions,
+    rows,
+    totals: matrix.totals || {}
+  };
+}
+
+function buildDashboardFormationExcelHtml_(report) {
+  const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+  const rows = Array.isArray(report?.rows) ? report.rows : [];
+
+  return `
+    <html>
+      <head><meta charset="utf-8"></head>
+      <body>
+        <h1>${escapeHtml(report?.title || "Dashboard Proceso de Formación")}</h1>
+        <p><strong>Proceso:</strong> ${escapeHtml(report?.processName || "")}</p>
+        <p><strong>Participantes:</strong> ${escapeHtml(String(report?.totals?.participants || rows.length || 0))}</p>
+        <p><strong>Generado:</strong> ${escapeHtml(report?.generatedAt ? formatDateTime_(report.generatedAt) : "")}</p>
+        <table border="1">
+          <thead>
+            <tr>
+              <th>Participante</th>
+              <th>Folio / QR</th>
+              <th>Paso actual</th>
+              <th>Total</th>
+              ${sessions.map((session) => `<th>${escapeHtml(session.label || session.key || `S${session.number}`)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.name || row.personId || "")}</td>
+                <td>${escapeHtml(row.personNumber || row.personId || "")}</td>
+                <td>${escapeHtml(row.levelName || row.offeringName || "")}</td>
+                <td>${escapeHtml(`${row.totalPresent || 0}/${sessions.length}`)}</td>
+                ${sessions.map((session) => {
+                  const status = String(row.attendances?.[session.key] || "").toUpperCase();
+                  return `<td>${status === "SI" ? "SI" : (status === "NO" ? "NO" : "-")}</td>`;
+                }).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+function downloadDashboardFormationExcel_() {
+  const report = buildDashboardFormationReportModel_();
+
+  if (!report || !report.rows.length) {
+    showToast("Sin datos", "Primero carga la subficha Proceso de Formación para exportar el Excel.", "warning");
+    return;
+  }
+
+  downloadExcelHtmlFile_(
+    buildDashboardFormationExcelHtml_(report),
+    buildDashboardBinaryExportFileName_("DASHBOARD_FORMACION", report.processName || "FORMACION", "xls")
+  );
+  showToast("Excel listo", "Se descargó la matriz de asistencia de Formación.", "success");
+}
+
+async function downloadDashboardFormationPdf_() {
+  const report = buildDashboardFormationReportModel_();
+  const JsPdfClass = getJsPdfClass_();
+
+  if (!report || !report.rows.length) {
+    showToast("Sin datos", "Primero carga la subficha Proceso de Formación para exportar el PDF.", "warning");
+    return;
+  }
+
+  if (!JsPdfClass) {
+    showToast("PDF no disponible", "No se encontró la librería PDF en el navegador.", "warning");
+    return;
+  }
+
+  await withLoading(async () => {
+    const sessions = report.sessions || [];
+    const doc = new JsPdfClass({
+      orientation: "landscape",
+      unit: "pt",
+      format: "letter"
+    });
+
+    if (typeof doc.autoTable !== "function") {
+      throw new Error("JSPDF_AUTOTABLE_UNAVAILABLE");
+    }
+
+    const head = [[
+      "Participante",
+      "Folio / QR",
+      "Paso actual",
+      "Total",
+      ...sessions.map((session) => session.label || session.key || `S${session.number}`)
+    ]];
+    const body = report.rows.map((row) => [
+      row.name || row.personId || "",
+      row.personNumber || row.personId || "",
+      row.levelName || row.offeringName || "",
+      `${row.totalPresent || 0}/${sessions.length}`,
+      ...sessions.map((session) => {
+        const status = String(row.attendances?.[session.key] || "").toUpperCase();
+        return status === "SI" ? "SI" : (status === "NO" ? "NO" : "-");
+      })
+    ]);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(report.title || "Dashboard Proceso de Formación", 36, 40);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Proceso: ${report.processName || ""}`, 36, 58);
+    doc.text(`Participantes: ${report.totals?.participants || report.rows.length || 0}`, 36, 72);
+
+    doc.autoTable({
+      head,
+      body,
+      startY: 88,
+      margin: { left: 24, right: 24 },
+      styles: {
+        fontSize: 6,
+        cellPadding: 3,
+        overflow: "linebreak",
+        valign: "middle"
+      },
+      headStyles: {
+        fillColor: [17, 17, 17],
+        textColor: 255,
+        fontStyle: "bold"
+      },
+      columnStyles: {
+        0: { cellWidth: 118 },
+        1: { cellWidth: 58 },
+        2: { cellWidth: 88 },
+        3: { cellWidth: 36 }
+      },
+      didParseCell(data) {
+        if (data.section !== "body" || data.column.index < 4) {
+          return;
+        }
+
+        const value = String(data.cell.raw || "").toUpperCase();
+        if (value === "SI") {
+          data.cell.styles.textColor = [24, 128, 70];
+          data.cell.styles.fillColor = [230, 247, 238];
+          data.cell.styles.fontStyle = "bold";
+        } else if (value === "NO") {
+          data.cell.styles.textColor = [190, 38, 38];
+          data.cell.styles.fillColor = [255, 235, 235];
+          data.cell.styles.fontStyle = "bold";
+        }
+      }
+    });
+
+    doc.save(buildDashboardBinaryExportFileName_("DASHBOARD_FORMACION", report.processName || "FORMACION", "pdf"));
+  }, "Generando PDF de Formación...");
+
+  showToast("PDF listo", "Se descargó la matriz de asistencia de Formación.", "success");
+}
 function isPastorOrAdminUser_() {
   const roleKey = getNormalizedUserRole_();
   return ["admin", "administrador", "pastor"].includes(roleKey);
@@ -23584,6 +23950,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "set-dashboard-section") {
+      const section = String(button.dataset.dashboardSection || "").trim();
+
+      state.ui.dashboardSection = section;
+      renderApp();
+
+      await ensureDashboardViewData_({
+        force: false,
+        message: section === "formation"
+          ? "Cargando Proceso de Formación..."
+          : "Cargando Grupos de Conexión..."
+      });
+      renderApp();
+      return;
+    }
+
+    if (action === "refresh-dashboard-formation") {
+      await loadDashboardFormationMatrix_({
+        force: true,
+        message: "Actualizando Proceso de Formación..."
+      });
+      renderApp();
+      return;
+    }
+
+    if (action === "export-dashboard-formation-excel") {
+      downloadDashboardFormationExcel_();
+      return;
+    }
+
+    if (action === "export-dashboard-formation-pdf") {
+      await downloadDashboardFormationPdf_();
+      return;
+    }
     if (action === "refresh-dashboard-executive") {
       await ensureDashboardViewData_({
         force: true,
@@ -26264,6 +26664,30 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.id === "dashboard-formation-process") {
+      state.filters.dashboard.formationProcessId = target.value;
+      state.filters.dashboard.formationOfferingId = "";
+      state.dashboardFormationMatrix = null;
+      state.cacheKeys.dashboardFormationMatrix = "";
+      await loadDashboardFormationMatrix_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "dashboard-formation-offering") {
+      state.filters.dashboard.formationOfferingId = target.value;
+      state.dashboardFormationMatrix = null;
+      state.cacheKeys.dashboardFormationMatrix = "";
+      await loadDashboardFormationMatrix_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
     if (target.id === "dashboard-session") {
       state.filters.dashboard.sessionId = target.value;
       renderApp();
@@ -29544,6 +29968,20 @@ async function ensureDashboardViewData_(options = {}) {
   const task = async () => {
     syncDashboardFilterState_();
 
+    const section = String(state.ui.dashboardSection || "");
+
+    if (!section) {
+      return;
+    }
+
+    if (section === "formation") {
+      await loadDashboardFormationMatrix_({
+        force: options.force,
+        showLoading: false
+      });
+      return;
+    }
+
     await Promise.all([
       loadDashboardExecutive_({
         force: options.force,
@@ -29571,7 +30009,6 @@ async function ensureDashboardViewData_(options = {}) {
 
   return withLoading(task, options.message || "Cargando Dashboard Iglesia...");
 }
-
 async function ensureAdminViewData_() {
   await loadCatalogs({
     includeMinistries: true
@@ -30318,6 +30755,40 @@ async function loadDashboardSeasonMatrix_(options = {}) {
   }
 
   return withLoading(task, options.message || "Preparando matriz pastoral...");
+}
+async function loadDashboardFormationMatrix_(options = {}) {
+  const filters = state.filters.dashboard || {};
+  const processId = String(filters.formationProcessId || "").trim();
+  const offeringId = String(filters.formationOfferingId || "").trim();
+  const cacheKey = `${processId || "ACTIVE"}::${offeringId || "ALL"}`;
+  const loadKey = `dashboardFormationMatrix::${cacheKey}`;
+
+  if (!options.force && state.cacheKeys.dashboardFormationMatrix === cacheKey && state.dashboardFormationMatrix) {
+    return state.dashboardFormationMatrix;
+  }
+
+  const task = () => runSharedLoad_(loadKey, async () => {
+    const payload = await apiGet("dashboard.formationAttendanceMatrix", {
+      processId,
+      offeringId
+    });
+
+    state.backendSupport.dashboardFormationMatrixRoute = true;
+    state.dashboardFormationMatrix = payload || null;
+    state.cacheKeys.dashboardFormationMatrix = cacheKey;
+
+    if (payload?.processId && !filters.formationProcessId) {
+      filters.formationProcessId = String(payload.processId || "");
+    }
+
+    return state.dashboardFormationMatrix;
+  });
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Cargando asistencia del Proceso de Formación...");
 }
 
 async function ensureSessionGroupsFor(seasonId, sessionId) {
@@ -40882,6 +41353,7 @@ function resetRuntimeState() {
   state.dashboardLeaderDetail = null;
   state.dashboardSessionInsights = null;
   state.dashboardSeasonMatrix = null;
+  state.dashboardFormationMatrix = null;
   state.welcomePeople = [];
   if (backgroundWarmersTimer) {
     window.clearTimeout(backgroundWarmersTimer);
@@ -40891,6 +41363,7 @@ function resetRuntimeState() {
   state.ui.attendanceFormationHydratingMessage = "";
   state.ui.dashboardHydrating = false;
   state.ui.dashboardHydratingMessage = "";
+  state.ui.dashboardSection = "";
   state.ui.welcomeNewRefreshing = false;
   state.ui.welcomeNewSnapshotSource = "";
   state.welcomeProfile = null;
@@ -40928,7 +41401,8 @@ function resetRuntimeState() {
     message: ""
   };
   state.backendSupport = {
-    dashboardSeasonMatrixRoute: null
+    dashboardSeasonMatrixRoute: null,
+    dashboardFormationMatrixRoute: null
   };
   state.viewLoadToken = 0;
   state.ui.formationRouteBulkBusy = false;
@@ -40943,6 +41417,7 @@ function resetRuntimeState() {
     attendanceDetail: "",
     qrSummary: "",
     dashboardSeasonMatrix: "",
+    dashboardFormationMatrix: "",
     welcomePeople: "",
     formationProcesses: "",
     formationRecords: "",
@@ -41021,6 +41496,7 @@ function resetRuntimeState() {
     attendanceFormationHydratingMessage: "",
     dashboardHydrating: false,
     dashboardHydratingMessage: "",
+    dashboardSection: "",
     editingGroupId: "",
     editingMinistryId: "",
     editingUserEmail: "",
@@ -41085,7 +41561,9 @@ function resetRuntimeState() {
     groupId: "",
     reportGroupId: "",
     recentFrom: "",
-    recentTo: ""
+    recentTo: "",
+    formationProcessId: "",
+    formationOfferingId: ""
   };
   state.filters.congregants = {
     recentFrom: "",
@@ -41488,6 +41966,15 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
+
+
+
+
+
+
 
 
 
