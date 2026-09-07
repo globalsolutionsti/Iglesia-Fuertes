@@ -104,6 +104,11 @@ const VIEW_META = {
     title: "Asignacion de Participantes",
     subtitle: "Asigna personas a grupos de forma individual o masiva."
   },
+  "connection-manual-enrollment": {
+    module: "connection",
+    title: "Inscripción Manual a Grupos de Conexión",
+    subtitle: "Asigna a grupo a las personas registradas en ASISTENCIA_ESPECIAL para que desde la segunda sesión puedan escanear QR."
+  },
   "connection-reports": {
     module: "connection",
     title: "Reportes Grupos Conexión",
@@ -193,6 +198,7 @@ const MODULE_TABS = {
     { view: "catalogs", label: "Catalogos", description: "Grupos y ministerios" },
     { view: "seasons", label: "Temporadas", description: "Sesiones y estados" },
     { view: "participants", label: "Asignacion", description: "Individual y masiva" },
+    { view: "connection-manual-enrollment", label: "Inscripción manual", description: "Desde asistencia especial" },
     { view: "connection-reports", label: "Reportes", description: "Excel y PDF" }
   ],
   formation: [
@@ -214,6 +220,7 @@ const ACCESSIBLE_VIEWS = [
   "catalogs",
   "seasons",
   "participants",
+  "connection-manual-enrollment",
   "connection-reports",
   "formation",
   "admin-settings",
@@ -381,6 +388,7 @@ const state = {
     cameraFacing: ""
   },
   selectedBulkPeople: [],
+  selectedSpecialEnrollmentPeople: [],
   selectedFormationRoutePeople: [],
   ui: {
     mobileNavOpen: false,
@@ -497,6 +505,13 @@ const state = {
       type: "group",
       groupId: "",
       ministryId: ""
+    },
+    connectionManualEnrollment: {
+      seasonId: "",
+      groupId: "",
+      eventName: "Inicio de temporada",
+      eventDate: "",
+      search: ""
     },
     attendance: {
       seasonId: "",
@@ -982,6 +997,13 @@ function getUserPermissions_() {
     && !basePermissions.includes("connection-reports")
   ) {
     basePermissions.push("connection-reports");
+  }
+
+  if (
+    (basePermissions.includes("catalogs") || basePermissions.includes("participants") || basePermissions.includes("seasons") || basePermissions.includes("connection-reports"))
+    && !basePermissions.includes("connection-manual-enrollment")
+  ) {
+    basePermissions.push("connection-manual-enrollment");
   }
 
   return basePermissions;
@@ -7620,6 +7642,8 @@ function renderCurrentView() {
       return renderConnectionSectionView_(renderParticipantsView());
     case "connection-reports":
       return renderConnectionSectionView_(renderConnectionReportsView_());
+    case "connection-manual-enrollment":
+      return renderConnectionSectionView_(renderConnectionManualEnrollmentView_());
     case "attendance":
       return renderAttendanceHubView_();
     case "qr":
@@ -7738,6 +7762,7 @@ function renderSpecialAttendanceView_() {
             ${state.qrScanner.enabled ? "Detener cámara" : "Activar cámara"}
           </button>
           <button class="btn btn-secondary" data-action="refresh-special-attendance">Actualizar listado</button>
+          <button class="btn btn-ghost" data-action="export-special-attendance-excel" ${records.length ? "" : "disabled"}>Excel</button>
           <button class="btn btn-ghost" data-action="clear-kiosk-result">Limpiar resultado</button>
         </div>
       </div>
@@ -8270,6 +8295,220 @@ function renderConnectionReportsView_() {
   `;
 }
 
+function getConnectionManualEnrollmentFilter_() {
+  if (!state.filters.connectionManualEnrollment) {
+    state.filters.connectionManualEnrollment = {
+      seasonId: "",
+      groupId: "",
+      eventName: "Inicio de temporada",
+      eventDate: "",
+      search: ""
+    };
+  }
+
+  return state.filters.connectionManualEnrollment;
+}
+
+function getConnectionManualEnrollmentGroups_() {
+  const groups = isPastorOrAdminUser_()
+    ? (Array.isArray(state.catalogs.groups) ? state.catalogs.groups : [])
+    : getUserScopedConnectionGroups_();
+
+  return groups.filter((group) => String(group?.id || "").trim());
+}
+
+function syncConnectionManualEnrollmentFilters_() {
+  const filter = getConnectionManualEnrollmentFilter_();
+  const seasonId = ensureValidSeasonIdFromList_(filter.seasonId, state.seasons) || getLatestSeason()?.id || "";
+  const groups = getConnectionManualEnrollmentGroups_();
+
+  filter.seasonId = seasonId;
+  filter.eventName = String(filter.eventName || "Inicio de temporada").trim() || "Inicio de temporada";
+  filter.eventDate = String(filter.eventDate || state.filters.specialAttendance?.eventDate || formatDateForInput_(new Date()) || "").trim();
+
+  if (!groups.some((group) => String(group.id || "") === String(filter.groupId || ""))) {
+    filter.groupId = groups[0]?.id || "";
+  }
+}
+
+function getConnectionManualEnrollmentRows_() {
+  const filter = getConnectionManualEnrollmentFilter_();
+  const search = normalizeText(filter.search || "");
+  const selectedGroupId = String(filter.groupId || "").trim();
+  const selectedSet = new Set((Array.isArray(state.selectedSpecialEnrollmentPeople) ? state.selectedSpecialEnrollmentPeople : []).map((personId) => String(personId || "")));
+
+  return (Array.isArray(state.specialAttendanceRecords) ? state.specialAttendanceRecords : [])
+    .filter((record) => {
+      const haystack = normalizeText([
+        record.name,
+        record.personId,
+        record.numero,
+        record.phone,
+        record.email,
+        record.groupId
+      ].join(" "));
+      return !search || haystack.indexOf(search) >= 0;
+    })
+    .map((record) => {
+      const personId = String(record.personId || "").trim();
+      const assignment = getParticipantSeasonAssignment_(personId);
+      const groupIds = Array.isArray(assignment?.groupIds) ? assignment.groupIds.map((groupId) => String(groupId || "")) : [];
+      const assignedToSelected = Boolean(selectedGroupId && groupIds.includes(selectedGroupId));
+      const assignedToOther = Boolean(assignment && groupIds.length && !assignedToSelected);
+      const available = Boolean(personId && !assignedToSelected && !assignedToOther);
+
+      return {
+        ...record,
+        personId,
+        selected: selectedSet.has(personId),
+        assignment,
+        assignedToSelected,
+        assignedToOther,
+        available,
+        statusLabel: assignedToSelected
+          ? "Ya inscrito en este grupo"
+          : (assignedToOther ? `Inscrito en ${assignment?.groupName || "otro grupo"}` : "Listo para inscribir")
+      };
+    });
+}
+
+function renderConnectionManualEnrollmentView_() {
+  syncConnectionManualEnrollmentFilters_();
+
+  const filter = getConnectionManualEnrollmentFilter_();
+  const groups = getConnectionManualEnrollmentGroups_();
+  const rows = getConnectionManualEnrollmentRows_();
+  const availableRows = rows.filter((row) => row.available);
+  const selectedRows = rows.filter((row) => row.available && row.selected);
+  const selectedGroupName = resolveGroupName_(filter.groupId) || filter.groupId || "Sin grupo";
+  const selectedSeasonName = resolveSeasonName_(filter.seasonId) || filter.seasonId || "Sin temporada";
+
+  return `
+    <section class="view-grid connection-manual-enrollment-view">
+      ${renderModuleMobileHero_({
+        tone: "participants",
+        eyebrow: "ASISTENCIA_ESPECIAL",
+        title: "Inscripción Manual a Grupos de Conexión",
+        copy: "Toma los registros de asistencia especial de inicio de temporada y asígnalos a su grupo para que desde la segunda sesión el QR registre asistencia normal.",
+        badge: {
+          label: `${selectedRows.length} seleccionados`,
+          kind: selectedRows.length ? "success" : "dark"
+        },
+        metrics: [
+          { label: "Temporada", value: selectedSeasonName },
+          { label: "Grupo destino", value: selectedGroupName },
+          { label: "Disponibles", value: String(availableRows.length) }
+        ]
+      })}
+
+      <article class="panel-card module-section-anchor" id="connection-manual-enrollment-filters">
+        <div class="panel-head">
+          <div>
+            <h2>Selecciona origen y destino</h2>
+            <p>El origen es ASISTENCIA_ESPECIAL. El destino es la temporada y el grupo donde quedarán inscritos para todas las sesiones.</p>
+          </div>
+          <span class="pill ${isPastorOrAdminUser_() ? "success" : "dark"}">${escapeHtml(isPastorOrAdminUser_() ? "Vista global" : "Vista de líder")}</span>
+        </div>
+
+        <div class="field-grid three">
+          <div class="field">
+            <label for="connection-manual-event-name">Evento especial</label>
+            <input id="connection-manual-event-name" value="${escapeHtml(filter.eventName || "")}" placeholder="Inicio de temporada">
+          </div>
+          <div class="field">
+            <label for="connection-manual-event-date">Fecha del evento</label>
+            <input id="connection-manual-event-date" type="date" value="${escapeHtml(filter.eventDate || "")}">
+          </div>
+          <div class="field">
+            <label for="connection-manual-search">Buscar persona</label>
+            <input id="connection-manual-search" value="${escapeHtml(filter.search || "")}" placeholder="Nombre, QR o teléfono">
+          </div>
+        </div>
+
+        <div class="field-grid two" style="margin-top: 14px;">
+          <div class="field">
+            <label for="connection-manual-season">Temporada destino</label>
+            <select id="connection-manual-season">
+              ${renderOptions(state.seasons.map((season) => ({ value: season.id, label: season.name })), filter.seasonId, "Selecciona temporada")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="connection-manual-group">Grupo destino</label>
+            <select id="connection-manual-group" ${groups.length ? "" : "disabled"}>
+              ${renderOptions(groups.map((group) => ({ value: group.id, label: group.name })), filter.groupId, "Selecciona grupo")}
+            </select>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-secondary" data-action="refresh-connection-manual-enrollment">Actualizar registros</button>
+          <button class="btn btn-ghost" data-action="select-all-special-enrollment" ${availableRows.length ? "" : "disabled"}>Seleccionar disponibles</button>
+          <button class="btn btn-ghost" data-action="clear-special-enrollment-selection" ${state.selectedSpecialEnrollmentPeople.length ? "" : "disabled"}>Limpiar selección</button>
+          <button class="btn btn-primary" data-action="assign-special-attendance-to-group" ${selectedRows.length && filter.seasonId && filter.groupId ? "" : "disabled"}>Inscribir seleccionados</button>
+        </div>
+
+        <div class="summary-strip">
+          <span class="context-item"><strong>Fuente:</strong> ASISTENCIA_ESPECIAL</span>
+          <span class="context-item"><strong>Registros visibles:</strong> ${escapeHtml(String(rows.length))}</span>
+          <span class="context-item"><strong>Listos:</strong> ${escapeHtml(String(availableRows.length))}</span>
+          <span class="context-item"><strong>Destino:</strong> ${escapeHtml(`${selectedSeasonName} / ${selectedGroupName}`)}</span>
+        </div>
+      </article>
+
+      <article class="detail-card module-section-anchor" id="connection-manual-enrollment-list">
+        <div class="panel-head">
+          <div>
+            <h2>Personas registradas en asistencia especial</h2>
+            <p>Selecciona solo quienes realmente pertenecerán al grupo destino. Si alguien ya está inscrito en otro grupo, el sistema lo bloquea para evitar duplicados.</p>
+          </div>
+          <span class="pill dark">${escapeHtml(String(selectedRows.length))} por inscribir</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Seleccionar</th>
+                <th>Persona</th>
+                <th>QR ID</th>
+                <th>Grupo actual</th>
+                <th>Registro especial</th>
+                <th>Estado en temporada</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map((row) => `
+                <tr>
+                  <td>
+                    <input
+                      type="checkbox"
+                      data-special-enrollment-person="${escapeHtml(row.personId || "") }"
+                      ${row.selected ? "checked" : ""}
+                      ${row.available ? "" : "disabled"}
+                      aria-label="Seleccionar ${escapeHtml(row.name || row.personId || "persona") }"
+                    >
+                  </td>
+                  <td>
+                    <span class="row-title">${escapeHtml(row.name || "Sin nombre")}</span>
+                    <span class="row-meta">${escapeHtml(row.phone || row.email || "")}</span>
+                  </td>
+                  <td>${escapeHtml(row.personId || "")}</td>
+                  <td>${escapeHtml(resolveGroupName_(row.groupId) || row.groupId || "Sin grupo")}</td>
+                  <td>${escapeHtml(row.registeredAt || row.eventDate || "")}</td>
+                  <td>${renderPill(row.statusLabel || "Pendiente")}</td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="6"><div class="empty-state">No hay registros en ASISTENCIA_ESPECIAL para el evento, fecha o búsqueda seleccionada.</div></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  `;
+}
 function resolveConnectionAttendanceMode_() {
   if (state.currentView === "qr") {
     return state.filters.qr.surface === "kiosk" ? "kiosk" : "qr";
@@ -16783,6 +17022,149 @@ async function downloadDashboardFormationPdf_() {
 
   showToast("PDF listo", "Se descargó la matriz de asistencia de Formación.", "success");
 }
+function buildSpecialAttendanceExcelHtml_() {
+  const filter = state.filters.specialAttendance || {};
+  const records = Array.isArray(state.specialAttendanceRecords) ? state.specialAttendanceRecords : [];
+
+  return `
+    <html>
+      <head><meta charset="utf-8"></head>
+      <body>
+        <h1>Registros en ASISTENCIA_ESPECIAL</h1>
+        <p><strong>Evento:</strong> ${escapeHtml(filter.eventName || "Inicio de temporada")}</p>
+        <p><strong>Fecha:</strong> ${escapeHtml(formatDate(filter.eventDate || getSpecialAttendanceEventDate_()) || filter.eventDate || "")}</p>
+        <table border="1">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Persona</th>
+              <th>QR ID</th>
+              <th>Folio</th>
+              <th>Telefono</th>
+              <th>Email</th>
+              <th>Grupo actual</th>
+              <th>Fecha registro</th>
+              <th>Capturo</th>
+              <th>Email usuario</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${records.map((record) => `
+              <tr>
+                <td>${escapeHtml(record.id || "")}</td>
+                <td>${escapeHtml(record.name || "")}</td>
+                <td>${escapeHtml(record.personId || "")}</td>
+                <td>${escapeHtml(record.numero || "")}</td>
+                <td>${escapeHtml(record.phone || "")}</td>
+                <td>${escapeHtml(record.email || "")}</td>
+                <td>${escapeHtml(resolveGroupName_(record.groupId) || record.groupId || "Sin grupo")}</td>
+                <td>${escapeHtml(record.registeredAt || "")}</td>
+                <td>${escapeHtml(record.capturedBy || "")}</td>
+                <td>${escapeHtml(record.userEmail || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+function downloadSpecialAttendanceExcel_() {
+  const records = Array.isArray(state.specialAttendanceRecords) ? state.specialAttendanceRecords : [];
+  const filter = state.filters.specialAttendance || {};
+
+  if (!records.length) {
+    showToast("Sin registros", "No hay registros visibles en ASISTENCIA_ESPECIAL para exportar.", "warning");
+    return;
+  }
+
+  downloadExcelHtmlFile_(
+    buildSpecialAttendanceExcelHtml_(),
+    buildDashboardBinaryExportFileName_("ASISTENCIA_ESPECIAL", `${filter.eventName || "inicio"}_${filter.eventDate || "fecha"}`, "xls")
+  );
+  showToast("Excel listo", "Se descargó el listado de ASISTENCIA_ESPECIAL.", "success");
+}
+
+function toggleSpecialEnrollmentSelection_(personId, checked) {
+  const normalizedPersonId = String(personId || "").trim();
+
+  if (!normalizedPersonId) {
+    return;
+  }
+
+  if (checked) {
+    if (!state.selectedSpecialEnrollmentPeople.includes(normalizedPersonId)) {
+      state.selectedSpecialEnrollmentPeople.push(normalizedPersonId);
+    }
+    return;
+  }
+
+  state.selectedSpecialEnrollmentPeople = state.selectedSpecialEnrollmentPeople.filter((item) => item !== normalizedPersonId);
+}
+
+async function assignSpecialAttendanceToConnectionGroup_() {
+  syncConnectionManualEnrollmentFilters_();
+
+  const filter = getConnectionManualEnrollmentFilter_();
+  const rows = getConnectionManualEnrollmentRows_();
+  const selectedRows = rows.filter((row) => row.available && row.selected);
+  const seasonName = resolveSeasonName_(filter.seasonId) || filter.seasonId || "Temporada";
+  const groupName = resolveGroupName_(filter.groupId) || filter.groupId || "Grupo";
+  let result = null;
+
+  if (!filter.seasonId || !filter.groupId) {
+    showToast("Falta destino", "Selecciona temporada y grupo destino antes de inscribir.", "warning");
+    return;
+  }
+
+  if (!selectedRows.length) {
+    showToast("Sin selección", "Selecciona al menos una persona disponible de ASISTENCIA_ESPECIAL.", "warning");
+    return;
+  }
+
+  try {
+    await withLoading(async () => {
+      result = await apiPost("participants.bulkAssign", {
+        seasonId: filter.seasonId,
+        groupId: filter.groupId,
+        people: selectedRows.map((row) => ({ personId: row.personId }))
+      });
+      state.selectedSpecialEnrollmentPeople = [];
+      invalidateDashboardSeasonMatrix_();
+      invalidateWelcomeCache_();
+      await loadParticipantSeasonAssignments_({
+        force: true,
+        seasonId: filter.seasonId,
+        showLoading: false
+      });
+      await loadConnectionManualEnrollmentRecords_({
+        force: true,
+        showLoading: false
+      });
+    }, "Inscribiendo a grupo desde ASISTENCIA_ESPECIAL...");
+  } catch (error) {
+    if (isParticipantSeasonConflictError_(error)) {
+      await loadParticipantSeasonAssignments_({
+        force: true,
+        seasonId: filter.seasonId,
+        showLoading: false
+      });
+      showToast("Asignación no permitida", buildParticipantConflictToastCopy_(error.details), "warning");
+      renderApp();
+      return;
+    }
+
+    throw error;
+  }
+
+  showToast(
+    "Inscripción completada",
+    `Se inscribieron ${result?.totalPeople || selectedRows.length} persona(s) a ${groupName} en ${seasonName}.`,
+    "success"
+  );
+  renderApp();
+}
 function isPastorOrAdminUser_() {
   const roleKey = getNormalizedUserRole_();
   return ["admin", "administrador", "pastor"].includes(roleKey);
@@ -25273,6 +25655,7 @@ async function handleClick(event) {
 
     if (action === "clear-bulk-selection") {
       state.selectedBulkPeople = [];
+      state.selectedSpecialEnrollmentPeople = [];
       renderApp();
       focusInputById_("participant-bulk-search");
       return;
@@ -25645,6 +26028,40 @@ async function handleClick(event) {
       return;
     }
 
+    if (action === "export-special-attendance-excel") {
+      downloadSpecialAttendanceExcel_();
+      return;
+    }
+
+    if (action === "refresh-connection-manual-enrollment") {
+      await ensureConnectionManualEnrollmentViewData_({
+        force: true,
+        message: "Actualizando ASISTENCIA_ESPECIAL..."
+      });
+      renderApp();
+      showToast("Registros actualizados", "Se actualizó el listado de ASISTENCIA_ESPECIAL.", "success");
+      return;
+    }
+
+    if (action === "select-all-special-enrollment") {
+      state.selectedSpecialEnrollmentPeople = getConnectionManualEnrollmentRows_()
+        .filter((row) => row.available)
+        .map((row) => row.personId);
+      renderApp();
+      return;
+    }
+
+    if (action === "clear-special-enrollment-selection") {
+      state.selectedSpecialEnrollmentPeople = [];
+      renderApp();
+      return;
+    }
+
+    if (action === "assign-special-attendance-to-group") {
+      await assignSpecialAttendanceToConnectionGroup_();
+      return;
+    }
+
     if (action === "refresh-special-attendance") {
       await loadSpecialAttendanceRecords_({
         force: true
@@ -25976,6 +26393,7 @@ async function handleClick(event) {
 
     if (action === "formation-clear-bulk-selection") {
       state.selectedBulkPeople = [];
+      state.selectedSpecialEnrollmentPeople = [];
       renderApp();
       focusInputById_("formation-ops-person-search");
       return;
@@ -26745,6 +27163,42 @@ async function handleChange(event) {
       return;
     }
 
+    if (target.dataset.specialEnrollmentPerson) {
+      toggleSpecialEnrollmentSelection_(target.dataset.specialEnrollmentPerson, target.checked);
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-manual-season") {
+      state.filters.connectionManualEnrollment.seasonId = target.value;
+      state.selectedSpecialEnrollmentPeople = [];
+      await loadParticipantSeasonAssignments_({
+        force: true,
+        seasonId: target.value,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-manual-group") {
+      state.filters.connectionManualEnrollment.groupId = target.value;
+      state.selectedSpecialEnrollmentPeople = [];
+      renderApp();
+      return;
+    }
+
+    if (target.id === "connection-manual-event-date") {
+      state.filters.connectionManualEnrollment.eventDate = target.value;
+      state.selectedSpecialEnrollmentPeople = [];
+      await loadConnectionManualEnrollmentRecords_({
+        force: true,
+        showLoading: false
+      });
+      renderApp();
+      return;
+    }
+
     if (target.id === "participants-season") {
       state.filters.participants.seasonId = target.value;
       state.filters.participants.sessionId = "";
@@ -27373,6 +27827,19 @@ function handleInput(event) {
     return;
   }
 
+  if (target.id === "connection-manual-event-name") {
+    state.filters.connectionManualEnrollment.eventName = target.value;
+    state.selectedSpecialEnrollmentPeople = [];
+    pendingResourceLoads.connectionManualEnrollment = null;
+    return;
+  }
+
+  if (target.id === "connection-manual-search") {
+    state.filters.connectionManualEnrollment.search = target.value;
+    rerenderPreservingInput_(target);
+    return;
+  }
+
   if (target.id === "special-attendance-event-name") {
     state.filters.specialAttendance.eventName = target.value;
     pendingResourceLoads.specialAttendance = null;
@@ -27514,6 +27981,9 @@ async function loadCurrentViewData(options = {}) {
       return;
     case "connection-reports":
       await ensureConnectionReportsViewData_(options);
+      return;
+    case "connection-manual-enrollment":
+      await ensureConnectionManualEnrollmentViewData_(options);
       return;
     case "attendance":
       await ensureAttendanceHubViewData_(options);
@@ -29936,6 +30406,60 @@ async function ensureParticipantsViewData_(options = {}) {
     });
 }
 
+async function ensureConnectionManualEnrollmentViewData_(options = {}) {
+  const task = async () => {
+    await Promise.all([
+      state.loaded.seasons ? Promise.resolve() : refreshSeasons(),
+      state.loaded.groups ? Promise.resolve() : loadGroupsCatalog_()
+    ]);
+
+    syncConnectionManualEnrollmentFilters_();
+
+    await Promise.all([
+      loadConnectionManualEnrollmentRecords_({
+        force: options.force,
+        showLoading: false
+      }),
+      loadParticipantSeasonAssignments_({
+        force: options.force,
+        seasonId: state.filters.connectionManualEnrollment.seasonId,
+        showLoading: false
+      })
+    ]);
+  };
+
+  if (options.showLoading === false) {
+    return task();
+  }
+
+  return withLoading(task, options.message || "Preparando inscripción manual a grupos...");
+}
+
+async function loadConnectionManualEnrollmentRecords_(options = {}) {
+  const filter = getConnectionManualEnrollmentFilter_();
+  const requestKey = [filter.eventDate || "", filter.eventName || "Inicio de temporada", filter.search || ""].join("::");
+  const loadKey = `connectionManualEnrollment::${requestKey}`;
+
+  if (!options.force && pendingResourceLoads.connectionManualEnrollment === loadKey) {
+    return;
+  }
+
+  const task = async () => {
+    state.specialAttendanceRecords = await apiGet("specialAttendance.list", {
+      eventDate: filter.eventDate || "",
+      eventName: filter.eventName || "Inicio de temporada",
+      search: ""
+    });
+    pendingResourceLoads.connectionManualEnrollment = loadKey;
+  };
+
+  if (options.showLoading === false) {
+    await task();
+    return;
+  }
+
+  await withLoading(task, "Consultando ASISTENCIA_ESPECIAL...");
+}
 async function ensureConnectionReportsViewData_(options = {}) {
   await Promise.all([
     loadGroupsCatalog_({
@@ -32860,6 +33384,7 @@ async function assignFormationSelectedBulk_() {
   }, `Inscribiendo ${personIds.length} personas al Paso 1...`);
 
   state.selectedBulkPeople = [];
+  state.selectedSpecialEnrollmentPeople = [];
   portalFilters.personSearch = "";
   syncFormationSectionFiltersAfterEnrollment_(response?.sampleEnrollment || response?.lastEnrollment || null, selectedOffering);
   if (!journeyFilters.processId) {
@@ -33695,6 +34220,7 @@ async function executeBulkAssign_() {
         people: state.selectedBulkPeople.map((personId) => ({ personId }))
       });
       state.selectedBulkPeople = [];
+      state.selectedSpecialEnrollmentPeople = [];
     }, "Asignando participantes...");
   } catch (error) {
     if (isParticipantSeasonConflictError_(error)) {
@@ -37373,6 +37899,7 @@ function mergeParticipantsIntoCurrentContext_(records) {
 
 function resetParticipantInteractionState_() {
   state.selectedBulkPeople = [];
+  state.selectedSpecialEnrollmentPeople = [];
   state.filters.participants.peopleSearch = "";
   state.filters.participants.bulkSearch = "";
   state.filters.participants.moveTargets = {};
@@ -40625,6 +41152,7 @@ function getPermissionLabel_(permission) {
     catalogs: "Catalogos",
     seasons: "Temporadas",
     participants: "Asignacion",
+    "connection-manual-enrollment": "Inscripción Manual a Grupos de Conexión",
     "connection-reports": "Reportes Grupos Conexión",
     attendance: "Asistencias",
     formation: "Formación",
@@ -40646,6 +41174,7 @@ function getPermissionDescription_(permission) {
     catalogs: "Catalogos de grupos y ministerios.",
     seasons: "Temporadas, sesiones y estados operativos.",
     participants: "Asignacion individual y masiva a grupos.",
+    "connection-manual-enrollment": "Inscribe a grupo a personas registradas en ASISTENCIA_ESPECIAL.",
     "connection-reports": "Reportes por grupo y ministerio con exportacion Excel/PDF.",
     attendance: "Captura manual, QR asistido y kiosko.",
     formation: "Prospectos, validaciones, catálogo de niveles e historial formativo.",
@@ -41485,6 +42014,7 @@ function resetRuntimeState() {
     cameraFacing: ""
   };
   state.selectedBulkPeople = [];
+  state.selectedSpecialEnrollmentPeople = [];
   state.ui = {
     mobileNavOpen: false,
     attendanceCenterSection: "home",
@@ -41580,6 +42110,13 @@ function resetRuntimeState() {
     peopleSearch: "",
     bulkSearch: "",
     moveTargets: {}
+  };
+  state.filters.connectionManualEnrollment = {
+    seasonId: "",
+    groupId: "",
+    eventName: "Inicio de temporada",
+    eventDate: "",
+    search: ""
   };
   state.filters.attendance = {
     seasonId: "",
@@ -41962,6 +42499,11 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+
+
+
+
 
 
 
